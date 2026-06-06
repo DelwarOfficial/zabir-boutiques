@@ -4,6 +4,8 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { compressImage } from '../../../lib/tinify';
 import { nowSql } from '../../../lib/dates';
+import { requireAuth, requirePermission, RbacError } from '../../../lib/rbac';
+import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 const MAX_SIZE = 20 * 1024 * 1024;
@@ -11,6 +13,15 @@ const MAX_SIZE = 20 * 1024 * 1024;
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();
+
+  let user;
+  try {
+    user = await requireAuth(context);
+    requirePermission(user, 'media.upload');
+  } catch (err) {
+    if (err instanceof RbacError) return err.toResponse();
+    throw err;
+  }
 
   let formData: FormData;
   try { formData = await context.request.formData(); } catch { return Response.json({ error: 'Invalid form data' }, { status: 400 }); }
@@ -43,6 +54,17 @@ export async function POST(context: APIContext): Promise<Response> {
     `INSERT INTO product_images (id, product_id, r2_key, is_compressed, sort_order, created_at, updated_at)
      VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)`
   ).bind(imageId, productId, r2Key, isCompressed, now).run();
+
+  await writeAuditLog(env.DB, {
+    actorStaffId: user.id,
+    actorRole: user.role,
+    action: 'media.upload',
+    entityType: 'product_image',
+    entityId: imageId,
+    metadata: { product_id: productId, r2_key: r2Key, compressed: isCompressed === 1 },
+    ipAddress: clientIp(context.request),
+    userAgent: userAgent(context.request)
+  });
 
   return Response.json({ ok: true, image_id: imageId, r2_key: r2Key, compressed: isCompressed === 1 }, { status: 201 });
 }

@@ -1,9 +1,28 @@
 ---
 /**
  * Staff Dashboard — SSR [v6.8A]
- * Deep server-side session parsing, RBAC, CSRF for mutations.
+ * Server-side session check + role-aware menu. RBAC enforced on every route.
  */
 export const prerender = false;
+
+import { getCurrentStaffUser } from '../../lib/rbac';
+import { menuForRole } from '../../lib/staff-menu';
+
+const user = await getCurrentStaffUser(Astro);
+
+if (!user) {
+  return Astro.redirect('/staff/login');
+}
+
+const menu = menuForRole(user.role);
+const roleLabel: Record<string, string> = {
+  super_admin: 'Super Admin',
+  owner: 'Owner',
+  manager: 'Manager',
+  salesman: 'Sales Staff',
+  packing: 'Packing Staff',
+  support: 'Support'
+};
 ---
 
 <html lang="en">
@@ -13,9 +32,23 @@ export const prerender = false;
     <title>Staff Dashboard — Zabir Boutiques</title>
   </head>
   <body>
-    <main>
-      <h1>Staff Dashboard</h1>
-      <!-- TODO: Phase 6 — Staff admin, session check, RBAC -->
-    </main>
+    <header style="display:flex;justify-content:space-between;align-items:center;padding:1rem;border-bottom:1px solid #ddd;">
+      <strong>Zabir Boutiques — Staff</strong>
+      <span>{user.fullName} · {roleLabel[user.role] ?? user.role}</span>
+    </header>
+    <div style="display:flex;gap:2rem;padding:1rem;">
+      <nav aria-label="Staff navigation" style="min-width:220px;">
+        <ul style="list-style:none;padding:0;">
+          {menu.map((item) => (
+            <li style="margin:0.4rem 0;"><a href={item.href}>{item.label}</a></li>
+          ))}
+        </ul>
+      </nav>
+      <main style="flex:1;">
+        <h1>Dashboard</h1>
+        <p>Welcome, {user.fullName}. You are signed in as <strong>{roleLabel[user.role] ?? user.role}</strong>.</p>
+        <p>Use the navigation to access your authorized areas. All actions are server-side RBAC protected and audit-logged.</p>
+      </main>
+    </div>
   </body>
 </html>

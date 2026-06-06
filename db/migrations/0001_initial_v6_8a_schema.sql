@@ -19,8 +19,8 @@ CREATE TABLE IF NOT EXISTS staff_users (
   phone TEXT UNIQUE,
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'support_agent'
-    CHECK (role IN ('super_admin','owner','manager','moderator','outlet_staff','support_agent','viewer')),
+  role TEXT NOT NULL DEFAULT 'support'
+    CHECK (role IN ('super_admin','owner','manager','salesman','packing','support')),
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
   last_login_at TEXT,
   created_at TEXT NOT NULL,
@@ -254,12 +254,14 @@ CREATE TABLE IF NOT EXISTS site_settings (
 -- 19. audit_log
 CREATE TABLE IF NOT EXISTS audit_log (
   id TEXT PRIMARY KEY,
-  actor_id TEXT REFERENCES staff_users(id),
+  actor_staff_id TEXT REFERENCES staff_users(id),
+  actor_role TEXT,
   action TEXT NOT NULL,
   entity_type TEXT NOT NULL,
   entity_id TEXT NOT NULL,
-  details TEXT,
+  metadata_json TEXT,
   ip_address TEXT,
+  user_agent TEXT,
   created_at TEXT NOT NULL
 );
 

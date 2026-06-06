@@ -1,9 +1,19 @@
 ---
 /**
  * Staff Order Detail — SSR [v6.8A]
- * Requires session + RBAC + CSRF for mutations.
+ * Requires authenticated staff with orders.view. Mutations enforce RBAC + CSRF via API.
  */
 export const prerender = false;
+
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) {
+  return Astro.redirect('/staff/login');
+}
+if (!can(user.role, 'orders.view')) {
+  return new Response('Forbidden', { status: 403 });
+}
 
 const { id } = Astro.params;
 ---
@@ -15,9 +25,11 @@ const { id } = Astro.params;
     <title>Order {id} — Staff — Zabir Boutiques</title>
   </head>
   <body>
-    <main>
+    <main style="padding:1rem;font-family:system-ui;">
+      <a href="/staff">← Dashboard</a>
       <h1>Order Detail: {id}</h1>
-      <!-- TODO: Phase 6 — Order management, status transitions -->
+      <p>Signed in as {user.fullName} ({user.role}).</p>
+      <p>Order management actions (confirm, pack, ship) are exposed through RBAC + CSRF protected API routes.</p>
     </main>
   </body>
 </html>

@@ -1,0 +1,52 @@
+---
+/**
+ * Staff Login — SSR [v6.8A]
+ * Posts to /api/staff/login (origin-checked + rate-limited).
+ * Already-authenticated staff are redirected to the dashboard.
+ */
+export const prerender = false;
+
+import { getCurrentStaffUser } from '../../lib/rbac';
+
+const user = await getCurrentStaffUser(Astro);
+if (user) {
+  return Astro.redirect('/staff');
+}
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Staff Login — Zabir Boutiques</title>
+  </head>
+  <body>
+    <main style="max-width:360px;margin:4rem auto;font-family:system-ui;">
+      <h1>Staff Login</h1>
+      <form id="login-form" method="post" action="/api/staff/login">
+        <label>Email or phone<br /><input name="identifier" type="text" autocomplete="username" required /></label><br /><br />
+        <label>Password<br /><input name="password" type="password" autocomplete="current-password" required /></label><br /><br />
+        <button type="submit">Sign in</button>
+      </form>
+      <p id="error" style="color:#b00;"></p>
+      <script is:inline>
+        const form = document.getElementById('login-form');
+        form.addEventListener('submit', async (e) => {
+          e.preventDefault();
+          const data = new FormData(form);
+          const res = await fetch('/api/staff/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ identifier: data.get('identifier'), password: data.get('password') })
+          });
+          if (res.ok) {
+            window.location.href = '/staff';
+          } else {
+            const body = await res.json().catch(() => ({}));
+            document.getElementById('error').textContent = body.error || 'Login failed';
+          }
+        });
+      </script>
+    </main>
+  </body>
+</html>

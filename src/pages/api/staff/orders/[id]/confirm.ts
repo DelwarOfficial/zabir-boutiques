@@ -2,8 +2,9 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../../lib/env';
-import { hashSessionToken } from '../../../../../lib/sessions';
 import { nowSql } from '../../../../../lib/dates';
+import { requireAuth, requirePermission, RbacError } from '../../../../../lib/rbac';
+import { writeAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -12,21 +13,13 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (!orderId) return Response.json({ error: 'Missing order ID' }, { status: 400 });
 
-  const cookie = context.request.headers.get('Cookie') ?? '';
-  const match = cookie.match(new RegExp('(?:^|;\\s*)session=([^;]+)'));
-  const sessionToken = match ? decodeURIComponent(match[1]) : null;
-  if (!sessionToken) return Response.json({ error: 'Not authenticated' }, { status: 401 });
-
-  const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
-  const session = await env.DB.prepare(
-    `SELECT s.staff_user_id, u.role, u.full_name
-     FROM staff_sessions s JOIN staff_users u ON u.id = s.staff_user_id
-     WHERE s.token_hash = ?1 AND s.is_revoked = 0 AND s.expires_at > ?2 AND u.is_active = 1`
-  ).bind(tokenHash, now).first<{ staff_user_id: string; role: string; full_name: string }>();
-
-  if (!session) return Response.json({ error: 'Invalid session' }, { status: 401 });
-  if (session.role === 'viewer' || session.role === 'support_agent') {
-    return Response.json({ error: 'Insufficient permissions' }, { status: 403 });
+  let user;
+  try {
+    user = await requireAuth(context);
+    requirePermission(user, 'orders.confirm');
+  } catch (err) {
+    if (err instanceof RbacError) return err.toResponse();
+    throw err;
   }
 
   const order = await env.DB.prepare(
@@ -71,7 +64,18 @@ export async function POST(context: APIContext): Promise<Response> {
   await env.DB.prepare(
     `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
      VALUES (?1, ?2, ?3, 'staff_confirmed', ?4, ?5)`
-  ).bind(crypto.randomUUID(), orderId, order.status, session.staff_user_id, now).run();
+  ).bind(crypto.randomUUID(), orderId, order.status, user.id, now).run();
+
+  await writeAuditLog(env.DB, {
+    actorStaffId: user.id,
+    actorRole: user.role,
+    action: 'orders.confirm',
+    entityType: 'order',
+    entityId: orderId,
+    metadata: { from_status: order.status, to_status: 'staff_confirmed' },
+    ipAddress: clientIp(context.request),
+    userAgent: userAgent(context.request)
+  });
 
   return Response.json({ ok: true, status: 'staff_confirmed' }, { status: 200 });
 }

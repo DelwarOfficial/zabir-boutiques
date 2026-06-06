@@ -4,6 +4,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
 import { nowSql } from '../../../lib/dates';
+import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -12,7 +13,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let body: any;
   try { body = await context.request.json(); } catch { return Response.json({ error: 'Invalid JSON body' }, { status: 400 }); }
 
-  const identifier = body.email ?? body.phone ?? '';
+  const identifier = body.identifier ?? body.email ?? body.phone ?? '';
   const password = body.password ?? '';
   if (!identifier || !password) {
     return Response.json({ error: 'Email/phone and password required' }, { status: 400 });
@@ -48,6 +49,16 @@ export async function POST(context: APIContext): Promise<Response> {
   await env.DB.prepare(
     `UPDATE staff_users SET last_login_at = ?2 WHERE id = ?1`
   ).bind(staff.id, now).run();
+
+  await writeAuditLog(env.DB, {
+    actorStaffId: staff.id,
+    actorRole: staff.role,
+    action: 'staff.login',
+    entityType: 'staff_session',
+    entityId: sessionId,
+    ipAddress: clientIp(context.request),
+    userAgent: userAgent(context.request)
+  });
 
   const csrfToken = `${sessionToken}.${tokenHash}`;
 

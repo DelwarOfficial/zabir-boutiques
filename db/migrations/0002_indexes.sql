@@ -39,5 +39,8 @@ CREATE INDEX IF NOT EXISTS idx_fraud_polls_status ON fraud_polls(status, next_po
 
 CREATE INDEX IF NOT EXISTS idx_audit_log_entity ON audit_log(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_staff_id, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_order_status_history_order ON order_status_history(order_id, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_product_images_product ON product_images(product_id);
