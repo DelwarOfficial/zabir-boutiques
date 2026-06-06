@@ -3,11 +3,21 @@ export const prerender = false;
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { verifyUddoktaPayment } from '../../../lib/payments';
+import { timingSafeEqualHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();
+
+  // Webhook authenticity: UddoktaPay sends the merchant API key in this header
+  // on every IPN. Reject anything that does not carry the correct key before
+  // doing any work (server-to-server verification below is the second gate).
+  const ipnKey = context.request.headers.get('RT-UDDOKTAPAY-API-KEY');
+  if (!ipnKey || !timingSafeEqualHex(ipnKey, env.UDDOKTAPAY_API_KEY)) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  }
+
   const rawPayload = JSON.stringify(await context.request.json().catch(() => ({})));
   let body: any;
   try { body = JSON.parse(rawPayload); } catch { return Response.json({ error: 'Invalid JSON' }, { status: 400 }); }
@@ -15,7 +25,7 @@ export async function POST(context: APIContext): Promise<Response> {
   const invoiceId = body.invoice_id;
   if (!invoiceId) return Response.json({ error: 'Missing invoice_id' }, { status: 400 });
 
-  const { status, rawResponse } = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
+  const { status, amountPaisa, metadata, rawResponse } = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
 
   if (status !== 'paid') return Response.json({ received: true, status }, { status: 200 });
 
@@ -24,6 +34,27 @@ export async function POST(context: APIContext): Promise<Response> {
   ).bind(invoiceId).first<{ id: string; order_id: string; amount_paisa: number; status: string }>();
 
   if (!payment) return Response.json({ error: 'Payment not found' }, { status: 404 });
+
+  // Amount authority: the verified paid amount MUST match what we charged.
+  // Defends against amount tampering / partial settlement / invoice reuse.
+  if (amountPaisa === null || amountPaisa !== payment.amount_paisa) {
+    await env.DB.prepare(
+      `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+       VALUES (?1, ?2, ?3, ?4)`
+    ).bind(
+      crypto.randomUUID(),
+      payment.order_id,
+      `payment_amount_mismatch invoice=${invoiceId} expected=${payment.amount_paisa} verified=${amountPaisa}. Manual review required.`,
+      now
+    ).run();
+    return Response.json({ error: 'Payment amount mismatch' }, { status: 409 });
+  }
+
+  // Invoice/order binding: if the gateway echoes our metadata.order_id, it must
+  // match this payment's order. Skipped when metadata is absent (older invoices).
+  if (metadata && typeof metadata.order_id === 'string' && metadata.order_id !== payment.order_id) {
+    return Response.json({ error: 'Invoice does not belong to this order' }, { status: 409 });
+  }
 
   const eventResult = await env.DB.prepare(
     `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)

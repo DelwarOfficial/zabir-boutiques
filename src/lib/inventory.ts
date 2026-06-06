@@ -76,31 +76,42 @@ export async function releaseReservedVariants(
 /**
  * Release expired active reservations and mark them expired.
  * Called by the every-10-minute cron job.
+ *
+ * Bounded + chunked: processes at most `maxRows` reservations per invocation and
+ * splits D1 writes into batches that stay well under the statement limit, so a
+ * large backlog can never build an oversized batch or blow the Worker CPU budget.
  */
-export async function cleanExpiredReservations(db: D1Database): Promise<void> {
+export async function cleanExpiredReservations(db: D1Database, maxRows = 200): Promise<void> {
   const now = nowSql();
 
-  // Release reserved quantities for expired active reservations
   const expired = await db.prepare(
     `SELECT id, variant_id, quantity FROM stock_reservations
-     WHERE status = 'active' AND expires_at < ?1`
-  ).bind(now).all<{ id: string; variant_id: string; quantity: number }>();
+     WHERE status = 'active' AND expires_at < ?1
+     LIMIT ?2`
+  ).bind(now, maxRows).all<{ id: string; variant_id: string; quantity: number }>();
 
-  if (!expired.results || expired.results.length === 0) return;
+  const rows = expired.results ?? [];
+  if (rows.length === 0) return;
 
-  const releaseStmts = expired.results.map(row =>
-    db.prepare(
-      `UPDATE inventory_items
-       SET reserved_quantity = reserved_quantity - ?1, updated_at = ?3
-       WHERE variant_id = ?2 AND reserved_quantity >= ?1`
-    ).bind(row.quantity, row.variant_id, now)
-  );
-
-  const markExpiredStmts = expired.results.map(row =>
-    db.prepare(
-      `UPDATE stock_reservations SET status = 'expired', updated_at = ?2 WHERE id = ?1`
-    ).bind(row.id, now)
-  );
-
-  await db.batch([...releaseStmts, ...markExpiredStmts]);
+  // Each row emits 2 statements (release + mark expired); keep each batch <= 50
+  // statements => 25 rows per chunk.
+  const CHUNK_ROWS = 25;
+  for (let i = 0; i < rows.length; i += CHUNK_ROWS) {
+    const chunk = rows.slice(i, i + CHUNK_ROWS);
+    const stmts = [
+      ...chunk.map(row =>
+        db.prepare(
+          `UPDATE inventory_items
+           SET reserved_quantity = reserved_quantity - ?1, updated_at = ?3
+           WHERE variant_id = ?2 AND reserved_quantity >= ?1`
+        ).bind(row.quantity, row.variant_id, now)
+      ),
+      ...chunk.map(row =>
+        db.prepare(
+          `UPDATE stock_reservations SET status = 'expired', updated_at = ?2 WHERE id = ?1`
+        ).bind(row.id, now)
+      )
+    ];
+    await db.batch(stmts);
+  }
 }

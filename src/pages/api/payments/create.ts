@@ -22,8 +22,26 @@ export async function POST(context: APIContext): Promise<Response> {
   if (order.payment_method !== 'uddoktapay') {
     return Response.json({ error: 'Order is not set for online payment' }, { status: 400 });
   }
+  if (order.payment_status === 'paid') {
+    return Response.json({ error: 'Order is already paid' }, { status: 409 });
+  }
   if (order.payment_status !== 'created' && order.payment_status !== 'pending') {
-    return Response.json({ error: 'Payment already initiated' }, { status: 409 });
+    return Response.json({ error: 'Payment cannot be initiated for this order' }, { status: 409 });
+  }
+
+  // Idempotency: if a usable payment was already created for this order, reuse
+  // its checkout URL instead of creating a duplicate invoice/payment row.
+  const existing = await env.DB.prepare(
+    `SELECT id, invoice_id, checkout_url, status FROM payments
+     WHERE order_id = ?1 AND status IN ('created','pending','processing')
+     ORDER BY created_at DESC LIMIT 1`
+  ).bind(orderId).first<{ id: string; invoice_id: string; checkout_url: string | null; status: string }>();
+
+  if (existing && existing.checkout_url) {
+    return Response.json(
+      { ok: true, payment_id: existing.id, checkout_url: existing.checkout_url, invoice_id: existing.invoice_id, reused: true },
+      { status: 200 }
+    );
   }
 
   const invoiceId = crypto.randomUUID();
@@ -31,6 +49,7 @@ export async function POST(context: APIContext): Promise<Response> {
     method: 'POST',
     headers: {
       'RT-UDDOKTAPAY-API-KEY': env.UDDOKTAPAY_API_KEY,
+      'accept': 'application/json',
       'Content-Type': 'application/json'
     },
     body: JSON.stringify({
@@ -39,6 +58,8 @@ export async function POST(context: APIContext): Promise<Response> {
       currency: 'BDT',
       customer_name: body.customer_name ?? '',
       customer_phone: body.customer_phone ?? '',
+      // Bind the invoice to this order so the webhook can reconcile it.
+      metadata: { order_id: orderId },
       redirect_url: `${body.redirect_url ?? env.PUBLIC_SITE_URL}/order-track`,
       cancel_url: `${body.cancel_url ?? env.PUBLIC_SITE_URL}/checkout`
     })
@@ -46,7 +67,8 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const checkoutData = await checkoutRes.json().catch(() => ({})) as any;
   if (!checkoutRes.ok || !checkoutData?.payment_url) {
-    return Response.json({ error: 'Payment provider error', details: checkoutData }, { status: 502 });
+    console.error('[payments/create] provider error:', checkoutRes.status, JSON.stringify(checkoutData));
+    return Response.json({ error: 'Payment provider error' }, { status: 502 });
   }
 
   const paymentId = crypto.randomUUID();

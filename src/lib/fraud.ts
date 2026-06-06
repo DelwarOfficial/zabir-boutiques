@@ -20,34 +20,82 @@ export function decideFraudRisk(score: number | null): FraudDecision {
   return 'blocked';
 }
 
+/** Pathao rating-based risk_level → 0-100 risk score. Unknown/new => null (no signal). */
+const PATHAO_RISK_SCORE: Record<string, number> = {
+  low: 10,
+  medium: 50,
+  high: 85,
+  very_high: 95
+};
+
 /**
- * Call FraudBD API with a short timeout.
- * If timeout/error occurs, returns null score (which routes to 'review').
+ * Derive a 0-100 risk score from a FraudBD /check-courier-info response.
+ * Higher score = higher risk. Returns null when there is no usable signal
+ * (no delivery history and no rating) so the caller routes to manual review.
+ *
+ * Signals combined (most conservative wins):
+ *  - Delivery couriers: totalSummary.cancelRate (when total > 0).
+ *  - Pathao rating model: risk_level mapped via PATHAO_RISK_SCORE.
+ */
+export function deriveRiskScore(data: any): number | null {
+  if (!data || data.status !== true || !data.data) return null;
+
+  const scores: number[] = [];
+
+  const totalSummary = data.data.totalSummary;
+  if (totalSummary && Number(totalSummary.total) > 0) {
+    const cancelRate = Number(totalSummary.cancelRate);
+    if (Number.isFinite(cancelRate)) {
+      scores.push(Math.max(0, Math.min(100, Math.round(cancelRate))));
+    }
+  }
+
+  const pathao = data.data.Summaries?.Pathao;
+  if (pathao && pathao.data_type === 'rating' && typeof pathao.risk_level === 'string') {
+    const mapped = PATHAO_RISK_SCORE[pathao.risk_level];
+    if (typeof mapped === 'number') scores.push(mapped);
+  }
+
+  if (scores.length === 0) return null;
+  return Math.max(...scores);
+}
+
+/**
+ * Call the FraudBD Check Courier Info API with a short timeout.
+ * Contract (https://fraudbd.com/api-documentation):
+ *   POST {base}/api/check-courier-info
+ *   headers: { api_key, Content-Type: application/json }
+ *   body:    { phone_number: "017XXXXXXXX" }   // local 11-digit format
+ * On timeout/error/usage-limit, returns a null score (which routes to 'review').
+ *
+ * @param localPhone Bangladesh phone in local 01XXXXXXXXX format.
  */
 export async function checkFraudBD(
-  phone: string,
+  localPhone: string,
   apiKey: string,
-  timeoutMs = 3000
+  timeoutMs = 3000,
+  baseUrl = 'https://fraudbd.com'
 ): Promise<{ score: number | null; rawResponse: string }> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const res = await fetch('https://fraudbd.com/api/check', {
+    const res = await fetch(`${baseUrl}/api/check-courier-info`, {
       method: 'POST',
       headers: {
-        'Authorization': `Bearer ${apiKey}`,
+        'api_key': apiKey,
+        'accept': 'application/json',
         'Content-Type': 'application/json'
       },
-      body: JSON.stringify({ phone }),
+      body: JSON.stringify({ phone_number: localPhone }),
       signal: controller.signal
     });
     clearTimeout(timer);
 
-    const data = await res.json() as any;
-    const rawResponse = JSON.stringify(data);
-    const score = typeof data.risk_score === 'number' ? data.risk_score : null;
-    return { score, rawResponse };
+    const data = await res.json().catch(() => null) as any;
+    const rawResponse = JSON.stringify(data ?? { error: 'invalid_json' });
+    if (!res.ok) return { score: null, rawResponse };
+    return { score: deriveRiskScore(data), rawResponse };
   } catch {
     clearTimeout(timer);
     return { score: null, rawResponse: '{"error":"timeout_or_network_error"}' };

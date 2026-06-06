@@ -63,14 +63,13 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const csrfToken = await createCsrfToken(env.SESSION_SECRET);
 
+  const headers = new Headers({ 'Content-Type': 'application/json' });
+  const maxAge = 24 * 60 * 60;
+  headers.append('Set-Cookie', `session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
+  headers.append('Set-Cookie', `csrf-token=${csrfToken}; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
+
   return new Response(JSON.stringify({ ok: true, staff: { id: staff.id, name: staff.full_name, role: staff.role } }), {
     status: 200,
-    headers: {
-      'Content-Type': 'application/json',
-      'Set-Cookie': [
-        `session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${24 * 60 * 60}`,
-        `csrf-token=${csrfToken}; Secure; SameSite=Strict; Path=/; Max-Age=${24 * 60 * 60}`
-      ].join(', ')
-    }
+    headers
   });
 }

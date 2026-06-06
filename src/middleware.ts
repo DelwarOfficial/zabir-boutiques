@@ -14,7 +14,7 @@ const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number
   { pattern: /^\/api\/checkout$/, limit: 20, windowSeconds: 60 },
   { pattern: /^\/api\/orders\/track$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/login$/, limit: 10, windowSeconds: 60 },
-  { pattern: /^\/api\/stock\/[^/]+$/, limit: 120, windowSeconds: 60 },
+  { pattern: /^\/api\/payments\/create$/, limit: 20, windowSeconds: 60 },
   { pattern: /^\/api\/fraud\/check$/, limit: 30, windowSeconds: 60 },
 ];
 

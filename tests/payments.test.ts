@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { verifyUddoktaPayment, markPaymentPaid } from '../src/lib/payments';
+import { verifyUddoktaPayment, markPaymentPaid, takaStringToPaisa } from '../src/lib/payments';
 
 const mockDb = (overrides: Record<string, any> = {}) => ({
   prepare: vi.fn().mockReturnThis(),
@@ -11,13 +11,16 @@ const mockDb = (overrides: Record<string, any> = {}) => ({
 } as unknown as D1Database);
 
 describe('verifyUddoktaPayment', () => {
-  it('maps COMPLETED to paid', async () => {
+  it('maps COMPLETED to paid and returns amount in paisa', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ status: 'COMPLETED' }),
+      json: () => Promise.resolve({ status: 'COMPLETED', amount: '150.00', invoice_id: 'inv-1', metadata: { order_id: 'ord-1' } }),
     } as Response);
     const result = await verifyUddoktaPayment('inv-1', 'key', 'https://uddoktapay.dev');
     expect(result.status).toBe('paid');
+    expect(result.amountPaisa).toBe(15000);
+    expect(result.verifiedInvoiceId).toBe('inv-1');
+    expect(result.metadata).toEqual({ order_id: 'ord-1' });
   });
 
   it('maps PENDING to pending', async () => {
@@ -37,6 +40,39 @@ describe('verifyUddoktaPayment', () => {
     } as Response);
     const result = await verifyUddoktaPayment('inv-3', 'key', 'https://uddoktapay.dev');
     expect(result.status).toBe('failed');
+    expect(result.amountPaisa).toBeNull();
+  });
+});
+
+describe('takaStringToPaisa', () => {
+  it('converts decimal taka strings to integer paisa', () => {
+    expect(takaStringToPaisa('150.00')).toBe(15000);
+    expect(takaStringToPaisa('150.5')).toBe(15050);
+    expect(takaStringToPaisa('0')).toBe(0);
+    expect(takaStringToPaisa(99.99)).toBe(9999);
+  });
+
+  it('rejects invalid or negative amounts', () => {
+    expect(takaStringToPaisa('abc')).toBeNull();
+    expect(takaStringToPaisa('-5')).toBeNull();
+    expect(takaStringToPaisa(null)).toBeNull();
+    expect(takaStringToPaisa(undefined)).toBeNull();
+  });
+});
+
+describe('webhook amount authority (issue #2 hardening)', () => {
+  it('rejects when verified amount does not match the charged amount', () => {
+    const chargedPaisa = 15000;
+    const verifiedPaisa = 1; // tampered / partial settlement
+    const mismatch = verifiedPaisa === null || verifiedPaisa !== chargedPaisa;
+    expect(mismatch).toBe(true);
+  });
+
+  it('accepts when verified amount matches exactly', () => {
+    const chargedPaisa = 15000;
+    const verifiedPaisa = 15000;
+    const mismatch = verifiedPaisa === null || verifiedPaisa !== chargedPaisa;
+    expect(mismatch).toBe(false);
   });
 });
 

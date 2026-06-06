@@ -137,8 +137,8 @@ export async function POST(context: APIContext): Promise<Response> {
     // 6. Server-computed total. discount never exceeds subtotal + delivery.
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
 
-    // 7. FraudBD check
-    const { score } = await checkFraudBD(phoneResult.phone, env.FRAUDBD_API_KEY);
+    // 7. FraudBD check (Check Courier Info API expects local 01XXXXXXXXX format)
+    const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
     const fraudDecision = decideFraudRisk(score);
 
     if (fraudDecision === 'blocked') {
