@@ -312,6 +312,13 @@ Build-time variables (set in CI):
 
 ### Deploy
 
+Deploy via **Cloudflare Pages native Git integration** (recommended):
+
+1. Push to `main` → Cloudflare auto-builds + deploys
+2. PRs automatically get preview URLs
+
+Or manually via CLI:
+
 ```bash
 # Build with D1 snapshots
 CF_ACCOUNT_ID=xxx CF_D1_DATABASE_ID=xxx CF_D1_READ_TOKEN=xxx npm run build:with-snapshots
@@ -322,16 +329,44 @@ wrangler pages deploy dist --project-name zabir-boutiques
 
 ### CI/CD
 
-GitHub Actions workflow (`.github/workflows/deploy.yml`) handles:
+GitHub Actions (`.github/workflows/ci.yml`) runs quality checks on every push and PR:
 - TypeScript type checking
-- Build with D1 snapshot generation
-- Cloudflare Pages deployment via `cloudflare/wrangler-action`
+- 71 Vitest tests
+- Build verification (with D1 snapshots if secrets available)
 
-Required GitHub Secrets:
-- `CLOUDFLARE_API_TOKEN`
-- `CF_ACCOUNT_ID`
-- `CF_D1_DATABASE_ID`
-- `CF_D1_READ_TOKEN`
+Deployment is handled by **Cloudflare Pages native Git integration** — push to `main` and Cloudflare builds + deploys automatically. No API tokens to manage in GitHub.
+
+### Cloudflare Pages Setup
+
+1. Go to **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git**
+2. Select your GitHub repo (`DelwarOfficial/zabir-boutiques`)
+3. Set build configuration:
+
+   | Setting | Value |
+   |---------|-------|
+   | Build command | `npm run build:with-snapshots` |
+   | Build output | `dist` |
+   | Root directory | `/` |
+   | Node.js version | `20` |
+
+4. Add environment variables (must be **Encrypted** for secrets):
+
+   | Variable | Type | Description |
+   |----------|------|-------------|
+   | `CF_ACCOUNT_ID` | Plain text | Your Cloudflare account ID |
+   | `CF_D1_DATABASE_ID` | Plain text | D1 database ID (`zabir-db`) |
+   | `CF_D1_READ_TOKEN` | Encrypted (secret) | D1 read-only API token |
+   | `SESSION_SECRET` | Encrypted (secret) | HMAC key for sessions |
+   | `TINIFY_API_KEY` | Encrypted (secret) | Image compression |
+   | `UDDOKTAPAY_API_KEY` | Encrypted (secret) | Payment gateway |
+   | `UDDOKTAPAY_BASE_URL` | Plain text | `https://sandbox.uddoktapay.com` |
+   | `FRAUDBD_API_KEY` | Encrypted (secret) | Fraud scoring |
+   | `DEEPSEEK_API_KEY` | Encrypted (secret) | AI features |
+   | `OPENAI_API_KEY` | Encrypted (secret) | AI features |
+
+5. Deploy — first build may take 2-3 minutes. Every push to `main` auto-deploys.
+
+**PR previews** are automatic — Cloudflare creates a unique URL for every PR.
 
 ## Scripts
 
