@@ -1,13 +1,16 @@
-# Zabir Boutiques — AI Commerce Platform
+<div align="center">
+  <img src="public/assets/zabir-logo.jpg" alt="Zabir Boutiques" width="120" height="120" style="border-radius: 50%;" />
+  <br />
+  <h1 align="center">Zabir Boutiques — AI Commerce Platform</h1>
+  <p align="center"><strong>v6.8A</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
 
-**v6.8A** | Cloudflare-Native | Bangladesh F-Commerce
-
-[![Astro](https://img.shields.io/badge/Astro-5.9-FF5D01?logo=astro)](https://astro.build)
-[![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
-[![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](https://www.typescriptlang.org)
-[![Vitest](https://img.shields.io/badge/Tests-Vitest-6E9F18?logo=vitest)](https://vitest.dev)
-[![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
+  [![Astro](https://img.shields.io/badge/Astro-5.9-FF5D01?logo=astro)](https://astro.build)
+  [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
+  [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](https://www.typescriptlang.org)
+  [![Vitest](https://img.shields.io/badge/Tests-Vitest-6E9F18?logo=vitest)](https://vitest.dev)
+  [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
+</div>
 
 ---
 
