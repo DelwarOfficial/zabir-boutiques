@@ -28,12 +28,12 @@ jobs:
       - run: npm run typecheck
       - run: npm test
 
-      - name: Build (with D1 snapshots if configured)
+      - name: Build (with D1 snapshots)
         run: npm run build:with-snapshots
         env:
-          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || '' }}
-          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID || '' }}
-          CF_D1_READ_TOKEN: ${{ secrets.CF_D1_READ_TOKEN || '' }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
+          CF_D1_READ_TOKEN: ${{ secrets.CF_D1_READ_TOKEN }}
 
       - name: Deploy to Cloudflare Pages
         if: github.ref == 'refs/heads/main'
