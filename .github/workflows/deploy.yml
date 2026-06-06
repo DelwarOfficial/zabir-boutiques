@@ -15,10 +15,6 @@ jobs:
   build-and-deploy:
     name: Build, Test & Deploy
     runs-on: ubuntu-latest
-    env:
-      CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
-      CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID }}
-      CF_D1_READ_TOKEN: ${{ secrets.CF_D1_READ_TOKEN }}
     permissions:
       contents: read
       deployments: write
@@ -31,9 +27,15 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build:with-snapshots
 
-      - name: Deploy
+      - name: Build (with D1 snapshots if configured)
+        run: npm run build:with-snapshots
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || '' }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID || '' }}
+          CF_D1_READ_TOKEN: ${{ secrets.CF_D1_READ_TOKEN || '' }}
+
+      - name: Deploy to Cloudflare Pages
         if: github.ref == 'refs/heads/main'
         uses: cloudflare/wrangler-action@v3
         with:
