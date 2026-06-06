@@ -16,7 +16,7 @@ const { product } = Astro.props;
 <RootLayout title={`${product.title} | Zabir Boutiques`} activeCategory={product.categorySlug}>
   <article class="grid gap-5 md:grid-cols-[0.9fr_1fr]">
     <div class="aspect-[4/5] overflow-hidden rounded-lg bg-[var(--surface-soft)]">
-      <img src={product.imageUrl} alt={product.title} width="512" height="512" class="h-full w-full object-cover" fetchpriority="high" />
+      <img src={product.imageUrl} alt={product.title} width="512" height="640" class="h-full w-full object-cover" fetchpriority="high" />
     </div>
     <div>
       <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Live stock display</p>

@@ -1,21 +1,32 @@
 ---
 /**
- * Order tracking — SSR/API [v6.8A]
+ * Order tracking — SSR [v6.8A]
  * Phone + order number lookup, rate-limited.
  */
+import RootLayout from "@/layouts/RootLayout.astro";
+
 export const prerender = false;
 ---
 
-<html lang="bn">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Track Order — Zabir Boutiques</title>
-  </head>
-  <body>
-    <main>
-      <h1>Track Your Order</h1>
-      <!-- TODO: Phase 4 — Order tracking form -->
-    </main>
-  </body>
-</html>
+<RootLayout title="Track Order — Zabir Boutiques">
+  <section class="shell-card p-4 sm:p-6">
+    <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Order tracking</p>
+    <h1 class="mt-1 text-3xl font-black">Track your order</h1>
+    <p class="mt-2 text-sm leading-6 text-[var(--muted)]">
+      Enter your phone number and order number to track delivery status.
+    </p>
+    <form class="mt-6 grid gap-4 max-w-md" method="post" action="/api/orders/track">
+      <label class="block">
+        <span class="mb-1 block text-sm font-semibold text-[var(--ink)]">Phone Number</span>
+        <input name="phone" type="tel" class="control" placeholder="017XXXXXXXX" autocomplete="tel" required />
+      </label>
+      <label class="block">
+        <span class="mb-1 block text-sm font-semibold text-[var(--ink)]">Order Number</span>
+        <input name="order_number" type="text" class="control" placeholder="ZB-20260606-A1B2C3" autocomplete="off" required />
+      </label>
+      <button type="submit" class="flex h-12 w-full items-center justify-center rounded-lg bg-[var(--brand)] text-sm font-bold text-white transition hover:opacity-90 active:scale-[0.98]">
+        Track Order
+      </button>
+    </form>
+  </section>
+</RootLayout>

@@ -76,6 +76,7 @@ body {
   font-size: 16px;
   letter-spacing: 0.01em;
   overscroll-behavior-y: none;
+  overflow-x: hidden;
   touch-action: manipulation;
   transition: background-color 0.2s ease, color 0.2s ease;
 }
@@ -101,6 +102,18 @@ img {
 }
 
 /* ─── Shared Components ─── */
+.skeleton {
+  background: linear-gradient(90deg, var(--surface-soft) 25%, var(--line-soft) 50%, var(--surface-soft) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.5s ease-in-out infinite;
+  border-radius: 6px;
+}
+
+@keyframes skeleton-shimmer {
+  0% { background-position: 200% 0; }
+  100% { background-position: -200% 0; }
+}
+
 .shell-card {
   border: 1px solid var(--line);
   border-radius: 12px;

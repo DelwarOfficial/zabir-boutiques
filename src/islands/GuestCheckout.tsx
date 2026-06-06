@@ -146,7 +146,7 @@ export function GuestCheckout() {
                   type="button"
                   onClick={() => setZone(value as DeliveryZone)}
                   className={`rounded-md px-3 py-3 text-left text-sm font-black transition active:scale-[0.98] ${
-                    zone === value ? "bg-white text-[var(--brand)] shadow-sm" : "text-[var(--muted)]"
+                    zone === value ? "bg-[var(--surface)] text-[var(--brand)] shadow-sm" : "text-[var(--muted)]"
                   }`}
                 >
                   {label}
@@ -168,7 +168,7 @@ export function GuestCheckout() {
                   type="button"
                   onClick={() => setPaymentMethod(value as PaymentMethod)}
                   className={`min-h-14 rounded-md border px-3 text-sm font-black transition active:scale-[0.98] ${
-                    paymentMethod === value ? "border-[var(--brand)] bg-[var(--brand)] text-white" : "border-[var(--line)] bg-white text-[var(--ink)]"
+                    paymentMethod === value ? "border-[var(--brand)] bg-[var(--brand)] text-white" : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
                   }`}
                 >
                   {label}
@@ -178,14 +178,14 @@ export function GuestCheckout() {
           </fieldset>
 
           {status.type === "error" ? (
-            <div className="flex gap-2 rounded-md bg-red-50 p-3 text-sm font-semibold text-[var(--danger)]">
+            <div className="flex gap-2 rounded-md border border-[var(--danger)] bg-[var(--danger)]/10 p-3 text-sm font-semibold text-[var(--danger)]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{status.message}</span>
             </div>
           ) : null}
 
           {status.type === "success" ? (
-            <div className="flex gap-2 rounded-md bg-green-50 p-3 text-sm font-semibold text-[var(--success)]">
+            <div className="flex gap-2 rounded-md border border-[var(--success)] bg-[var(--success)]/10 p-3 text-sm font-semibold text-[var(--success)]">
               <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>Order received. Order number: {status.orderNumber}</span>
             </div>
@@ -194,7 +194,7 @@ export function GuestCheckout() {
           <button
             type="submit"
             disabled={!canSubmit}
-            className="flex h-14 w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] text-base font-black text-white transition active:scale-[0.98] disabled:bg-stone-300 disabled:text-stone-600"
+            className="flex h-14 w-full items-center justify-center gap-2 rounded-md bg-[var(--brand)] text-base font-black text-white transition active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isPending ? <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" /> : <CheckCircle2 className="h-5 w-5" aria-hidden="true" />}
             {isPending ? "Reserving stock..." : `Place Order · ${formatPaisa(totalPaisa)}`}
