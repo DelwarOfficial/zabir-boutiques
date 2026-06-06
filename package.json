@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev": "astro dev",
-    "build": "astro build",
+    "build": "npm run build:snapshots && astro build",
     "build:snapshots": "tsx scripts/build-static-snapshots.ts",
-    "build:with-snapshots": "npm run build:snapshots && astro build",
+    "build:skip-snapshots": "astro build",
     "preview": "astro preview",
     "deploy": "npm run build:with-snapshots && wrangler pages deploy dist --project-name zabir-boutiques",
     "db:migrate:local": "wrangler d1 execute zabir-db --local --file=./db/migrations/0001_initial_v6_8a_schema.sql && wrangler d1 execute zabir-db --local --file=./db/migrations/0002_indexes.sql",

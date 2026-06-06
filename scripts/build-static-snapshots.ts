@@ -14,8 +14,9 @@ const DB_ID = process.env.CF_D1_DATABASE_ID;
 const TOKEN = process.env.CF_D1_READ_TOKEN;
 
 if (!ACCOUNT || !DB_ID || !TOKEN) {
-  console.warn('[snapshots] D1 env vars not set — skipping snapshot generation. SSG pages will use fallback demo data.');
-  process.exit(0);
+  console.error('[snapshots] Missing required env vars: CF_ACCOUNT_ID, CF_D1_DATABASE_ID, CF_D1_READ_TOKEN');
+  console.error('[snapshots] Build failing — snapshots required for production deployment.');
+  process.exit(1);
 }
 
 const BASE_URL = `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/d1/database/${DB_ID}/query`;
