@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 900" role="img" aria-labelledby="title desc">
+  <title id="title">Zabir Boutiques collection display</title>
+  <desc id="desc">A warm boutique display with folded fabric, jewelry, and handbags.</desc>
+  <rect width="1200" height="900" fill="#f0e8de"/>
+  <rect x="80" y="90" width="1040" height="720" rx="28" fill="#fffaf4"/>
+  <rect x="150" y="170" width="300" height="560" rx="16" fill="#7d4f35"/>
+  <rect x="490" y="170" width="250" height="560" rx="16" fill="#0f766e"/>
+  <rect x="780" y="170" width="270" height="560" rx="16" fill="#d7b98e"/>
+  <path d="M155 290h290M155 420h290M155 550h290M495 315h240M495 470h240M785 355h260M785 535h260" stroke="#fff8ee" stroke-width="24" opacity=".5"/>
+  <circle cx="915" cy="318" r="56" fill="#fff8ee" opacity=".9"/>
+  <circle cx="915" cy="318" r="26" fill="#d7b98e"/>
+  <path d="M825 625c80-70 170-70 210 0v68H825z" fill="#5e3824"/>
+</svg>

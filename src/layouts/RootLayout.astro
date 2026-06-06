@@ -1,0 +1,41 @@
+---
+import Header from "@/components/shell/Header.astro";
+import CategoryRail from "@/components/shell/CategoryRail.astro";
+import Footer from "@/components/shell/Footer.astro";
+import { BottomNav } from "@/islands/BottomNav";
+import "@/styles/global.css";
+
+type Props = {
+  title: string;
+  description?: string;
+  activeCategory?: string;
+};
+
+const { title, description = "Premium boutique fashion from Wari, Dhaka with COD-first checkout.", activeCategory = "" } = Astro.props;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#fafaf9" />
+    <meta name="description" content={description} />
+    <link rel="icon" href="/assets/zabir-logo.jpg" />
+    <link rel="apple-touch-icon" href="/assets/zabir-logo.jpg" />
+    <link rel="preload" as="image" href="/assets/zabir-logo.jpg" />
+    <link rel="manifest" href="/manifest.json" />
+    <title>{title}</title>
+  </head>
+  <body class="font-sans antialiased">
+    <div class="min-h-dvh pb-24 md:pb-0">
+      <Header />
+      <CategoryRail activeSlug={activeCategory} />
+      <main class="mx-auto max-w-7xl px-4 md:px-8 lg:px-16 py-6 md:py-10">
+        <slot />
+      </main>
+      <Footer />
+    </div>
+    <BottomNav client:load />
+  </body>
+</html>

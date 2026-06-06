@@ -1,0 +1,13 @@
+---
+import RootLayout from "@/layouts/RootLayout.astro";
+import CheckoutSkeleton from "@/components/checkout/CheckoutSkeleton.astro";
+import { GuestCheckout } from "@/islands/GuestCheckout";
+
+export const prerender = false;
+---
+
+<RootLayout title="Guest Checkout | Zabir Boutiques">
+  <GuestCheckout client:only="react">
+    <CheckoutSkeleton slot="fallback" />
+  </GuestCheckout>
+</RootLayout>

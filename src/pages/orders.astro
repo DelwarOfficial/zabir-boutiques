@@ -1,0 +1,15 @@
+---
+import RootLayout from "@/layouts/RootLayout.astro";
+
+export const prerender = false;
+---
+
+<RootLayout title="Track Order | Zabir Boutiques">
+  <section class="shell-card p-4">
+    <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Orders</p>
+    <h1 class="mt-1 text-3xl font-black">Track your order</h1>
+    <p class="mt-2 text-sm leading-6 text-[var(--muted)]">
+      Production order tracking should post phone + order number to a rate-limited Astro API route and normalize phone before lookup.
+    </p>
+  </section>
+</RootLayout>

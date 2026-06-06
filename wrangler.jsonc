@@ -1,0 +1,45 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zabir-boutiques",
+  "compatibility_date": "2026-06-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "pages_build_output_dir": "./dist",
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "zabir-db",
+      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+    }
+  ],
+  "kv_namespaces": [
+    {
+      "binding": "CACHE",
+      "id": "REPLACE_WITH_CACHE_KV_NAMESPACE_ID"
+    },
+    {
+      "binding": "SESSION",
+      "id": "REPLACE_WITH_SESSION_KV_NAMESPACE_ID"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "MEDIA",
+      "bucket_name": "zabir-media"
+    },
+    {
+      "binding": "BACKUPS",
+      "bucket_name": "zabir-backups"
+    }
+  ],
+  "vars": {
+    "PUBLIC_SITE_URL": "https://zabirboutiques.com",
+    "PUBLIC_SITE_NAME": "Zabir Boutiques"
+  },
+  "triggers": {
+    "crons": ["*/10 * * * *", "0 3 * * *", "0 4 * * 0", "0 5 1 * *"]
+  }
+}

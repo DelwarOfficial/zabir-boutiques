@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-label="Embroidered Pakistani outfit">
+  <rect width="800" height="1000" fill="#f7efe5"/>
+  <path d="M260 120h280l80 210-80 520H260l-80-520z" fill="#7d2636"/>
+  <path d="M315 120h170v730H315z" fill="#9f4451"/>
+  <path d="M340 180h120M320 300h160M310 460h180M300 620h200" stroke="#e8c98f" stroke-width="18" stroke-linecap="round"/>
+</svg>

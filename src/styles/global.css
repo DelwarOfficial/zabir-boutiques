@@ -1,0 +1,104 @@
+@import "tailwindcss";
+
+@theme default {
+  --font-sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-serif: Georgia, "Times New Roman", serif;
+
+  --color-brand: #a16207;
+  --color-brand-strong: #713f12;
+  --color-brand-light: #fef3c7;
+}
+
+:root {
+  --bg: #fafaf9;
+  --surface: #ffffff;
+  --surface-soft: #f5f5f4;
+  --ink: #1c1917;
+  --muted: #a1a1aa;
+  --brand: #a16207;
+  --brand-strong: #713f12;
+  --line: #e4e4e7;
+  --danger: #dc2626;
+  --success: #16a34a;
+  color-scheme: light;
+}
+
+html {
+  background: var(--bg);
+  scroll-behavior: smooth;
+  text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+body {
+  min-height: 100dvh;
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-size: 16px;
+  letter-spacing: 0.01em;
+  overscroll-behavior-y: none;
+  touch-action: manipulation;
+}
+
+.font-heading {
+  font-family: Georgia, "Times New Roman", serif;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+img {
+  display: block;
+  max-width: 100%;
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+}
+
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+.shell-card {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+  transition: box-shadow 0.3s ease;
+}
+
+.shell-card:hover {
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
+}
+
+.control {
+  min-height: 48px;
+  width: 100%;
+  border: 1px solid #d4d4d8;
+  border-radius: 10px;
+  background: #fff;
+  padding: 0 0.875rem;
+  outline: none;
+  transition: border-color 160ms ease, box-shadow 160ms ease;
+}
+
+.control:focus {
+  border-color: var(--brand);
+  box-shadow: 0 0 0 3px rgb(161 98 7 / 12%);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}

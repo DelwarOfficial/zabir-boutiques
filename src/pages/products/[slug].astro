@@ -1,0 +1,44 @@
+---
+import RootLayout from "@/layouts/RootLayout.astro";
+import { AddToCartButton } from "@/islands/AddToCartButton";
+import { CATALOG_PRODUCTS } from "@/data/catalog";
+import { formatPaisa } from "@/lib/money";
+
+export const prerender = true;
+
+export function getStaticPaths() {
+  return CATALOG_PRODUCTS.map((product) => ({ params: { slug: product.slug }, props: { product } }));
+}
+
+const { product } = Astro.props;
+---
+
+<RootLayout title={`${product.title} | Zabir Boutiques`} activeCategory={product.categorySlug}>
+  <article class="grid gap-5 md:grid-cols-[0.9fr_1fr]">
+    <div class="aspect-[4/5] overflow-hidden rounded-lg bg-[var(--surface-soft)]">
+      <img src={product.imageUrl} alt={product.title} width="512" height="512" class="h-full w-full object-cover" fetchpriority="high" />
+    </div>
+    <div>
+      <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Live stock display</p>
+      <h1 class="mt-2 text-3xl font-black leading-tight">{product.title}</h1>
+      <p class="mt-2 text-2xl font-black text-[var(--brand)]">{formatPaisa(product.pricePaisa)}</p>
+      <p class="mt-3 text-sm font-semibold text-[var(--muted)]">{product.availableQuantity} available · {product.variantLabel}</p>
+      <div class="mt-5 max-w-sm">
+        <AddToCartButton
+          client:load
+          productId={product.id}
+          variantId={product.variantId}
+          title={product.title}
+          imageUrl={product.imageUrl}
+          variantLabel={product.variantLabel}
+          unitPricePaisa={product.pricePaisa}
+          availableQuantity={product.availableQuantity}
+        />
+      </div>
+      <div class="mt-6 grid gap-3 text-sm leading-6 text-[var(--muted)]">
+        <p class="shell-card p-3">Checkout reserves stock with a fresh D1 conditional update. Displayed stock is never trusted during checkout.</p>
+        <p class="shell-card p-3">COD is default. UddoktaPay is available when prepaid payment is preferred or risk routing requires it.</p>
+      </div>
+    </div>
+  </article>
+</RootLayout>

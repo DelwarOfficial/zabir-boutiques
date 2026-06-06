@@ -1,0 +1,23 @@
+---
+/**
+ * Staff Order Detail — SSR [v6.8A]
+ * Requires session + RBAC + CSRF for mutations.
+ */
+export const prerender = false;
+
+const { id } = Astro.params;
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Order {id} — Staff — Zabir Boutiques</title>
+  </head>
+  <body>
+    <main>
+      <h1>Order Detail: {id}</h1>
+      <!-- TODO: Phase 6 — Order management, status transitions -->
+    </main>
+  </body>
+</html>

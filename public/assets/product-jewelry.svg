@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-label="Bridal jewelry set">
+  <rect width="800" height="1000" fill="#fff8ec"/>
+  <circle cx="400" cy="330" r="170" fill="none" stroke="#c49a48" stroke-width="42"/>
+  <circle cx="400" cy="330" r="72" fill="none" stroke="#7d4f35" stroke-width="28"/>
+  <path d="M250 560c70 120 230 120 300 0" fill="none" stroke="#c49a48" stroke-width="50" stroke-linecap="round"/>
+  <circle cx="255" cy="720" r="62" fill="#c49a48"/>
+  <circle cx="545" cy="720" r="62" fill="#c49a48"/>
+</svg>

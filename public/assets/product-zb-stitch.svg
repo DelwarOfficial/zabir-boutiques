@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-label="ZB Stitch ready to wear kurti">
+  <rect width="800" height="1000" fill="#f6f1ec"/>
+  <path d="M280 110h240l95 250-75 520H260l-75-520z" fill="#241f1b"/>
+  <path d="M350 110h100v770H350z" fill="#3f3630"/>
+  <path d="M330 210h140M300 360h200M285 520h230M270 680h260" stroke="#c9a76f" stroke-width="16" stroke-linecap="round"/>
+</svg>

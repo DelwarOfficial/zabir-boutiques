@@ -1,0 +1,44 @@
+# dependencies
+node_modules/
+
+# astro build output
+dist/
+.astro/
+
+# wrangler
+.wrangler/
+.dev.vars
+
+# env files
+.env*
+!.env.example
+
+# build-time snapshots (generated, not committed)
+src/data/*.json
+
+# typescript
+*.tsbuildinfo
+
+# testing
+coverage/
+playwright-report/
+test-results/
+
+# debug
+*.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# project-specific
+graphify-out/
+.codex/
+.commandcode/
+.grok-changes/
+.agents/

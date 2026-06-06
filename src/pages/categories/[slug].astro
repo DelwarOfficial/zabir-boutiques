@@ -1,0 +1,27 @@
+---
+import RootLayout from "@/layouts/RootLayout.astro";
+import ProductCard from "@/components/product/ProductCard.astro";
+import { CATALOG_CATEGORIES, productsForCatalogCategory } from "@/data/catalog";
+
+export const prerender = true;
+
+export function getStaticPaths() {
+  return CATALOG_CATEGORIES.map((category) => ({ params: { slug: category.slug }, props: { category } }));
+}
+
+const { category } = Astro.props;
+const activeFilter = Astro.url.searchParams.get("filter") || category.slug;
+const products = productsForCatalogCategory(activeFilter);
+---
+
+<RootLayout title={`${category.name} | Zabir Boutiques`} activeCategory={activeFilter}>
+  <section class="py-2">
+    <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Category</p>
+    <h1 class="mt-1 text-3xl font-black">{category.name}</h1>
+    <p class="mt-2 text-sm leading-6 text-[var(--muted)]">{category.subcategories.map((item) => item.name).join(" · ")}</p>
+  </section>
+
+  <section class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    {(products.length ? products : productsForCatalogCategory(category.slug)).map((product) => <ProductCard product={product} />)}
+  </section>
+</RootLayout>

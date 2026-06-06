@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 1000" role="img" aria-label="Indian party wear">
+  <rect width="800" height="1000" fill="#edf7f5"/>
+  <path d="M230 140h340l70 720H160z" fill="#0f766e"/>
+  <path d="M325 140h150l40 720H285z" fill="#18a093"/>
+  <circle cx="400" cy="230" r="55" fill="#d7b98e"/>
+  <path d="M250 410h300M230 560h340M205 710h390" stroke="#f7e8b8" stroke-width="20" stroke-linecap="round"/>
+</svg>
