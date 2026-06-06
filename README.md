@@ -325,6 +325,8 @@ All 21 tables (migration `0001_initial_v6_8a_schema.sql`):
 
 ## Deployment
 
+**Git-based CI/CD via Cloudflare Pages.** Every push to GitHub triggers an automatic build and deployment to production. Branch-based preview URLs enable staging and review before merging. Instant one-click rollbacks and zero-downtime releases are built into the platform. This is the industry standard for serverless Jamstack applications — Cloudflare's native Git integration eliminates the need for a separate CI server, reduces deployment complexity, and ensures infrastructure-as-code consistency across environments.
+
 ### Prerequisites
 
 1. Cloudflare account with:

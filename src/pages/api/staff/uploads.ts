@@ -2,7 +2,7 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
-import { compressImage } from '../../../lib/tinify';
+import { compressImage, downloadCompressed, generateThumbnail, thumbnailR2Key } from '../../../lib/tinify';
 import { nowSql } from '../../../lib/dates';
 import { requireAuth, requirePermission, RbacError } from '../../../lib/rbac';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
@@ -44,10 +44,28 @@ export async function POST(context: APIContext): Promise<Response> {
   const buffer = await file.arrayBuffer();
 
   const compressResult = await compressImage(buffer, env.TINIFY_API_KEY);
-  const uploadBuffer = compressResult.ok ? compressResult.compressed : buffer;
-  const isCompressed = compressResult.ok ? 1 : 0;
 
-  await env.MEDIA.put(r2Key, uploadBuffer, { httpMetadata: { contentType: file.type } });
+  let isCompressed = 0;
+  let thumbnailUploaded = false;
+
+  if (compressResult.ok) {
+    const downloaded = await downloadCompressed(compressResult.locationUrl, env.TINIFY_API_KEY);
+    if (downloaded.ok) {
+      await env.MEDIA.put(r2Key, downloaded.compressed, { httpMetadata: { contentType: compressResult.contentType } });
+      isCompressed = 1;
+
+      const thumbResult = await generateThumbnail(compressResult.locationUrl, env.TINIFY_API_KEY);
+      if (thumbResult.ok) {
+        const thumbKey = thumbnailR2Key(r2Key);
+        await env.MEDIA.put(thumbKey, thumbResult.data, { httpMetadata: { contentType: 'image/webp' } });
+        thumbnailUploaded = true;
+      }
+    } else {
+      await env.MEDIA.put(r2Key, buffer, { httpMetadata: { contentType: file.type } });
+    }
+  } else {
+    await env.MEDIA.put(r2Key, buffer, { httpMetadata: { contentType: file.type } });
+  }
 
   const imageId = crypto.randomUUID();
   await env.DB.prepare(
@@ -61,10 +79,16 @@ export async function POST(context: APIContext): Promise<Response> {
     action: 'media.upload',
     entityType: 'product_image',
     entityId: imageId,
-    metadata: { product_id: productId, r2_key: r2Key, compressed: isCompressed === 1 },
+    metadata: { product_id: productId, r2_key: r2Key, compressed: isCompressed === 1, thumbnail: thumbnailUploaded },
     ipAddress: clientIp(context.request),
     userAgent: userAgent(context.request)
   });
 
-  return Response.json({ ok: true, image_id: imageId, r2_key: r2Key, compressed: isCompressed === 1 }, { status: 201 });
+  return Response.json({
+    ok: true,
+    image_id: imageId,
+    r2_key: r2Key,
+    compressed: isCompressed === 1,
+    thumbnail_key: thumbnailUploaded ? thumbnailR2Key(r2Key) : null,
+  }, { status: 201 });
 }
