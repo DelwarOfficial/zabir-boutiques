@@ -3,6 +3,7 @@ export const prerender = false;
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
+import { createCsrfToken } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 
@@ -60,7 +61,7 @@ export async function POST(context: APIContext): Promise<Response> {
     userAgent: userAgent(context.request)
   });
 
-  const csrfToken = `${sessionToken}.${tokenHash}`;
+  const csrfToken = await createCsrfToken(env.SESSION_SECRET);
 
   return new Response(JSON.stringify({ ok: true, staff: { id: staff.id, name: staff.full_name, role: staff.role } }), {
     status: 200,

@@ -1,7 +1,13 @@
 /**
- * POST /api/checkout — Guest Checkout [v6.8A]
- * Rate limit, idempotency, D1 atomic reservation.
- * Flow: validate → normalize phone → fraud check → reserveVariants() → create order
+ * POST /api/checkout — Guest Checkout [v6.8B Security Patch]
+ *
+ * Server-authoritative pricing: client money fields (unit_price_paisa,
+ * subtotal_paisa, discount_paisa, delivery_paisa, total_paisa) are NEVER
+ * trusted. All prices come from D1 (source of truth).
+ *
+ * Flow: validate → normalize phone → assertNoClientMoneyTrust → load D1
+ * snapshots → authoritative subtotal → server delivery → atomic coupon →
+ * server total → FraudBD → reserveVariants() → create order (server values).
  */
 export const prerender = false;
 
@@ -12,7 +18,14 @@ import { releaseReservedVariants, reserveVariants } from '../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../lib/orders';
 import { nowSql } from '../../lib/dates';
 import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency } from '../../lib/idempotency';
-import { addPaisa, assertPaisa, multiplyPaisa } from '../../lib/money';
+import { assertPaisa, applyCouponAtomic } from '../../lib/money';
+import {
+  assertNoClientMoneyTrust,
+  loadVariantSnapshots,
+  calculateAuthoritativeSubtotal,
+  calculateDeliveryPaisa,
+  type CheckoutCartItem
+} from '../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
 
 export async function POST(context: APIContext): Promise<Response> {
@@ -21,12 +34,16 @@ export async function POST(context: APIContext): Promise<Response> {
 
   let body: any;
   let stockReserved = false;
+  let items: CheckoutCartItem[] = [];
 
   try {
     body = await context.request.json();
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
+
+  // Client money fields are display-only; warn but never trust them.
+  assertNoClientMoneyTrust(body ?? {});
 
   // 1. Validate idempotency key
   const idempotencyKey = context.request.headers.get('Idempotency-Key') || body.idempotency_key;
@@ -48,38 +65,79 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'INVALID_PHONE', message: 'Use a valid Bangladeshi mobile number.' }, { status: 400 });
   }
 
-  // 3. Validate cart (max 10 line items)
-  const rawItems: Array<{ variant_id?: string; variantId?: string; quantity?: number; qty?: number; unit_price_paisa?: number }> = body.items ?? [];
-  if (!rawItems.length) return Response.json({ ok: false, code: 'EMPTY_CART', message: 'Cart is empty.' }, { status: 400 });
-  if (rawItems.length > 10) return Response.json({ ok: false, code: 'CART_TOO_LARGE', message: 'Please place a smaller order.' }, { status: 400 });
-
-  const subtotalPaisa = addPaisa(rawItems.map((item) => multiplyPaisa(assertPaisa(item.unit_price_paisa ?? 0, 'unit_price_paisa'), item.quantity ?? item.qty ?? 0)));
-  const deliveryPaisa = assertPaisa(body.delivery_paisa ?? 0, 'delivery_paisa');
-  const discountPaisa = assertPaisa(body.discount_paisa ?? 0, 'discount_paisa');
-  const totalPaisa = assertPaisa(subtotalPaisa + deliveryPaisa - discountPaisa, 'total_paisa');
-
-  if (subtotalPaisa !== body.subtotal_paisa || totalPaisa !== body.total_paisa) {
-    return Response.json({ ok: false, code: 'TOTAL_MISMATCH', message: 'Cart totals changed. Please review and place the order again.' }, { status: 409 });
+  // 3. Parse cart — variant id + quantity ONLY. Client prices are ignored.
+  const rawItems: Array<{ variant_id?: string; variantId?: string; quantity?: number; qty?: number }> = body.items ?? [];
+  if (!Array.isArray(rawItems) || !rawItems.length) {
+    return Response.json({ ok: false, code: 'EMPTY_CART', message: 'Cart is empty.' }, { status: 400 });
+  }
+  if (rawItems.length > 10) {
+    return Response.json({ ok: false, code: 'CART_TOO_LARGE', message: 'Please place a smaller order.' }, { status: 400 });
   }
 
-  const items = rawItems.map((item) => ({
+  items = rawItems.map((item) => ({
     variantId: item.variant_id ?? item.variantId ?? '',
     qty: item.quantity ?? item.qty ?? 0
   }));
-  const orderItems = rawItems.map((item) => ({
-    variantId: item.variant_id ?? item.variantId ?? '',
-    quantity: item.quantity ?? item.qty ?? 0,
-    unitPricePaisa: assertPaisa(item.unit_price_paisa ?? 0, 'unit_price_paisa')
-  }));
 
-  // Claim idempotency
+  if (items.some((item) => !item.variantId)) {
+    return Response.json({ ok: false, code: 'INVALID_CART', message: 'Cart contains an invalid item.' }, { status: 400 });
+  }
+  if (items.some((item) => !Number.isSafeInteger(item.qty) || item.qty < 1)) {
+    return Response.json({ ok: false, code: 'INVALID_QUANTITY', message: 'Each item needs a valid quantity.' }, { status: 400 });
+  }
+
+  // 4. Load authoritative variant snapshots from D1 and compute pricing.
+  let subtotalPaisa: number;
+  let deliveryPaisa: number;
+  let discountPaisa = 0;
+  let totalPaisa: number;
+  let snapshots: Awaited<ReturnType<typeof loadVariantSnapshots>>;
+
+  try {
+    snapshots = await loadVariantSnapshots(env.DB, items);
+
+    const uniqueVariantIds = new Set(items.map((item) => item.variantId));
+    if (snapshots.size !== uniqueVariantIds.size) {
+      return Response.json({
+        ok: false,
+        code: 'VARIANT_UNAVAILABLE',
+        message: 'One item is no longer available. Your cart has been updated.'
+      }, { status: 409 });
+    }
+
+    subtotalPaisa = calculateAuthoritativeSubtotal(items, snapshots);
+    deliveryPaisa = await calculateDeliveryPaisa(env.DB, body.shipping_zone, subtotalPaisa);
+  } catch (err) {
+    const code = err instanceof Error ? err.message : 'PRICING_ERROR';
+    if (code.startsWith('INVALID_CART_SIZE')) {
+      return Response.json({ ok: false, code: 'INVALID_CART', message: 'Cart is invalid.' }, { status: 400 });
+    }
+    console.error('[checkout] Pricing error:', err);
+    return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price your cart. Please try again.' }, { status: 409 });
+  }
+
+  // Claim idempotency only after the request is well-formed and priced.
   const claimed = await claimIdempotency(env.DB, idempotencyKey, now);
   if (!claimed) {
     return Response.json({ ok: false, code: 'DUPLICATE_CHECKOUT', message: 'Duplicate request.' }, { status: 409 });
   }
 
   try {
-    // 6. FraudBD check
+    // 5. Apply coupon atomically (only authoritative source of discount).
+    const couponCode = typeof body.coupon_code === 'string' ? body.coupon_code.trim() : '';
+    if (couponCode) {
+      const couponResult = await applyCouponAtomic(env.DB, couponCode, subtotalPaisa, now);
+      if (!couponResult.ok) {
+        await failIdempotency(env.DB, idempotencyKey);
+        return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
+      }
+      discountPaisa = assertPaisa(couponResult.discountPaisa, 'discount_paisa');
+    }
+
+    // 6. Server-computed total. discount never exceeds subtotal + delivery.
+    totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
+
+    // 7. FraudBD check
     const { score } = await checkFraudBD(phoneResult.phone, env.FRAUDBD_API_KEY);
     const fraudDecision = decideFraudRisk(score);
 
@@ -91,7 +149,7 @@ export async function POST(context: APIContext): Promise<Response> {
       }, { status: 403 });
     }
 
-    // 7. Reserve stock
+    // 8. Reserve stock (only inventory reservation path).
     const reserveResult = await reserveVariants(env.DB, items, now);
     if (!reserveResult.ok) {
       await failIdempotency(env.DB, idempotencyKey);
@@ -105,17 +163,23 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     stockReserved = true;
 
-    // 8. Create order (only after reservation success)
+    // 9. Create order — server values only. order_items store D1 price snapshot.
+    const orderItems = items.map((item) => ({
+      variantId: item.variantId,
+      quantity: item.qty,
+      unitPricePaisa: snapshots.get(item.variantId)!.price_paisa
+    }));
+
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
       phone: phoneResult.phone,
       name: body.name,
       address: body.address,
       shipping_zone: body.shipping_zone,
       note: body.note,
-      subtotal_paisa: body.subtotal_paisa,
-      delivery_paisa: body.delivery_paisa,
-      discount_paisa: body.discount_paisa ?? 0,
-      total_paisa: body.total_paisa,
+      subtotal_paisa: subtotalPaisa,
+      delivery_paisa: deliveryPaisa,
+      discount_paisa: discountPaisa,
+      total_paisa: totalPaisa,
       payment_method: body.payment_method ?? 'cod',
       fraud_decision: fraudDecision
     }, orderItems, now);

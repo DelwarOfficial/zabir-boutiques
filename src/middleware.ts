@@ -5,7 +5,7 @@
  * mutate product, order, payment, fraud, or staff state.
  */
 import type { MiddlewareHandler } from 'astro';
-import { timingSafeEqualHex } from './lib/security';
+import { verifyCsrfToken } from './lib/security';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -39,7 +39,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     }
 
     const secret = runtimeEnv?.SESSION_SECRET;
-    if (!secret || !(await verifyCsrfHmac(cookieToken, secret))) {
+    if (!secret || !(await verifyCsrfToken(cookieToken, secret))) {
       return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }));
     }
   }
@@ -52,15 +52,6 @@ function getCookieValue(cookieHeader: string | null, name: string): string | nul
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]+)`));
   return match ? decodeURIComponent(match[1]) : null;
-}
-
-async function verifyCsrfHmac(token: string, secret: string): Promise<boolean> {
-  const [value, hmac] = token.split('.');
-  if (!value || !hmac) return false;
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
-  const expected = Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
-  return timingSafeEqualHex(expected, hmac);
 }
 
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
