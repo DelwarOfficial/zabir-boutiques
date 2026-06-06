@@ -3,15 +3,18 @@ import Header from "@/components/shell/Header.astro";
 import CategoryRail from "@/components/shell/CategoryRail.astro";
 import Footer from "@/components/shell/Footer.astro";
 import { BottomNav } from "@/islands/BottomNav";
+import { ThemeToggle } from "@/islands/ThemeToggle";
 import "@/styles/global.css";
 
 type Props = {
   title: string;
   description?: string;
   activeCategory?: string;
+  ogImage?: string;
 };
 
-const { title, description = "Premium boutique fashion from Wari, Dhaka with COD-first checkout.", activeCategory = "" } = Astro.props;
+const { title, description = "Premium boutique fashion from Wari, Dhaka with COD-first checkout.", activeCategory = "", ogImage } = Astro.props;
+const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirboutiques.com").href;
 ---
 
 <!doctype html>
@@ -19,12 +22,32 @@ const { title, description = "Premium boutique fashion from Wari, Dhaka with COD
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#fafaf9" />
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalUrl} />
+
+    <!-- Open Graph -->
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:type" content="website" />
+    <meta property="og:url" content={canonicalUrl} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+
+    <!-- Icons -->
     <link rel="icon" href="/assets/zabir-logo.jpg" />
     <link rel="apple-touch-icon" href="/assets/zabir-logo.jpg" />
-    <link rel="preload" as="image" href="/assets/zabir-logo.jpg" />
-    <link rel="manifest" href="/manifest.json" />
+
+    <!-- Theme: prevent flash by applying stored preference synchronously -->
+    <script is:inline>
+      (function(){
+        var t = localStorage.getItem('zb-theme');
+        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches)) {
+          document.documentElement.setAttribute('data-theme','dark');
+        }
+      })();
+    </script>
+    <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
+
     <title>{title}</title>
   </head>
   <body class="font-sans antialiased">
@@ -36,6 +59,9 @@ const { title, description = "Premium boutique fashion from Wari, Dhaka with COD
       </main>
       <Footer />
     </div>
-    <BottomNav client:load />
+    <!-- Theme toggle: visible, idle-hydrated (non-critical) -->
+    <ThemeToggle client:idle />
+    <!-- Bottom nav: idle-hydrated (not blocking LCP) -->
+    <BottomNav client:idle />
   </body>
 </html>

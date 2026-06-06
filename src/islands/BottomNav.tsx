@@ -19,7 +19,7 @@ export function BottomNav() {
   }, []);
 
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] bg-white/90 px-3 pb-[env(safe-area-inset-bottom)] pt-2 backdrop-blur-xl md:hidden shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
+    <nav className="fixed inset-x-0 bottom-0 z-50 border-t border-[var(--line)] glass px-3 pb-[env(safe-area-inset-bottom)] pt-2 md:hidden shadow-[0_-2px_12px_rgba(0,0,0,0.04)]">
       <div className="mx-auto grid max-w-lg grid-cols-4 gap-1">
         {navItems.map((item) => {
           const active = item.match(pathname);
