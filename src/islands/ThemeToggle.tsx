@@ -1,21 +1,18 @@
 import { useEffect, useState } from "react";
 
-type Theme = "light" | "dark" | "system";
+type Theme = "light" | "dark";
 
 function getStoredTheme(): Theme {
-  if (typeof window === "undefined") return "system";
-  return (localStorage.getItem("zb-theme") as Theme) ?? "system";
+  if (typeof window === "undefined") return "light";
+  const stored = localStorage.getItem("zb-theme");
+  if (stored === "dark") return "dark";
+  if (stored === "light") return "light";
+  // First visit: respect OS preference
+  return matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light";
 }
 
-function resolveTheme(pref: Theme): "light" | "dark" {
-  if (pref === "system") {
-    return matchMedia("(prefers-color-scheme:dark)").matches ? "dark" : "light";
-  }
-  return pref;
-}
-
-function applyTheme(resolved: "light" | "dark") {
-  if (resolved === "dark") {
+function applyTheme(theme: Theme) {
+  if (theme === "dark") {
     document.documentElement.setAttribute("data-theme", "dark");
   } else {
     document.documentElement.removeAttribute("data-theme");
@@ -23,58 +20,38 @@ function applyTheme(resolved: "light" | "dark") {
 }
 
 export function ThemeToggle() {
-  const [pref, setPref] = useState<Theme>("system");
+  const [theme, setTheme] = useState<Theme>("light");
 
   useEffect(() => {
-    setPref(getStoredTheme());
+    setTheme(getStoredTheme());
   }, []);
 
   useEffect(() => {
-    applyTheme(resolveTheme(pref));
+    applyTheme(theme);
+  }, [theme]);
 
-    if (pref === "system") {
-      const mq = matchMedia("(prefers-color-scheme:dark)");
-      const handler = () => applyTheme(resolveTheme("system"));
-      mq.addEventListener("change", handler);
-      return () => mq.removeEventListener("change", handler);
-    }
-  }, [pref]);
-
-  function cycle() {
-    const next: Theme = pref === "light" ? "dark" : pref === "dark" ? "system" : "light";
-    setPref(next);
-    if (next === "system") {
-      localStorage.removeItem("zb-theme");
-    } else {
-      localStorage.setItem("zb-theme", next);
-    }
+  function toggle() {
+    const next: Theme = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    localStorage.setItem("zb-theme", next);
   }
-
-  const label = pref === "light" ? "Light" : pref === "dark" ? "Dark" : "Auto";
 
   return (
     <button
       type="button"
-      onClick={cycle}
-      aria-label={`Theme: ${label}. Click to switch.`}
-      title={`Theme: ${label}`}
+      onClick={toggle}
+      aria-label={theme === "light" ? "Switch to dark mode" : "Switch to light mode"}
+      title={theme === "light" ? "Dark mode" : "Light mode"}
       className="flex h-9 w-9 items-center justify-center rounded-full border border-[var(--line)] bg-[var(--surface)] text-[var(--muted)] transition hover:text-[var(--ink)] hover:border-[var(--brand)] active:scale-95"
     >
-      {pref === "light" && (
-        <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <circle cx="12" cy="12" r="5" />
-          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
-        </svg>
-      )}
-      {pref === "dark" && (
+      {theme === "light" ? (
         <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
         </svg>
-      )}
-      {pref === "system" && (
+      ) : (
         <svg className="h-[18px] w-[18px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <rect x="2" y="3" width="20" height="14" rx="2" />
-          <path d="M8 21h8M12 17v4" />
+          <circle cx="12" cy="12" r="5" />
+          <path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42" />
         </svg>
       )}
     </button>

@@ -19,10 +19,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
-    "@astrojs/cloudflare": "^12.4.0",
-    "@astrojs/react": "^4.3.0",
+    "@astrojs/cloudflare": "^13.6.1",
+    "@astrojs/react": "^5.0.7",
     "@tailwindcss/vite": "^4.3.0",
-    "astro": "^5.9.0",
+    "astro": "^6.4.4",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
