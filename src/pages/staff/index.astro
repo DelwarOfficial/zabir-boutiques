@@ -34,7 +34,10 @@ const roleLabel: Record<string, string> = {
   <body>
     <header style="display:flex;justify-content:space-between;align-items:center;padding:1rem;border-bottom:1px solid #ddd;">
       <strong>Zabir Boutiques — Staff</strong>
-      <span>{user.fullName} · {roleLabel[user.role] ?? user.role}</span>
+      <span style="display:flex;align-items:center;gap:1rem;">
+        <span>{user.fullName} · {roleLabel[user.role] ?? user.role}</span>
+        <button id="logout-btn" type="button">Sign out</button>
+      </span>
     </header>
     <div style="display:flex;gap:2rem;padding:1rem;">
       <nav aria-label="Staff navigation" style="min-width:220px;">
@@ -50,5 +53,19 @@ const roleLabel: Record<string, string> = {
         <p>Use the navigation to access your authorized areas. All actions are server-side RBAC protected and audit-logged.</p>
       </main>
     </div>
+    <script is:inline>
+      // Logout via double-submit CSRF: send the non-HttpOnly csrf-token cookie
+      // back as the X-CSRF-Token header (required by middleware for non-GET
+      // /api/staff/* routes).
+      document.getElementById('logout-btn')?.addEventListener('click', async () => {
+        const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+        const csrf = match ? decodeURIComponent(match[1]) : '';
+        await fetch('/api/staff/logout', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrf }
+        });
+        window.location.href = '/staff/login';
+      });
+    </script>
   </body>
 </html>

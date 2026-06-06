@@ -6,6 +6,7 @@
  */
 import type { MiddlewareHandler } from 'astro';
 import { verifyCsrfToken } from './lib/security';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
@@ -19,9 +20,9 @@ const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number
 ];
 
 export const onRequest: MiddlewareHandler = async (context, next) => {
-  const { request, locals } = context;
+  const { request } = context;
   const url = new URL(request.url);
-  const runtimeEnv = (locals as { runtime?: { env?: { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string } } }).runtime?.env;
+  const runtimeEnv = cloudflareEnv as { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string };
 
   if (url.pathname === '/api/staff/login' && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
     return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }));
@@ -74,7 +75,7 @@ function originAllowed(request: Request, publicSiteUrl?: string): boolean {
 
 async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: string): Promise<Response | null> {
   const rule = RATE_LIMITS.find(item => item.pattern.test(pathname));
-  const cache = (context.locals as { runtime?: { env?: { CACHE?: KVNamespace } } }).runtime?.env?.CACHE;
+  const cache = (cloudflareEnv as { CACHE?: KVNamespace }).CACHE;
   if (!rule || !cache) return null;
 
   const ip = context.request.headers.get('CF-Connecting-IP') ?? context.request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ?? 'unknown';

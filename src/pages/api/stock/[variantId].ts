@@ -6,10 +6,11 @@
 export const prerender = false;
 
 import type { APIContext } from 'astro';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 
 export async function GET(context: APIContext): Promise<Response> {
-  const { params, locals } = context;
-  const env = (locals as { runtime: { env: { DB: D1Database } } }).runtime.env;
+  const { params } = context;
+  const env = cloudflareEnv as { DB: D1Database };
   const variantId = params.variantId;
 
   if (!variantId || typeof variantId !== 'string') {

@@ -13,6 +13,7 @@
  *   support              → order search + support notes
  */
 import type { APIContext } from 'astro';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
 
@@ -122,8 +123,7 @@ function readSessionCookie(request: Request): string | null {
  * Returns null when unauthenticated / revoked / expired / inactive.
  */
 export async function getCurrentStaffUser(context: APIContext): Promise<StaffUser | null> {
-  const runtime = (context.locals as { runtime?: { env?: { DB?: D1Database; SESSION_SECRET?: string } } }).runtime;
-  const env = runtime?.env;
+  const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string };
   if (!env?.DB || !env.SESSION_SECRET) return null;
 
   const sessionToken = readSessionCookie(context.request);
