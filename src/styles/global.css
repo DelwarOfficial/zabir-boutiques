@@ -135,12 +135,12 @@ img {
   -webkit-backdrop-filter: blur(16px) saturate(1.8);
 }
 
-[data-theme="dark"] .glass {
-  background: rgba(38, 35, 32, 0.85);
-}
-
 :root .glass {
   background: rgba(255, 255, 255, 0.75);
+}
+
+[data-theme="dark"] .glass {
+  background: rgba(38, 35, 32, 0.85);
 }
 
 /* ─── Reduced Motion ─── */

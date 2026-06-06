@@ -4,11 +4,11 @@
   <h1 align="center">Zabir Boutiques — AI Commerce Platform</h1>
   <p align="center"><strong>v6.8B · Security Audit Patch Edition</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
 
-  [![Astro](https://img.shields.io/badge/Astro-5.9-FF5D01?logo=astro)](https://astro.build)
+  [![Astro](https://img.shields.io/badge/Astro-6.4.4-FF5D01?logo=astro)](https://astro.build)
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
   [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
-  [![TypeScript](https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript)](https://www.typescriptlang.org)
-  [![Vitest](https://img.shields.io/badge/Tests-111%20passing-6E9F18?logo=vitest)](https://vitest.dev)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?logo=typescript)](https://www.typescriptlang.org)
+  [![Vitest](https://img.shields.io/badge/Tests-122%20passing-6E9F18?logo=vitest)](https://vitest.dev)
   [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
 </div>
 
@@ -16,7 +16,7 @@
 
 Premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built for the Bangladesh market. COD-first checkout with FraudBD risk routing, UddoktaPay payment gateway, real-time inventory reservation, and a full staff operations dashboard.
 
-> **Package version:** `6.8.0` · **Spec edition:** v6.8B Security Audit Patch (server-authoritative checkout pricing + session-independent CSRF tokens).
+> **Package version:** `6.8.0` · **Runtime:** Astro 6.4.4 / @astrojs/cloudflare 13.6.1 · **Spec edition:** v6.8B Security Audit Patch (server-authoritative checkout pricing + session-independent CSRF tokens, D1 source of truth, coupon atomicity compensations, payment-initiation atomic claiming, webhook alert FK safety).
 
 ## Architecture
 
@@ -24,9 +24,9 @@ Premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built f
 ┌─────────────────────────────────────────────────────────────┐
 │                     Cloudflare Pages                         │
 │  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │  Astro SSG   │  │  Astro SSR   │  │  API (Workers)    │  │
-│  │ (index, cat, │  │ (checkout,   │  │ (/api/*)          │  │
-│  │  product)    │  │  order-track,│  │                   │  │
+│  │  Astro SSR   │  │  Astro SSR   │  │  API (Workers)    │  │
+│  │ (all routes) │  │ (checkout,   │  │ (/api/*)          │  │
+│  │              │  │  order-track,│  │                   │  │
 │  │              │  │  staff/*)    │  │                   │  │
 │  └──────┬───────┘  └──────┬───────┘  └────────┬──────────┘  │
 │         │                 │                    │             │
@@ -47,8 +47,8 @@ Premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built f
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Framework** | Astro 5 (`output: static` + on-demand routes) | Static-first pages; API/SSR routes opt in via `export const prerender = false` |
-| **Adapter** | `@astrojs/cloudflare` | Cloudflare Workers runtime |
+| **Framework** | Astro 6.4.4 (`output: server`) | Server-rendered with prerender opt-in for static pages |
+| **Adapter** | `@astrojs/cloudflare` 13.6.1 | Cloudflare Workers runtime |
 | **Database** | Cloudflare D1 (SQLite) | Source of truth, transactional |
 | **Media** | Cloudflare R2 | Product images, backups, archives |
 | **Cache** | Cloudflare KV | Admin-cached listings, rate limits, sessions binding |
@@ -56,16 +56,17 @@ Premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built f
 | **Fraud** | FraudBD | External risk signal only |
 | **Images** | Tinify | Upload-time compression |
 
-> Astro 5 removed `output: "hybrid"`. The project uses `output: "static"`, which behaves identically: pages are static by default and any route that needs server execution opts in with `export const prerender = false`.
+> This project runs on **Astro 6.4.4** with `output: "server"` and `@astrojs/cloudflare` 13.6.1. API routes, checkout, payments, staff dashboard, and cron handling execute on Cloudflare Workers via Pages Functions. Selected pages use `export const prerender = true` for static generation where appropriate.
 
 ## Features
 
 ### Storefront
-- **Static-first** — Home, category, and product pages are SSG from build-time D1 snapshots
+- **Prerendered storefront** — Home, category, and product pages use build-time D1 snapshots with CDN cache headers
 - **CDN-cached stock badges** — Real-time stock read from D1 with CDN cache headers (zero KV writes on public traffic)
 - **Guest checkout** — Name, phone, address only. No account required.
-- **Server-authoritative pricing** — The checkout API never trusts browser-supplied money fields. Subtotal, delivery, discount, and total are computed from D1 `price_paisa` only (v6.8B fix #2)
+- **Server-authoritative pricing** — The checkout API never trusts browser-supplied money fields. Subtotal, delivery, discount, and total are computed from D1 `price_paisa` only
 - **Idempotent checkout** — Idempotency key prevents duplicate orders on network retry
+- **Coupon atomicity** — Limited-use coupons guarded by conditional D1 update; released on subsequent failure (fraud, stock, order)
 - **Max 10 line items** — Enforced server-side
 
 ### Inventory
@@ -220,7 +221,8 @@ zabir-boutiques/
 │   ├── islands/               # React islands
 │   │   ├── GuestCheckout.tsx
 │   │   ├── AddToCartButton.tsx
-│   │   └── BottomNav.tsx
+│   │   ├── BottomNav.tsx
+│   │   └── ThemeToggle.tsx
 │   ├── hooks/
 │   │   └── useLocalCart.ts
 │   ├── data/
@@ -240,7 +242,7 @@ zabir-boutiques/
 ├── scripts/
 │   ├── build-static-snapshots.ts  # D1 REST API snapshot generator
 │   └── seed.ts                    # Sample data seeder
-├── tests/                         # 111 Vitest tests across 14 files
+├── tests/                         # 122 Vitest tests across 14 files
 │   ├── checkout.test.ts
 │   ├── security.test.ts
 │   ├── csrf.test.ts
@@ -299,7 +301,7 @@ All 21 tables (migration `0001_initial_v6_8a_schema.sql`):
 | `GET` | `/api/stock/:variantId` | Stock badge (CDN-cached, no KV write) |
 | `POST` | `/api/payments/create` | Initiate UddoktaPay checkout |
 | `POST` | `/api/payments/webhook` | UddoktaPay payment notification |
-| `GET` | `/api/payments/status/:id` | Payment status lookup |
+| `GET` | `/api/payments/status/:id` | Payment status lookup (server-to-server verification) |
 | `POST` | `/api/fraud/check` | FraudBD risk assessment |
 | `POST` | `/api/staff/login` | Staff authentication |
 | `POST` | `/api/staff/logout` | Staff session invalidation |
@@ -310,7 +312,10 @@ All 21 tables (migration `0001_initial_v6_8a_schema.sql`):
 ## Security
 
 - **CSRF**: Double-submit cookie. The CSRF token is a session-independent `nonce.HMAC(nonce)` (random nonce signed with `SESSION_SECRET`), verified with timing-safe comparison. It never embeds the session token or its hash, so an XSS that reads the non-HttpOnly `csrf-token` cookie cannot recover the session token. *(v6.8B fix #3)*
-- **Checkout pricing**: The server loads `price_paisa` from D1 and computes subtotal, delivery, discount (coupons only, via `applyCouponAtomic`), and total. Browser-supplied money fields are ignored. *(v6.8B fix #2)*
+- **Checkout pricing**: The server loads `price_paisa` from D1 and computes subtotal, delivery, discount (coupons only, via `applyCouponAtomic`), and total. Browser-supplied money fields are ignored.
+- **Coupon atomicity**: Claimed coupon usage is atomically released on subsequent failure (fraud block, stock exhaustion, order creation error) via `releaseCouponUsageAtomic`. *(v6.8C)*
+- **Payment initiation race prevention**: Payment creation atomically claims the order (`payment_status = 'processing'`) before calling UddoktaPay, preventing duplicate active invoices. Provider failure resets status back to `pending`. *(v6.8C)*
+- **Webhook alert FK safety**: Amount-mismatch alerts resolve an actual order item variant, not `order_id` injected into `variant_id`. *(v6.8C)*
 - **Sessions**: Raw token in HttpOnly Secure SameSite=Strict cookie; only the HMAC hash is stored in D1
 - **RBAC**: 6-role hierarchy enforced on every staff API route
 - **Rate limiting**: KV-backed sliding window on public API endpoints
@@ -371,7 +376,7 @@ wrangler pages deploy dist --project-name zabir-boutiques
 
 GitHub Actions (`.github/workflows/ci.yml`) runs quality checks on every push and PR:
 - TypeScript type checking (`npm run typecheck`)
-- 111 Vitest tests (`npm test`)
+- 122 Vitest tests (`npm test`)
 - Build verification (`npm run build:with-snapshots`, with D1 snapshots if secrets are available)
 
 Deployment is handled by **Cloudflare Pages native Git integration** — push to `main` and Cloudflare builds + deploys automatically. No API tokens to manage in GitHub.
@@ -427,7 +432,7 @@ Deployment is handled by **Cloudflare Pages native Git integration** — push to
 
 ## Testing
 
-**111 tests across 14 files** covering:
+**122 tests across 14 files** covering:
 
 - Phone normalization (Bangladesh formats)
 - Inventory reservation atomicity and race conditions

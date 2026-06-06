@@ -3,7 +3,6 @@ import Header from "@/components/shell/Header.astro";
 import CategoryRail from "@/components/shell/CategoryRail.astro";
 import Footer from "@/components/shell/Footer.astro";
 import { BottomNav } from "@/islands/BottomNav";
-import { ThemeToggle } from "@/islands/ThemeToggle";
 import "@/styles/global.css";
 
 type Props = {
@@ -59,8 +58,6 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
       </main>
       <Footer />
     </div>
-    <!-- Theme toggle: visible, idle-hydrated (non-critical) -->
-    <ThemeToggle client:idle />
     <!-- Bottom nav: idle-hydrated (not blocking LCP) -->
     <BottomNav client:idle />
   </body>
