@@ -30,6 +30,9 @@ export function GuestCheckout() {
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
   const shippingPaisa = SHIPPING_COST[zone];
   const totalPaisa = addPaisa([cart.subtotalPaisa, shippingPaisa]);
+  const distinctItemCount = cart.items.length;
+  const prepaymentRequired = distinctItemCount > 2 && paymentMethod === "cod";
+  const advancePaisa = prepaymentRequired ? ((totalPaisa + 1) >> 1) : 0;
   const canSubmit = cart.items.length > 0 && name.trim().length >= 2 && normalizedPhone.ok && address.trim().length >= 8 && !isPending;
 
   function submitCheckout() {
@@ -181,6 +184,16 @@ export function GuestCheckout() {
             <div className="flex gap-2 rounded-md border border-[var(--danger)] bg-[var(--danger)]/10 p-3 text-sm font-semibold text-[var(--danger)]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{status.message}</span>
+            </div>
+          ) : null}
+
+          {prepaymentRequired ? (
+            <div className="flex gap-2 rounded-md border border-[var(--brand)] bg-[var(--brand-light)] p-3 text-sm font-semibold text-[var(--ink)]">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" aria-hidden="true" />
+              <div>
+                <p>Orders containing more than two items require a 50% advance payment to confirm the order. The remaining amount can be paid to the delivery person when receiving the parcel.</p>
+                <p className="mt-2 font-black">Advance: {formatPaisa(advancePaisa)} · Balance (COD): {formatPaisa(totalPaisa - advancePaisa)}</p>
+              </div>
             </div>
           ) : null}
 

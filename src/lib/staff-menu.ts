@@ -23,7 +23,8 @@ const ALL: MenuItem[] = [
   { label: 'Support', href: '/staff/support', roles: ['owner-tier', 'manager', 'support'] },
   // Sales
   { label: 'Sales Dashboard', href: '/staff/sales', roles: ['salesman'] },
-  { label: 'Create Order', href: '/staff/sales/new', roles: ['salesman'] },
+  { label: 'Create Order', href: '/staff/sales/new', roles: ['owner-tier', 'manager', 'salesman'] },
+  { label: 'In-Store Order', href: '/staff/sales/instore', roles: ['owner-tier', 'manager', 'salesman'] },
   { label: 'My Orders', href: '/staff/sales/orders', roles: ['salesman'] },
   { label: 'Product Search', href: '/staff/sales/search', roles: ['salesman'] },
   { label: 'Customer Notes', href: '/staff/sales/notes', roles: ['salesman'] },
@@ -36,6 +37,7 @@ const ALL: MenuItem[] = [
   { label: 'Order Search', href: '/staff/support/search', roles: ['support'] },
   { label: 'Escalations', href: '/staff/support/escalations', roles: ['support'] },
   // Owner-only
+  { label: 'Coupon Management', href: '/staff/coupons', roles: ['owner-tier'] },
   { label: 'Staff Users', href: '/staff/users', roles: ['owner-tier'] },
   { label: 'Roles & Permissions', href: '/staff/roles', roles: ['owner-tier'] },
   { label: 'API Code / Developer', href: '/staff/api-code', roles: ['owner-tier'] },

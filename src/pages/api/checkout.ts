@@ -27,6 +27,7 @@ import {
   type CheckoutCartItem
 } from '../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
+import { calculatePrepayment } from '../../lib/prepayment';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -136,6 +137,22 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // 6. Server-computed total. discount never exceeds subtotal + delivery.
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
+
+    // 6b. Prepayment rule: >2 distinct items with COD requires 50% advance.
+    const paymentMethod = body.payment_method ?? 'cod';
+    const prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
+
+    // If prepayment is required, reject pure COD — client must use 'partial_prepay'
+    if (prepayment.required && paymentMethod === 'cod') {
+      await failIdempotency(env.DB, idempotencyKey);
+      return Response.json({
+        ok: false,
+        code: 'PREPAYMENT_REQUIRED',
+        message: prepayment.message,
+        advance_paisa: prepayment.advancePaisa,
+        balance_paisa: prepayment.balancePaisa
+      }, { status: 402 });
+    }
 
     // 7. FraudBD check (Check Courier Info API expects local 01XXXXXXXXX format)
     const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
