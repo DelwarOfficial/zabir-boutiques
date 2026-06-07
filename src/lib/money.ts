@@ -88,3 +88,19 @@ export async function applyCouponAtomic(
     )
   };
 }
+
+/**
+ * Release a previously claimed coupon usage (decrement used_count).
+ * Called when checkout fails AFTER the coupon was atomically claimed
+ * (fraud block, stock exhaustion, order creation error).
+ */
+export async function releaseCouponUsageAtomic(
+  db: D1Database,
+  code: string
+): Promise<void> {
+  await db.prepare(
+    `UPDATE coupons
+     SET used_count = used_count - 1
+     WHERE code = ?1 AND used_count > 0`
+  ).bind(code).run();
+}

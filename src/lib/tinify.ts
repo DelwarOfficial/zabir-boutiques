@@ -44,8 +44,8 @@ export async function compressImage(
     });
 
     if (!res.ok) {
-      const body = await res.json().catch(() => ({}));
-      return { ok: false, error: `Tinify HTTP ${res.status}: ${body?.message ?? res.statusText}` };
+      const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+      return { ok: false, error: `Tinify HTTP ${res.status}: ${(body as any)?.message ?? res.statusText}` };
     }
 
     const locationUrl = res.headers.get('Location');
