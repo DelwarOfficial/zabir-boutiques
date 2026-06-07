@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'roles.manage')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Roles & Permissions" user={user}>
+  <h1>Roles & Permissions</h1>
+  <p style="color:var(--muted);">Define and assign role-based permissions (static matrix — dynamic editing deferred).</p>
+</StaffLayout>

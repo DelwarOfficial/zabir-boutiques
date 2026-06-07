@@ -1,0 +1,61 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "fraud.view")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const flagged = await env.DB.prepare(
+  `SELECT o.id, o.order_number, o.name, o.phone, o.total_paisa, o.fraud_decision, o.created_at,
+          fc.risk_score, fc.decision as fraud_check_decision, fc.created_at as checked_at
+   FROM orders o
+   LEFT JOIN fraud_checks fc ON fc.order_id = o.id
+   WHERE o.fraud_decision IN ('review', 'blocked')
+   ORDER BY o.created_at DESC`
+).all<any>();
+---
+
+<StaffLayout title="Fraud Review" user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Fraud Review</h1>
+    <span style="font-size:0.875rem;color:var(--muted);">{flagged.results?.length || 0} flagged orders</span>
+  </div>
+
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:var(--surface-soft);text-align:left;">
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Order</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Customer</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Total</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Risk Score</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Fraud Decision</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Checked</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Created</th>
+        </tr>
+      </thead>
+      <tbody>
+        {flagged.results?.length ? flagged.results.map(f => <tr style="border-top:1px solid var(--line-soft);">
+          <td style="padding:0.6rem 0.75rem;"><a href={`/staff/orders/${f.id}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{f.order_number}</a></td>
+          <td style="padding:0.6rem 0.75rem;">
+            <div>{f.name}</div>
+            <div style="color:var(--muted);font-size:0.8em;">{f.phone}</div>
+          </td>
+          <td style="padding:0.6rem 0.75rem;font-weight:600;">৳{(f.total_paisa / 100).toFixed(2)}</td>
+          <td style="padding:0.6rem 0.75rem;">
+            <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;font-weight:700;background:${f.risk_score === null ? '#f1f5f9' : f.risk_score > 70 ? '#fee2e2' : f.risk_score > 40 ? '#fef3c7' : '#dcfce7'};color:${f.risk_score === null ? '#475569' : f.risk_score > 70 ? '#991b1b' : f.risk_score > 40 ? '#92400e' : '#166534'};`}>{f.risk_score ?? 'N/A'}</span>
+          </td>
+          <td style="padding:0.6rem 0.75rem;">
+            <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${f.fraud_decision === 'approved' ? '#dcfce7' : f.fraud_decision === 'blocked' ? '#fee2e2' : '#fef3c7'};color:${f.fraud_decision === 'approved' ? '#166534' : f.fraud_decision === 'blocked' ? '#991b1b' : '#92400e'};`}>{f.fraud_decision}</span>
+          </td>
+          <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{f.checked_at || "—"}</td>
+          <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{f.created_at?.split(" ")[0]}</td>
+        </tr>) : <tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--muted);">No flagged orders.</td></tr>}
+      </tbody>
+    </table>
+  </div>
+</StaffLayout>

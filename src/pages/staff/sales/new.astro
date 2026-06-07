@@ -1,0 +1,105 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "orders.create")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const variants = await env.DB.prepare(
+  `SELECT pv.id, pv.sku, pv.size, pv.price_paisa, p.name as product_name, p.id as product_id,
+          ii.quantity, ii.reserved_quantity, (ii.quantity - ii.reserved_quantity) as available
+   FROM product_variants pv
+   JOIN products p ON p.id = pv.product_id
+   JOIN inventory_items ii ON ii.variant_id = pv.id
+   WHERE pv.is_deleted = 0 AND p.status = 'published' AND ii.quantity > ii.reserved_quantity
+   ORDER BY p.name`
+).all<any>();
+---
+<StaffLayout title="Create Order" user={user}>
+  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Create Order</h1>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Customer Details</h2>
+      <form action="/api/staff/orders/create" method="post" style="display:flex;flex-direction:column;gap:0.75rem;">
+        <input type="text" name="name" placeholder="Customer name" required style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;" />
+        <input type="tel" name="phone" placeholder="Phone (e.g. 017xxxxxxxx)" required style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;" />
+        <textarea name="address" placeholder="Delivery address" required style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;min-height:60px;"></textarea>
+        <select name="channel" style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;">
+          <option value="phone">Phone Order</option>
+          <option value="whatsapp">WhatsApp</option>
+          <option value="messenger">Messenger</option>
+          <option value="in_store">In-Store</option>
+        </select>
+        <button type="submit" style="padding:0.5rem 1rem;background:var(--brand);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Submit Order</button>
+      </form>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Available Variants (select + set qty)</h2>
+      <form id="variants-form" style="max-height:380px;overflow-y:auto;">
+        <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+          <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
+            <th style="padding:0.3rem 0.5rem;">Product</th>
+            <th style="padding:0.3rem 0.5rem;">Size</th>
+            <th style="padding:0.3rem 0.5rem;">Price</th>
+            <th style="padding:0.3rem 0.5rem;">Qty</th>
+          </tr></thead>
+          <tbody>
+            {variants.results?.map(v => (
+              <tr style="border-bottom:1px solid var(--line-soft);">
+                <td style="padding:0.3rem 0.5rem;">{v.product_name}</td>
+                <td style="padding:0.3rem 0.5rem;color:var(--muted);">{v.size || "—"}</td>
+                <td style="padding:0.3rem 0.5rem;">৳{(v.price_paisa/100).toFixed(2)}</td>
+                <td style="padding:0.3rem 0.5rem;">
+                  <input type="number" class="variant-qty" data-variant-id={v.id} min="0" max={v.available} value="0" style="width:60px;padding:0.2rem 0.4rem;border:1px solid var(--line);border-radius:4px;font-size:0.8rem;" />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </form>
+      <p style="font-size:0.7rem;color:var(--muted);margin-top:0.5rem;">Set quantities above. They will be included when you submit the order on the left.</p>
+    </div>
+  </div>
+<script>
+  // Enhance create order form: collect variant qtys + send as proper JSON + CSRF header
+  const customerForm = document.querySelector('form[action="/api/staff/orders/create"]');
+  if (customerForm) {
+    customerForm.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const formData = new FormData(customerForm as HTMLFormElement);
+      const items: Array<{variantId: string; qty: number}> = [];
+      document.querySelectorAll('.variant-qty').forEach((inp: any) => {
+        const qty = parseInt(inp.value || '0', 10);
+        if (qty > 0 && inp.dataset?.variantId) {
+          items.push({ variantId: inp.dataset.variantId, qty });
+        }
+      });
+      const body = {
+        channel: formData.get('channel'),
+        phone: formData.get('phone'),
+        name: formData.get('name'),
+        address: formData.get('address'),
+        items
+      };
+      const csrfMatch = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      const csrf = csrfMatch ? decodeURIComponent(csrfMatch[1]) : '';
+      const res = await fetch('/api/staff/orders/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
+        body: JSON.stringify(body)
+      });
+      const json: any = await res.json().catch(() => ({}));
+      if (res.ok && json.ok) {
+        alert('Order created: ' + json.order_number);
+        window.location.href = '/staff/sales/orders';
+      } else {
+        alert(json.message || json.error || 'Failed to create order');
+      }
+    });
+  }
+</script>
+</StaffLayout>

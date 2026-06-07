@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'support.view')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Escalations" user={user}>
+  <h1>Escalations</h1>
+  <p style="color:var(--muted);">Support tickets and escalated customer issues requiring attention.</p>
+</StaffLayout>

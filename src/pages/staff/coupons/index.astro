@@ -1,0 +1,56 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, isOwnerTier } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!isOwnerTier(user.role)) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const coupons = await env.DB.prepare(
+  `SELECT c.*, s.full_name as created_by_name
+   FROM coupons c
+   LEFT JOIN staff_users s ON s.id = c.created_by
+   ORDER BY c.created_at DESC`
+).all<any>();
+---
+
+<StaffLayout title="Coupons" user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Coupon Management</h1>
+    <span style="font-size:0.875rem;color:var(--muted);">{coupons.results?.length || 0} coupons</span>
+  </div>
+
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:var(--surface-soft);text-align:left;">
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Code</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Type</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Discount</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Min Order</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Used</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Limit</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Expires</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Active</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Created By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {coupons.results?.length ? coupons.results.map(c => <tr style="border-top:1px solid var(--line-soft);">
+          <td style="padding:0.6rem 0.75rem;font-family:monospace;font-weight:700;">{c.code}</td>
+          <td style="padding:0.6rem 0.75rem;">{c.discount_type}</td>
+          <td style="padding:0.6rem 0.75rem;font-weight:600;">{c.discount_type === 'percentage' ? `${c.discount_percent}%${c.max_discount_paisa ? ` (max ৳${(c.max_discount_paisa/100).toFixed(0)})` : ''}` : `৳${(c.discount_amount_paisa/100).toFixed(2)}`}</td>
+          <td style="padding:0.6rem 0.75rem;">{c.min_order_paisa ? `৳${(c.min_order_paisa/100).toFixed(2)}` : '—'}</td>
+          <td style="padding:0.6rem 0.75rem;text-align:center;">{c.used_count}</td>
+          <td style="padding:0.6rem 0.75rem;text-align:center;">{c.usage_limit ?? '∞'}</td>
+          <td style="padding:0.6rem 0.75rem;color:var(--muted);">{c.expires_at ? c.expires_at.split(' ')[0] : '—'}</td>
+          <td style="padding:0.6rem 0.75rem;"><span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${c.is_active ? '#dcfce7' : '#fee2e2'};color:${c.is_active ? '#166534' : '#991b1b'};`}>{c.is_active ? 'Yes' : 'No'}</span></td>
+          <td style="padding:0.6rem 0.75rem;color:var(--muted);">{c.created_by_name || '—'}</td>
+        </tr>) : <tr><td colspan="9" style="padding:2rem;text-align:center;color:var(--muted);">No coupons found.</td></tr>}
+      </tbody>
+    </table>
+  </div>
+</StaffLayout>

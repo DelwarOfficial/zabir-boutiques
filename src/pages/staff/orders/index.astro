@@ -1,0 +1,114 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "orders.view")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const { searchParams } = new URL(Astro.request.url);
+const statusFilter = searchParams.get("status") || "";
+const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
+const limit = 25;
+const offset = (page - 1) * limit;
+
+let where = "WHERE 1=1";
+const bindings: unknown[] = [];
+if (statusFilter) {
+  where += " AND o.status = ?";
+  bindings.push(statusFilter);
+}
+
+const countRow = await env.DB.prepare(`SELECT COUNT(*) as total FROM orders o ${where}`).bind(...bindings).first<{ total: number }>();
+const totalOrders = countRow?.total ?? 0;
+const totalPages = Math.max(1, Math.ceil(totalOrders / limit));
+
+const orders = await env.DB.prepare(
+  `SELECT o.id, o.order_number, o.name, o.phone, o.total_paisa, o.payment_method, o.payment_status, o.status, o.fraud_decision, o.order_channel, o.created_at,
+          s.full_name as created_by_name
+   FROM orders o
+   LEFT JOIN staff_users s ON s.id = o.created_by
+   ${where}
+   ORDER BY o.created_at DESC
+   LIMIT ? OFFSET ?`
+).bind(...bindings, limit, offset).all<{
+  id: string; order_number: string; name: string; phone: string; total_paisa: number;
+  payment_method: string; payment_status: string; status: string; fraud_decision: string;
+  order_channel: string; created_at: string; created_by_name: string | null;
+}>();
+
+const statuses = ["pending_review", "pending_payment", "payment_verified", "paid_over_allocated", "staff_confirmed", "packing", "shipped", "delivered", "cancelled", "refunded"];
+
+const badge: Record<string, string> = {
+  pending_review: "#f59e0b", pending_payment: "#f59e0b", payment_verified: "#3b82f6",
+  paid_over_allocated: "#8b5cf6", staff_confirmed: "#06b6d4", packing: "#06b6d4",
+  shipped: "#6366f1", delivered: "#22c55e", cancelled: "#ef4444", refunded: "#64748b",
+};
+---
+
+<StaffLayout title="Orders" user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Orders</h1>
+    <span style="font-size:0.875rem;color:var(--muted);">{totalOrders} total</span>
+  </div>
+
+  <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
+    <a href="/staff/orders" style={`padding:0.35rem 0.75rem;border-radius:6px;font-size:0.8rem;text-decoration:none;${!statusFilter ? 'background:var(--brand);color:#fff;' : 'background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);'}`}>All</a>
+    {statuses.map(s => (
+      <a href={`/staff/orders?status=${s}`} style={`padding:0.35rem 0.75rem;border-radius:6px;font-size:0.8rem;text-decoration:none;${statusFilter === s ? 'background:var(--brand);color:#fff;' : 'background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);'}`}>{s.replace(/_/g, " ")}</a>
+    ))}
+  </div>
+
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:var(--surface-soft);text-align:left;">
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Order</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Customer</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Total</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Payment</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Channel</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Fraud</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Created</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">By</th>
+        </tr>
+      </thead>
+      <tbody>
+        {orders.results?.length ? orders.results.map(o => (
+          <tr style="border-top:1px solid var(--line-soft);">
+            <td style="padding:0.6rem 0.75rem;"><a href={`/staff/orders/${o.id}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{o.order_number}</a></td>
+            <td style="padding:0.6rem 0.75rem;">
+              <div>{o.name}</div>
+              <div style="color:var(--muted);font-size:0.8em;">{o.phone}</div>
+            </td>
+            <td style="padding:0.6rem 0.75rem;font-weight:600;">{(o.total_paisa / 100).toFixed(2)}</td>
+            <td style="padding:0.6rem 0.75rem;">
+              <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${o.payment_status === 'paid' || o.payment_status === 'partially_paid' ? '#dcfce7' : o.payment_status === 'failed' ? '#fee2e2' : '#fef3c7'};color:${o.payment_status === 'paid' || o.payment_status === 'partially_paid' ? '#166534' : o.payment_status === 'failed' ? '#991b1b' : '#92400e'};`}>{o.payment_method}{o.payment_status !== 'paid' ? ` (${o.payment_status})` : ''}</span>
+            </td>
+            <td style="padding:0.6rem 0.75rem;">
+              <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${badge[o.status] || '#f1f5f9'}22;color:${badge[o.status] || '#475569'};`}>{o.status.replace(/_/g, " ")}</span>
+            </td>
+            <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.order_channel}</td>
+            <td style="padding:0.6rem 0.75rem;">
+              <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${o.fraud_decision === 'approved' ? '#dcfce7' : o.fraud_decision === 'blocked' ? '#fee2e2' : '#fef3c7'};color:${o.fraud_decision === 'approved' ? '#166534' : o.fraud_decision === 'blocked' ? '#991b1b' : '#92400e'};`}>{o.fraud_decision}</span>
+            </td>
+            <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.created_at?.split(" ")[0]}</td>
+            <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.created_by_name || "—"}</td>
+          </tr>
+        )) : <tr><td colspan="9" style="padding:2rem;text-align:center;color:var(--muted);">No orders found.</td></tr>}
+      </tbody>
+    </table>
+  </div>
+
+  {totalPages > 1 && (
+    <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1.5rem;">
+      {Array.from({ length: totalPages }, (_, i) => (
+        <a href={`/staff/orders?page=${i + 1}${statusFilter ? `&status=${statusFilter}` : ""}`} style={`padding:0.35rem 0.7rem;border-radius:6px;text-decoration:none;font-size:0.85rem;${page === i + 1 ? 'background:var(--brand);color:#fff;' : 'background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);'}`}>{i + 1}</a>
+      ))}
+    </div>
+  )}
+</StaffLayout>

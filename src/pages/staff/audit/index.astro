@@ -1,0 +1,46 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "system.audit.view")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const page = Math.max(1, parseInt(new URL(Astro.request.url).searchParams.get("page") || "1", 10));
+const limit = 50;
+const logs = await env.DB.prepare(
+  `SELECT al.*, s.full_name as actor_name
+   FROM audit_log al
+   LEFT JOIN staff_users s ON s.id = al.actor_staff_id
+   ORDER BY al.created_at DESC LIMIT ? OFFSET ?`
+).bind(limit, (page - 1) * limit).all<any>();
+---
+<StaffLayout title="Audit Logs" user={user}>
+  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Audit Logs</h1>
+  <p style="color:var(--muted);margin-bottom:1rem;font-size:0.85rem;">All staff actions recorded for security and compliance.</p>
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+      <thead><tr style="background:var(--surface-soft);text-align:left;">
+        <th style="padding:0.4rem 0.6rem;">Date</th>
+        <th style="padding:0.4rem 0.6rem;">Staff</th>
+        <th style="padding:0.4rem 0.6rem;">Action</th>
+        <th style="padding:0.4rem 0.6rem;">Entity</th>
+        <th style="padding:0.4rem 0.6rem;">IP</th>
+      </tr></thead>
+      <tbody>{logs.results?.map(l => <tr style="border-top:1px solid var(--line-soft);">
+        <td style="padding:0.4rem 0.6rem;white-space:nowrap;">{l.created_at}</td>
+        <td style="padding:0.4rem 0.6rem;">{l.actor_name || l.actor_role || "—"}</td>
+        <td style="padding:0.4rem 0.6rem;font-family:monospace;">{l.action}</td>
+        <td style="padding:0.4rem 0.6rem;color:var(--muted);">{l.entity_type}/{l.entity_id?.substring(0, 8)}</td>
+        <td style="padding:0.4rem 0.6rem;font-family:monospace;font-size:0.75rem;">{l.ip_address || "—"}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>
+  <div style="margin-top:1rem;display:flex;gap:0.5rem;">
+    {page > 1 && <a href={`/staff/audit?page=${page - 1}`} style="padding:0.35rem 0.75rem;border:1px solid var(--line);border-radius:6px;text-decoration:none;font-size:0.85rem;">&larr; Previous</a>}
+    <a href={`/staff/audit?page=${page + 1}`} style="padding:0.35rem 0.75rem;border:1px solid var(--line);border-radius:6px;text-decoration:none;font-size:0.85rem;">Next &rarr;</a>
+  </div>
+</StaffLayout>

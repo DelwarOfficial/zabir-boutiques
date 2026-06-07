@@ -39,9 +39,17 @@ export async function POST(context: APIContext): Promise<Response> {
     throw err;
   }
 
-  let body: any;
-  try { body = await context.request.json(); } catch {
-    return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
+  let body: any = {};
+  try {
+    const contentType = context.request.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      body = await context.request.json();
+    } else {
+      const form = await context.request.formData();
+      body = Object.fromEntries(form.entries());
+    }
+  } catch {
+    return Response.json({ error: 'Invalid request body' }, { status: 400 });
   }
 
   // Validate channel

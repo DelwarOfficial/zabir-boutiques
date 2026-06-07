@@ -1,0 +1,28 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "settings.manage")) return new Response("Forbidden", { status: 403 });
+---
+<StaffLayout title="Site Settings" user={user}>
+  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Site Settings</h1>
+  <p style="color:var(--muted);margin-bottom:1rem;">Platform configuration, shipping rates, payment gateways, and feature flags.</p>
+  <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;" id="settings-table">
+      <thead><tr style="border-bottom:1px solid var(--line);text-align:left;"><th style="padding:0.5rem 0.75rem;">Key</th><th style="padding:0.5rem 0.75rem;">Value</th><th style="padding:0.5rem 0.75rem;">Group</th></tr></thead>
+      <tbody id="settings-body"><tr><td colspan="3" style="padding:1rem;text-align:center;color:var(--muted);">Loading...</td></tr></tbody>
+    </table>
+  </div>
+  <script>
+    fetch('/api/staff/settings').then(r => r.json()).then((data: any) => {
+      const tbody = document.getElementById('settings-body') as HTMLElement | null;
+      if (tbody && data?.settings?.length) {
+        tbody.innerHTML = data.settings.map((s: any) => `<tr style="border-bottom:1px solid var(--line-soft);"><td style="padding:0.5rem 0.75rem;font-family:monospace;">${s.key}</td><td style="padding:0.5rem 0.75rem;">${s.value}</td><td style="padding:0.5rem 0.75rem;color:var(--muted);">${s.group_name}</td></tr>`).join('');
+      } else if (tbody) {
+        tbody.innerHTML = '<tr><td colspan="3" style="padding:1rem;text-align:center;color:var(--muted);">No settings found.</td></tr>';
+      }
+    }).catch(() => {});
+  </script>
+</StaffLayout>

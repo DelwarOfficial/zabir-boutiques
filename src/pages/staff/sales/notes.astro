@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'support.note')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Customer Notes" user={user}>
+  <h1>Customer Notes</h1>
+  <p style="color:var(--muted);">View and add customer notes across all orders.</p>
+</StaffLayout>

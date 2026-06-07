@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'system.api_code.manage')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="API Code" user={user}>
+  <h1>API Code / Developer</h1>
+  <p style="color:var(--muted);">API keys, webhook secrets, and developer configuration.</p>
+</StaffLayout>

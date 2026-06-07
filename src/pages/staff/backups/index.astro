@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'system.backup.manage')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Backups" user={user}>
+  <h1>Backups</h1>
+  <p style="color:var(--muted);">Database and media backups — schedule, download, and restore.</p>
+</StaffLayout>

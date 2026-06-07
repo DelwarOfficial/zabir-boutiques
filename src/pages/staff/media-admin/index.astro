@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Media / R2 Admin" user={user}>
+  <h1>Media / R2 Admin</h1>
+  <p style="color:var(--muted);">Full R2 bucket management — browse, delete, and review stored media.</p>
+</StaffLayout>

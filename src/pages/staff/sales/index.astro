@@ -1,0 +1,24 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'orders.view')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Sales Dashboard" user={user}>
+  <h1 style="margin:0 0 0.5rem;font-size:1.25rem;font-weight:700;">Sales Dashboard</h1>
+  <p style="color:var(--muted);margin-bottom:1rem;">Quick access for sales staff. Use the links below or the left menu.</p>
+
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+    <a href="/staff/sales/new" style="padding:0.6rem 1rem;background:var(--brand);color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">Create Phone / Messenger Order</a>
+    <a href="/staff/sales/instore" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">In-Store Sale</a>
+    <a href="/staff/sales/orders" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">My Orders</a>
+    <a href="/staff/sales/search" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Product Search</a>
+    <a href="/staff/sales/notes" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Customer Notes</a>
+  </div>
+
+  <div style="margin-top:1.5rem;color:var(--muted);font-size:0.85rem;">
+    Tip: All created orders flow into the main Orders queue for manager review and packing.
+  </div>
+</StaffLayout>

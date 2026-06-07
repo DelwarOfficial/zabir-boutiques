@@ -1,0 +1,18 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "media.upload")) return new Response("Forbidden", { status: 403 });
+---
+<StaffLayout title="Media Upload" user={user}>
+  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Media Upload</h1>
+  <p style="color:var(--muted);margin-bottom:1rem;">Upload product images. Images are automatically compressed and WebP thumbnails generated.</p>
+  <div style="background:var(--surface);border:2px dashed var(--line);border-radius:8px;padding:2rem;text-align:center;">
+    <form action="/api/staff/uploads" method="post" enctype="multipart/form-data" style="display:flex;flex-direction:column;align-items:center;gap:1rem;">
+      <input type="file" name="file" accept="image/*" required style="font-size:0.9rem;" />
+      <button type="submit" style="padding:0.5rem 1.5rem;background:var(--brand);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Upload</button>
+    </form>
+  </div>
+</StaffLayout>

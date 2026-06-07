@@ -1,0 +1,63 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "products.manage")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const products = await env.DB.prepare(
+  `SELECT p.id, p.name, p.slug, p.price_paisa, p.compare_price_paisa, p.status, p.is_featured, p.created_at,
+          c.name as category_name,
+          (SELECT COUNT(*) FROM product_variants WHERE product_id = p.id AND is_deleted = 0) as variant_count,
+          (SELECT COALESCE(SUM(quantity), 0) FROM inventory_items ii JOIN product_variants pv ON pv.id = ii.variant_id WHERE pv.product_id = p.id) as total_stock
+   FROM products p
+   LEFT JOIN categories c ON c.id = p.category_id
+   ORDER BY p.created_at DESC`
+).all<any>();
+---
+
+<StaffLayout title="Products" user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Products</h1>
+    <span style="font-size:0.875rem;color:var(--muted);">{products.results?.length || 0} products</span>
+  </div>
+
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:var(--surface-soft);text-align:left;">
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Name</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Category</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Price</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Compare</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Variants</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Stock</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Featured</th>
+        </tr>
+      </thead>
+      <tbody>
+        {products.results?.length ? products.results.map(p => <tr style="border-top:1px solid var(--line-soft);">
+          <td style="padding:0.6rem 0.75rem;">
+            <a href={`/products/${p.slug}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{p.name}</a>
+          </td>
+          <td style="padding:0.6rem 0.75rem;color:var(--muted);">{p.category_name || "—"}</td>
+          <td style="padding:0.6rem 0.75rem;font-weight:600;">৳{(p.price_paisa / 100).toFixed(2)}</td>
+          <td style="padding:0.6rem 0.75rem;color:var(--muted);">{p.compare_price_paisa ? `৳${(p.compare_price_paisa / 100).toFixed(2)}` : "—"}</td>
+          <td style="padding:0.6rem 0.75rem;text-align:center;">{p.variant_count}</td>
+          <td style="padding:0.6rem 0.75rem;text-align:center;">
+            <span style={`font-weight:600;color:${p.total_stock === 0 ? 'var(--danger)' : p.total_stock < 20 ? '#f59e0b' : 'var(--success)'};`}>{p.total_stock}</span>
+          </td>
+          <td style="padding:0.6rem 0.75rem;">
+            <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${p.status === 'published' ? '#dcfce7' : p.status === 'archived' ? '#fee2e2' : '#fef3c7'};color:${p.status === 'published' ? '#166534' : p.status === 'archived' ? '#991b1b' : '#92400e'};`}>{p.status}</span>
+          </td>
+          <td style="padding:0.6rem 0.75rem;text-align:center;">{p.is_featured ? "⭐" : "—"}</td>
+        </tr>) : <tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--muted);">No products found.</td></tr>}
+      </tbody>
+    </table>
+  </div>
+</StaffLayout>

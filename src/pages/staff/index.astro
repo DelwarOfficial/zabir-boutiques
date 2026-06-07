@@ -1,71 +1,130 @@
 ---
 /**
- * Staff Dashboard — SSR [v6.8A]
- * Server-side session check + role-aware menu. RBAC enforced on every route.
+ * Staff Dashboard — SSR [v6.8D]
+ * Real overview with role-aware stats, quick actions, and recent items.
+ * Server-side session + RBAC.
  */
 export const prerender = false;
 
-import { getCurrentStaffUser } from '../../lib/rbac';
-import { menuForRole } from '../../lib/staff-menu';
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../lib/rbac';
+import { getEnv } from '../../lib/env';
+import { nowSql } from '../../lib/dates';
 
 const user = await getCurrentStaffUser(Astro);
-
 if (!user) {
   return Astro.redirect('/staff/login');
 }
 
-const menu = menuForRole(user.role);
+const env = getEnv(Astro);
+const today = nowSql().slice(0, 10);
+
 const roleLabel: Record<string, string> = {
   super_admin: 'Super Admin',
   owner: 'Owner',
   manager: 'Manager',
   salesman: 'Sales Staff',
   packing: 'Packing Staff',
-  support: 'Support'
+  support: 'Support',
 };
----
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Staff Dashboard — Zabir Boutiques</title>
-  </head>
-  <body>
-    <header style="display:flex;justify-content:space-between;align-items:center;padding:1rem;border-bottom:1px solid #ddd;">
-      <strong>Zabir Boutiques — Staff</strong>
-      <span style="display:flex;align-items:center;gap:1rem;">
-        <span>{user.fullName} · {roleLabel[user.role] ?? user.role}</span>
-        <button id="logout-btn" type="button">Sign out</button>
-      </span>
-    </header>
-    <div style="display:flex;gap:2rem;padding:1rem;">
-      <nav aria-label="Staff navigation" style="min-width:220px;">
-        <ul style="list-style:none;padding:0;">
-          {menu.map((item) => (
-            <li style="margin:0.4rem 0;"><a href={item.href}>{item.label}</a></li>
+// Summary queries (lightweight)
+const pendingReview = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE status = 'pending_review'`).first<{c:number}>();
+const packingQueue = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE status = 'staff_confirmed' OR status = 'packing'`).first<{c:number}>();
+const lowStockAlerts = await env.DB.prepare(`SELECT COUNT(*) as c FROM low_stock_alerts WHERE is_acknowledged = 0`).first<{c:number}>();
+const todayOrders = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE created_at >= ?`).bind(today + ' 00:00:00').first<{c:number}>();
+
+const recentOrders = await env.DB.prepare(
+  `SELECT id, order_number, name, total_paisa, status, created_at FROM orders ORDER BY created_at DESC LIMIT 6`
+).all<any>();
+
+const flagged = await env.DB.prepare(
+  `SELECT id, order_number, name, fraud_decision FROM orders WHERE fraud_decision IN ('review','blocked') ORDER BY created_at DESC LIMIT 5`
+).all<any>();
+
+const canViewOrders = can(user.role, 'orders.view');
+const canManageProducts = can(user.role, 'products.manage');
+const canViewFraud = can(user.role, 'fraud.view');
+const isSales = ['salesman', 'manager', 'owner', 'super_admin'].includes(user.role);
+const isPacking = user.role === 'packing' || can(user.role, 'orders.pack');
+---
+<StaffLayout title="Dashboard" user={user}>
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
+    <div>
+      <h1 style="margin:0;font-size:1.5rem;font-weight:700;">Dashboard</h1>
+      <p style="margin:0.25rem 0 0;color:var(--muted);">Welcome back, {user.fullName} · {roleLabel[user.role] ?? user.role}</p>
+    </div>
+    <div style="font-size:0.8rem;color:var(--muted);text-align:right;">{today}</div>
+  </div>
+
+  <!-- Quick Stats -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
+      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Today's Orders</div>
+      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;">{todayOrders?.c ?? 0}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
+      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Pending Review</div>
+      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;color:#f59e0b;">{pendingReview?.c ?? 0}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
+      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Packing Queue</div>
+      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;color:#06b6d4;">{packingQueue?.c ?? 0}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
+      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Low Stock Alerts</div>
+      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;color:#ef4444;">{lowStockAlerts?.c ?? 0}</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-bottom:1.5rem;">
+    <!-- Recent Orders -->
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
+        <h2 style="margin:0;font-size:0.95rem;font-weight:600;">Recent Orders</h2>
+        {canViewOrders && <a href="/staff/orders" style="font-size:0.75rem;color:var(--brand);text-decoration:none;">View all →</a>}
+      </div>
+      {recentOrders.results?.length ? (
+        <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
+          <tbody>
+            {recentOrders.results.map(o => (
+              <tr style="border-top:1px solid var(--line-soft);">
+                <td style="padding:0.35rem 0;"><a href={`/staff/orders/${o.id}`} style="color:var(--brand);font-weight:600;text-decoration:none;">{o.order_number}</a></td>
+                <td style="padding:0.35rem 0;color:var(--muted);">{o.name}</td>
+                <td style="padding:0.35rem 0;text-align:right;font-weight:600;">৳{(o.total_paisa/100).toFixed(0)}</td>
+                <td style="padding:0.35rem 0 0.35rem 0.5rem;color:var(--muted);font-size:0.7rem;">{o.created_at?.split(' ')[0]}</td>
+                <td style="padding:0.35rem 0;"><span style="font-size:0.65rem;padding:1px 5px;border-radius:3px;background:#f1f5f9;">{o.status.replace(/_/g,' ')}</span></td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      ) : <p style="color:var(--muted);font-size:0.85rem;margin:0.5rem 0;">No orders yet.</p>}
+    </div>
+
+    <!-- Flagged / Quick Actions -->
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="margin:0 0 0.5rem;font-size:0.95rem;font-weight:600;">Attention Needed</h2>
+      {flagged.results?.length && canViewFraud ? (
+        <ul style="margin:0;padding-left:1rem;font-size:0.8rem;">
+          {flagged.results.map(f => (
+            <li style="margin-bottom:0.25rem;"><a href={`/staff/orders/${f.id}`} style="color:var(--brand);">{f.order_number}</a> — {f.name} <span style="color:#b45309;font-size:0.7rem;">({f.fraud_decision})</span></li>
           ))}
         </ul>
-      </nav>
-      <main style="flex:1;">
-        <h1>Dashboard</h1>
-        <p>Welcome, {user.fullName}. You are signed in as <strong>{roleLabel[user.role] ?? user.role}</strong>.</p>
-        <p>Use the navigation to access your authorized areas. All actions are server-side RBAC protected and audit-logged.</p>
-      </main>
+      ) : <p style="color:var(--muted);font-size:0.8rem;margin:0;">No fraud flags.</p>}
+
+      <div style="margin-top:0.75rem;border-top:1px solid var(--line);padding-top:0.5rem;">
+        <div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.25rem;">Quick Actions</div>
+        <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
+          {isSales && <a href="/staff/sales/new" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--brand);color:#fff;border-radius:4px;text-decoration:none;">New Order</a>}
+          {isSales && <a href="/staff/sales/instore" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">In-Store Sale</a>}
+          {isPacking && <a href="/staff/packing" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">Packing Queue</a>}
+          {canManageProducts && <a href="/staff/products" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">Products</a>}
+          {canViewOrders && <a href="/staff/orders" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">All Orders</a>}
+          <a href="/staff/support" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">Support</a>
+        </div>
+      </div>
     </div>
-    <script is:inline>
-      // Logout via double-submit CSRF: send the non-HttpOnly csrf-token cookie
-      // back as the X-CSRF-Token header (required by middleware for non-GET
-      // /api/staff/* routes).
-      document.getElementById('logout-btn')?.addEventListener('click', async () => {
-        const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
-        const csrf = match ? decodeURIComponent(match[1]) : '';
-        await fetch('/api/staff/logout', {
-          method: 'POST',
-          headers: { 'X-CSRF-Token': csrf }
-        });
-        window.location.href = '/staff/login';
-      });
-    </script>
-  </body>
-</html>
+  </div>
+
+  <p style="color:var(--muted);font-size:0.8rem;margin-top:1rem;">All staff actions are audited. Use the left navigation for your full toolset.</p>
+</StaffLayout>

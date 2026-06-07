@@ -1,35 +1,165 @@
 ---
-/**
- * Staff Order Detail — SSR [v6.8A]
- * Requires authenticated staff with orders.view. Mutations enforce RBAC + CSRF via API.
- */
 export const prerender = false;
-
-import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
 
 const user = await getCurrentStaffUser(Astro);
-if (!user) {
-  return Astro.redirect('/staff/login');
-}
-if (!can(user.role, 'orders.view')) {
-  return new Response('Forbidden', { status: 403 });
-}
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "orders.view")) return new Response("Forbidden", { status: 403 });
 
+const env = getEnv(Astro);
 const { id } = Astro.params;
+
+const order = await env.DB.prepare(
+  `SELECT o.*, s.full_name as created_by_name
+   FROM orders o
+   LEFT JOIN staff_users s ON s.id = o.created_by
+   WHERE o.id = ?`
+).bind(id).first<any>();
+
+if (!order) return new Response("Order not found", { status: 404 });
+
+const items = await env.DB.prepare(
+  `SELECT oi.*, pv.sku, COALESCE(pi.r2_key, '') as image_key
+   FROM order_items oi
+   LEFT JOIN product_variants pv ON pv.id = oi.variant_id
+   LEFT JOIN (SELECT variant_id, MIN(r2_key) as r2_key FROM product_images GROUP BY variant_id) pi ON pi.r2_key LIKE '%' || REPLACE(oi.product_name, ' ', '%') || '%'
+   WHERE oi.order_id = ?
+   ORDER BY oi.created_at`
+).bind(id).all<any>();
+
+const payments = await env.DB.prepare(
+  `SELECT * FROM payments WHERE order_id = ? ORDER BY created_at DESC`
+).bind(id).all<any>();
+
+const history = await env.DB.prepare(
+  `SELECT h.*, s.full_name as changed_by_name
+   FROM order_status_history h
+   LEFT JOIN staff_users s ON s.id = h.changed_by
+   WHERE h.order_id = ?
+   ORDER BY h.created_at DESC`
+).bind(id).all<any>();
+
+const userCanConfirm = can(user.role, "orders.confirm");
+const userCanPack = can(user.role, "orders.pack");
+const userCanShip = can(user.role, "orders.ship");
+
+function paisa(n: number): string { return `৳${(n / 100).toFixed(2)}`; }
+
+const statusColors: Record<string, string> = {
+  pending_review: "#f59e0b", pending_payment: "#f59e0b", payment_verified: "#3b82f6",
+  paid_over_allocated: "#8b5cf6", staff_confirmed: "#06b6d4", packing: "#06b6d4",
+  shipped: "#6366f1", delivered: "#22c55e", cancelled: "#ef4444", refunded: "#64748b",
+};
 ---
 
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Order {id} — Staff — Zabir Boutiques</title>
-  </head>
-  <body>
-    <main style="padding:1rem;font-family:system-ui;">
-      <a href="/staff">← Dashboard</a>
-      <h1>Order Detail: {id}</h1>
-      <p>Signed in as {user.fullName} ({user.role}).</p>
-      <p>Order management actions (confirm, pack, ship) are exposed through RBAC + CSRF protected API routes.</p>
-    </main>
-  </body>
-</html>
+<StaffLayout title={`Order ${order.order_number}`} user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <div>
+      <a href="/staff/orders" style="color:var(--muted);font-size:0.85rem;text-decoration:none;">&larr; Orders</a>
+      <h1 style="margin:0.25rem 0 0;font-size:1.25rem;font-weight:700;">{order.order_number}</h1>
+    </div>
+    <span style={`padding:0.35rem 0.75rem;border-radius:6px;font-size:0.8rem;font-weight:600;background:${(statusColors[order.status] || '#f1f5f9')}22;color:${statusColors[order.status] || '#475569'};`}>{order.status.replace(/_/g, " ")}</span>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.5rem;">
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Customer</h2>
+      <div style="font-size:0.9rem;"><strong>{order.name}</strong></div>
+      <div style="color:var(--ink-secondary);font-size:0.85rem;">{order.phone}</div>
+      <div style="color:var(--ink-secondary);font-size:0.85rem;margin-top:0.25rem;">{order.address}</div>
+      {order.note && <div style="margin-top:0.5rem;padding:0.5rem;background:var(--brand-light);border-radius:4px;font-size:0.85rem;">{order.note}</div>}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Payment & Order Info</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.25rem 1rem;font-size:0.85rem;">
+        <span style="color:var(--muted);">Method</span><span>{order.payment_method}</span>
+        <span style="color:var(--muted);">Payment</span><span style={`font-weight:600;color:${order.payment_status === 'paid' || order.payment_status === 'partially_paid' ? 'var(--success)' : order.payment_status === 'failed' ? 'var(--danger)' : 'var(--ink)'};`}>{order.payment_status}</span>
+        <span style="color:var(--muted);">Channel</span><span>{order.order_channel}</span>
+        <span style="color:var(--muted);">Fraud</span><span style={`font-weight:600;color:${order.fraud_decision === 'approved' ? 'var(--success)' : order.fraud_decision === 'blocked' ? 'var(--danger)' : '#f59e0b'};`}>{order.fraud_decision}</span>
+        <span style="color:var(--muted);">Created</span><span>{order.created_at}</span>
+        <span style="color:var(--muted);">By</span><span>{order.created_by_name || "Guest"}</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+    <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Items</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
+        <th style="padding:0.5rem 0.75rem;font-weight:600;">Product</th>
+        <th style="padding:0.5rem 0.75rem;font-weight:600;">Variant</th>
+        <th style="padding:0.5rem 0.75rem;font-weight:600;">Qty</th>
+        <th style="padding:0.5rem 0.75rem;font-weight:600;">Price</th>
+        <th style="padding:0.5rem 0.75rem;font-weight:600;">Total</th>
+      </tr></thead>
+      <tbody>
+        {items.results?.map(i => (
+          <tr style="border-bottom:1px solid var(--line-soft);">
+            <td style="padding:0.5rem 0.75rem;">{i.product_name}</td>
+            <td style="padding:0.5rem 0.75rem;color:var(--muted);">{i.variant_label}</td>
+            <td style="padding:0.5rem 0.75rem;">{i.quantity}</td>
+            <td style="padding:0.5rem 0.75rem;">{paisa(i.unit_price_paisa)}</td>
+            <td style="padding:0.5rem 0.75rem;font-weight:600;">{paisa(i.total_price_paisa)}</td>
+          </tr>
+        ))}
+      </tbody>
+      <tfoot>
+        <tr><td colspan="4" style="padding:0.5rem 0.75rem;text-align:right;color:var(--muted);">Subtotal</td><td style="padding:0.5rem 0.75rem;">{paisa(order.subtotal_paisa)}</td></tr>
+        {order.delivery_paisa > 0 && <tr><td colspan="4" style="padding:0.5rem 0.75rem;text-align:right;color:var(--muted);">Delivery</td><td style="padding:0.5rem 0.75rem;">{paisa(order.delivery_paisa)}</td></tr>}
+        {order.discount_paisa > 0 && <tr><td colspan="4" style="padding:0.5rem 0.75rem;text-align:right;color:var(--muted);">Discount</td><td style="padding:0.5rem 0.75rem;color:var(--success);">-{paisa(order.discount_paisa)}</td></tr>}
+        {order.advance_paisa > 0 && <tr><td colspan="4" style="padding:0.5rem 0.75rem;text-align:right;color:var(--muted);">Advance Paid</td><td style="padding:0.5rem 0.75rem;color:var(--success);">-{paisa(order.advance_paisa)}</td></tr>}
+        <tr style="font-weight:700;border-top:2px solid var(--ink);"><td colspan="4" style="padding:0.5rem 0.75rem;text-align:right;">Total</td><td style="padding:0.5rem 0.75rem;">{paisa(order.total_paisa)}</td></tr>
+        {order.balance_paisa > 0 && <tr><td colspan="4" style="padding:0.5rem 0.75rem;text-align:right;color:var(--muted);">Balance Due</td><td style="padding:0.5rem 0.75rem;color:var(--danger);font-weight:600;">{paisa(order.balance_paisa)}</td></tr>}
+      </tfoot>
+    </table>
+  </div>
+
+  {payments.results?.length > 0 && (
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;margin-bottom:1.5rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Payments</h2>
+      <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
+          <th style="padding:0.5rem 0.75rem;">Invoice</th>
+          <th style="padding:0.5rem 0.75rem;">Amount</th>
+          <th style="padding:0.5rem 0.75rem;">Status</th>
+          <th style="padding:0.5rem 0.75rem;">Date</th>
+        </tr></thead>
+        <tbody>{payments.results.map(p => <tr style="border-bottom:1px solid var(--line-soft);">
+          <td style="padding:0.5rem 0.75rem;">{p.invoice_id || "—"}</td>
+          <td style="padding:0.5rem 0.75rem;">{paisa(p.amount_paisa)}</td>
+          <td style="padding:0.5rem 0.75rem;"><span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${p.status === 'paid' ? '#dcfce7' : p.status === 'failed' ? '#fee2e2' : '#fef3c7'};`}>{p.status}</span></td>
+          <td style="padding:0.5rem 0.75rem;color:var(--muted);">{p.created_at}</td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+  )}
+
+  <div style="display:flex;gap:0.5rem;margin-bottom:1.5rem;flex-wrap:wrap;">
+    {userCanConfirm && order.status === "payment_verified" && <form method="post" action={`/api/staff/orders/${order.id}/confirm`} style="display:inline;"><input type="hidden" name="_csrf" value="" /><button type="submit" style="padding:0.5rem 1rem;background:#06b6d4;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Confirm Order</button></form>}
+    {userCanPack && order.status === "staff_confirmed" && <form method="post" action={`/api/staff/orders/${order.id}/pack`} style="display:inline;"><input type="hidden" name="_csrf" value="" /><button type="submit" style="padding:0.5rem 1rem;background:#06b6d4;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Mark Packing</button></form>}
+    {userCanShip && order.status === "packing" && <form method="post" action={`/api/staff/orders/${order.id}/ship`} style="display:inline;"><input type="hidden" name="_csrf" value="" /><button type="submit" style="padding:0.5rem 1rem;background:#6366f1;color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Mark Shipped</button></form>}
+    <a href={`/api/staff/orders/${order.id}/label`} target="_blank" style="padding:0.5rem 1rem;background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);border-radius:6px;cursor:pointer;font-weight:600;text-decoration:none;font-size:0.85rem;">Print Label</a>
+  </div>
+
+  <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+    <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Status History</h2>
+    {history.results?.length ? <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
+        <th style="padding:0.5rem 0.75rem;">From</th>
+        <th style="padding:0.5rem 0.75rem;">To</th>
+        <th style="padding:0.5rem 0.75rem;">Changed By</th>
+        <th style="padding:0.5rem 0.75rem;">Note</th>
+        <th style="padding:0.5rem 0.75rem;">Date</th>
+      </tr></thead>
+      <tbody>{history.results.map(h => <tr style="border-bottom:1px solid var(--line-soft);">
+        <td style="padding:0.5rem 0.75rem;">{h.from_status || "—"}</td>
+        <td style="padding:0.5rem 0.75rem;font-weight:600;">{h.to_status}</td>
+        <td style="padding:0.5rem 0.75rem;">{h.changed_by_name || "System"}</td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);">{h.note || "—"}</td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);">{h.created_at}</td>
+      </tr>)}</tbody>
+    </table> : <p style="color:var(--muted);font-size:0.85rem;">No status history recorded.</p>}
+  </div>
+</StaffLayout>

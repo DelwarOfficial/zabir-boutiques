@@ -1,0 +1,78 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "reports.view")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+
+const [orderStats, revToday, topProducts, statusBreakdown] = await Promise.all([
+  env.DB.prepare(`SELECT COUNT(*) as total, COALESCE(SUM(total_paisa), 0) as revenue FROM orders`).first<any>(),
+  env.DB.prepare(`SELECT COUNT(*) as count, COALESCE(SUM(total_paisa), 0) as revenue FROM orders WHERE date(created_at) = date('now')`).first<any>(),
+  env.DB.prepare(
+    `SELECT oi.product_name, SUM(oi.quantity) as qty, SUM(oi.total_price_paisa) as rev
+     FROM order_items oi GROUP BY oi.product_name ORDER BY rev DESC LIMIT 10`
+  ).all<any>(),
+  env.DB.prepare(
+    `SELECT status, COUNT(*) as count FROM orders GROUP BY status ORDER BY count DESC`
+  ).all<any>(),
+]);
+---
+
+<StaffLayout title="Reports" user={user}>
+  <h1 style="margin:0 0 1.5rem;font-size:1.25rem;font-weight:700;">Reports</h1>
+
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1rem;margin-bottom:1.5rem;">
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <div style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">All Time Orders</div>
+      <div style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;">{orderStats?.total ?? 0}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <div style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">All Time Revenue</div>
+      <div style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;">৳{((orderStats?.revenue ?? 0) / 100).toFixed(2)}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <div style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Today Orders</div>
+      <div style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;">{revToday?.count ?? 0}</div>
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <div style="font-size:0.8rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Today Revenue</div>
+      <div style="font-size:1.5rem;font-weight:700;margin-top:0.25rem;">৳{((revToday?.revenue ?? 0) / 100).toFixed(2)}</div>
+    </div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Top Products</h2>
+      {topProducts.results?.length ? <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
+          <th style="padding:0.4rem 0.5rem;">Product</th>
+          <th style="padding:0.4rem 0.5rem;">Sold</th>
+          <th style="padding:0.4rem 0.5rem;">Revenue</th>
+        </tr></thead>
+        <tbody>{topProducts.results.map(p => <tr style="border-bottom:1px solid var(--line-soft);">
+          <td style="padding:0.4rem 0.5rem;">{p.product_name}</td>
+          <td style="padding:0.4rem 0.5rem;">{p.qty}</td>
+          <td style="padding:0.4rem 0.5rem;font-weight:600;">৳{(p.rev / 100).toFixed(2)}</td>
+        </tr>)}</tbody>
+      </table> : <p style="color:var(--muted);font-size:0.85rem;">No data yet.</p>}
+    </div>
+    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
+      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 0.75rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Orders by Status</h2>
+      {statusBreakdown.results?.length ? <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+        <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
+          <th style="padding:0.4rem 0.5rem;">Status</th>
+          <th style="padding:0.4rem 0.5rem;">Count</th>
+        </tr></thead>
+        <tbody>{statusBreakdown.results.map(s => <tr style="border-bottom:1px solid var(--line-soft);">
+          <td style="padding:0.4rem 0.5rem;">{s.status.replace(/_/g, ' ')}</td>
+          <td style="padding:0.4rem 0.5rem;font-weight:600;">{s.count}</td>
+        </tr>)}</tbody>
+      </table> : <p style="color:var(--muted);font-size:0.85rem;">No data yet.</p>}
+    </div>
+  </div>
+</StaffLayout>

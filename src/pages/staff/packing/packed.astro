@@ -1,0 +1,12 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Packed Orders" user={user}>
+  <h1>Packed Orders</h1>
+  <p style="color:var(--muted);">Orders that have been packed and await courier handoff.</p>
+</StaffLayout>

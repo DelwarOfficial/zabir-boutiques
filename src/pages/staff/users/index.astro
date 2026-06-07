@@ -1,0 +1,42 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "staff.manage")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const staff = await env.DB.prepare(
+  `SELECT id, email, phone, full_name, role, is_active, last_login_at, created_at
+   FROM staff_users ORDER BY created_at DESC`
+).all<any>();
+---
+<StaffLayout title="Staff Users" user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Staff Users</h1>
+    <span style="font-size:0.875rem;color:var(--muted);">{staff.results?.length || 0} users</span>
+  </div>
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead><tr style="background:var(--surface-soft);text-align:left;">
+        <th style="padding:0.5rem 0.75rem;">Name</th>
+        <th style="padding:0.5rem 0.75rem;">Email</th>
+        <th style="padding:0.5rem 0.75rem;">Phone</th>
+        <th style="padding:0.5rem 0.75rem;">Role</th>
+        <th style="padding:0.5rem 0.75rem;">Active</th>
+        <th style="padding:0.5rem 0.75rem;">Last Login</th>
+      </tr></thead>
+      <tbody>{staff.results?.map(s => <tr style="border-top:1px solid var(--line-soft);">
+        <td style="padding:0.5rem 0.75rem;font-weight:600;">{s.full_name}</td>
+        <td style="padding:0.5rem 0.75rem;">{s.email || "—"}</td>
+        <td style="padding:0.5rem 0.75rem;">{s.phone || "—"}</td>
+        <td style="padding:0.5rem 0.75rem;"><span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${s.role === 'super_admin' || s.role === 'owner' ? '#fef3c7' : '#e0f2fe'};color:${s.role === 'super_admin' || s.role === 'owner' ? '#92400e' : '#075985'};`}>{s.role}</span></td>
+        <td style="padding:0.5rem 0.75rem;"><span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${s.is_active ? '#dcfce7' : '#fee2e2'};color:${s.is_active ? '#166534' : '#991b1b'};`}>{s.is_active ? 'Active' : 'Inactive'}</span></td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.8em;">{s.last_login_at || "Never"}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>
+</StaffLayout>

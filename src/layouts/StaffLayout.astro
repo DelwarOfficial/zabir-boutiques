@@ -1,0 +1,102 @@
+---
+export const prerender = false;
+
+import "@/styles/global.css";
+import type { StaffUser } from "@/lib/rbac";
+import { menuForRole } from "@/lib/staff-menu";
+
+type Props = {
+  title: string;
+  user: StaffUser;
+};
+
+const { title, user } = Astro.props;
+const currentPath = Astro.url.pathname;
+const menu = menuForRole(user.role).map(item => ({
+  ...item,
+  active: item.href === currentPath || (item.href !== '/staff' && currentPath.startsWith(item.href)),
+}));
+
+const roleLabel: Record<string, string> = {
+  super_admin: "Super Admin",
+  owner: "Owner",
+  manager: "Manager",
+  salesman: "Sales Staff",
+  packing: "Packing Staff",
+  support: "Support",
+};
+---
+
+<!doctype html>
+<html lang="en" data-theme="light">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="/favicon.ico" />
+    <title>{title} — Zabir Boutiques Staff</title>
+  </head>
+  <body class="font-sans" style="background:var(--bg);color:var(--ink);margin:0;">
+    <header style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1.5rem;background:var(--surface);border-bottom:1px solid var(--line);">
+      <a href="/staff" style="color:var(--brand);font-size:1.125rem;font-weight:700;text-decoration:none;">Zabir Boutiques — Staff</a>
+      <span style="display:flex;align-items:center;gap:1rem;font-size:0.875rem;">
+        <span>{user.fullName} · <span style="color:var(--muted);">{roleLabel[user.role] ?? user.role}</span></span>
+        <button id="logout-btn" type="button" style="padding:0.375rem 0.75rem;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink-secondary);cursor:pointer;font-size:0.875rem;">Sign out</button>
+      </span>
+    </header>
+    <div style="display:flex;gap:0;min-height:calc(100vh - 57px);">
+      <nav aria-label="Staff navigation" style="width:220px;min-width:220px;background:var(--surface-soft);border-right:1px solid var(--line);padding:1rem 0;overflow-y:auto;">
+        <ul style="list-style:none;padding:0;margin:0;">
+          {menu.map((item) => <li><a href={item.href} style={`display:block;padding:0.5rem 1.25rem;color:var(--ink-secondary);text-decoration:none;font-size:0.875rem;border-left:3px solid ${item.active ? 'var(--brand)' : 'transparent'};background:${item.active ? 'var(--brand-glow)' : 'transparent'};font-weight:${item.active ? '600' : '400'};`}>{item.label}</a></li>)}
+        </ul>
+      </nav>
+      <main style="flex:1;padding:1.5rem 2rem;overflow-y:auto;">
+        <slot />
+      </main>
+    </div>
+    <script is:inline>
+      // Logout handler
+      document.getElementById('logout-btn')?.addEventListener('click', async () => {
+        const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+        const csrf = match ? decodeURIComponent(match[1]) : '';
+        await fetch('/api/staff/logout', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': csrf }
+        });
+        window.location.href = '/staff/login';
+      });
+
+      // CSRF enhancer for staff mutation forms (plain <form method="post" action="/api/staff/...">)
+      // Reads the csrf-token cookie (set at login) and adds X-CSRF-Token header.
+      // This makes the action buttons in order detail etc. pass the middleware CSRF check.
+      function getCsrf() {
+        const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+        return m ? decodeURIComponent(m[1]) : '';
+      }
+      document.addEventListener('submit', (e) => {
+        const form = e.target;
+        if (!(form instanceof HTMLFormElement)) return;
+        const action = form.getAttribute('action') || '';
+        if (form.method.toLowerCase() === 'post' && action.includes('/api/staff/')) {
+          const csrf = getCsrf();
+          if (csrf) {
+            // For native submit we can't easily set header, so we hijack to fetch + same behavior.
+            e.preventDefault();
+            const data = new FormData(form);
+            fetch(action, {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': csrf },
+              body: data
+            }).then(res => {
+              if (res.ok) {
+                // Reload to see updated state (or redirect if API returns location)
+                window.location.reload();
+              } else {
+                res.json().then(b => alert(b.error || b.message || 'Action failed')).catch(() => alert('Action failed'));
+              }
+            }).catch(() => alert('Network error'));
+          }
+        }
+      }, true);
+    </script>
+  </body>
+</html>

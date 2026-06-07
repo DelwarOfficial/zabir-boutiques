@@ -1,0 +1,21 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
+---
+<StaffLayout title="Packing Queue" user={user}>
+  <h1 style="margin:0 0 0.5rem;font-size:1.25rem;font-weight:700;">Packing Queue</h1>
+  <p style="color:var(--muted);margin-bottom:1rem;">Orders ready to pack or in progress. Use the specialized packing views.</p>
+
+  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
+    <a href="/staff/packing" style="padding:0.6rem 1rem;background:var(--brand);color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">Current Packing Queue</a>
+    <a href="/staff/packing/packed" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Already Packed</a>
+    <a href="/staff/packing/courier" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Courier Handoff</a>
+    <a href="/staff/packing/slips" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Print Packing Slips</a>
+  </div>
+
+  <p style="margin-top:1rem;color:var(--muted);font-size:0.85rem;">Confirm packing progress via the order detail page actions (manager/packing roles).</p>
+</StaffLayout>

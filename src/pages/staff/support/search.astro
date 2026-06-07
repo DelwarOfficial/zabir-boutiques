@@ -1,0 +1,55 @@
+---
+export const prerender = false;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "orders.view")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+const errors: string[] = [];
+
+const { searchParams } = new URL(Astro.request.url);
+const q = searchParams.get("q") || "";
+let results: any[] = [];
+if (q) {
+  const like = `%${q}%`;
+  const rows = await env.DB.prepare(
+    `SELECT o.id, o.order_number, o.name, o.phone, o.total_paisa, o.status, o.created_at
+     FROM orders o
+     WHERE o.order_number LIKE ? OR o.name LIKE ? OR o.phone LIKE ?
+     ORDER BY o.created_at DESC LIMIT 50`
+  ).bind(like, like, like).all<any>();
+  results = rows.results || [];
+}
+---
+<StaffLayout title="Order Search" user={user}>
+  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Order Search</h1>
+  <form method="get" style="margin-bottom:1.5rem;display:flex;gap:0.5rem;">
+    <input type="text" name="q" value={q} placeholder="Search by order#, name, or phone..." style="flex:1;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;" />
+    <button type="submit" style="padding:0.5rem 1.25rem;background:var(--brand);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Search</button>
+  </form>
+  {errors.length > 0 && <div style="background:#fee2e2;padding:0.75rem;border-radius:6px;margin-bottom:1rem;font-size:0.85rem;">{errors.join(", ")}</div>}
+  {q && <p style="font-size:0.85rem;color:var(--muted);margin-bottom:0.75rem;">{results.length} result(s) for "{q}"</p>}
+  {results.length > 0 && <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead><tr style="background:var(--surface-soft);text-align:left;">
+        <th style="padding:0.5rem 0.75rem;">Order</th>
+        <th style="padding:0.5rem 0.75rem;">Customer</th>
+        <th style="padding:0.5rem 0.75rem;">Total</th>
+        <th style="padding:0.5rem 0.75rem;">Status</th>
+        <th style="padding:0.5rem 0.75rem;">Date</th>
+      </tr></thead>
+      <tbody>{results.map(o => <tr style="border-top:1px solid var(--line-soft);">
+        <td style="padding:0.5rem 0.75rem;"><a href={`/staff/orders/${o.id}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{o.order_number}</a></td>
+        <td style="padding:0.5rem 0.75rem;">{o.name}<br /><span style="color:var(--muted);font-size:0.8em;">{o.phone}</span></td>
+        <td style="padding:0.5rem 0.75rem;font-weight:600;">৳{(o.total_paisa/100).toFixed(2)}</td>
+        <td style="padding:0.5rem 0.75rem;">{o.status.replace(/_/g, ' ')}</td>
+        <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.created_at?.split(' ')[0]}</td>
+      </tr>)}</tbody>
+    </table>
+  </div>}
+  {q && results.length === 0 && <p style="color:var(--muted);">No orders match your search.</p>}
+</StaffLayout>
