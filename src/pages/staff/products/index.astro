@@ -21,15 +21,15 @@ const products = await env.DB.prepare(
 ---
 
 <StaffLayout title="Products" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Products</h1>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">Products</h1>
     <span style="font-size:0.875rem;color:var(--muted);">{products.results?.length || 0} products</span>
   </div>
 
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-sm">
       <thead>
-        <tr style="background:var(--surface-soft);text-align:left;">
+        <tr class="bg-surface-soft text-left">
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Name</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Category</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Price</th>
@@ -41,7 +41,7 @@ const products = await env.DB.prepare(
         </tr>
       </thead>
       <tbody>
-        {products.results?.length ? products.results.map(p => <tr style="border-top:1px solid var(--line-soft);">
+        {products.results?.length ? products.results.map(p => <tr class="border-t border-line-soft">
           <td style="padding:0.6rem 0.75rem;">
             <a href={`/products/${p.slug}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{p.name}</a>
           </td>

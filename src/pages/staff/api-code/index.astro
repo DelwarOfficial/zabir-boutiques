@@ -1,12 +1,96 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
-import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
-if (!can(user.role, 'system.api_code.manage')) return new Response('Forbidden', { status: 403 });
+if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
 ---
-<StaffLayout title="API Code" user={user}>
-  <h1>API Code / Developer</h1>
-  <p style="color:var(--muted);">API keys, webhook secrets, and developer configuration.</p>
+
+<StaffLayout title="API Keys" user={user}>
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">API Keys</h1>
+    <button id="createKeyBtn" style="padding:0.5rem 1rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;" onclick="showCreateForm()">+ New Key</button>
+  </div>
+
+  <div id="createForm" style="display:none;border:1px solid var(--line);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem;background:var(--surface-soft);">
+    <h2 style="font-size:1rem;font-weight:600;margin:0 0 1rem;">Create API Key</h2>
+    <div style="margin-bottom:0.75rem;">
+      <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Key Name</label>
+      <input id="keyName" type="text" placeholder="e.g. checkout-webhook" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+    </div>
+    <div style="display:flex;gap:0.5rem;">
+      <button style="padding:0.5rem 1rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;" onclick="createKey()">Create</button>
+      <button style="padding:0.5rem 1rem;background:transparent;color:var(--text);border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:0.85rem;" onclick="hideCreateForm()">Cancel</button>
+    </div>
+  </div>
+
+  <div id="newKeyResult" style="display:none;border:1px solid #fef08a;border-radius:8px;padding:1.25rem;margin-bottom:1.5rem;background:#fefce8;color:#713f12;font-size:0.85rem;"></div>
+
+  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+      <thead>
+        <tr style="background:var(--surface-soft);text-align:left;">
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Name</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Key Prefix</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Last Used</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Created</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="keysTableBody">
+        <tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">Loading...</td></tr>
+      </tbody>
+    </table>
+  </div>
 </StaffLayout>
+
+<script>
+async function loadKeys() {
+  try {
+    const res = await fetch('/api/staff/api-keys');
+    const data = await res.json();
+    const tbody = document.getElementById('keysTableBody');
+    if (!data.ok || !data.keys?.length) {
+      tbody.innerHTML = `<tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">No API keys found.</td></tr>`;
+      return;
+    }
+    tbody.innerHTML = data.keys.map(k => `<tr style="border-top:1px solid var(--line-soft);">
+      <td style="padding:0.6rem 0.75rem;font-weight:600;">${esc(k.name)}</td>
+      <td style="padding:0.6rem 0.75rem;font-family:monospace;color:var(--muted);">${esc(k.key_prefix)}...</td>
+      <td style="padding:0.6rem 0.75rem;"><span style="padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${k.is_revoked ? '#fee2e2' : '#dcfce7'};color:${k.is_revoked ? '#991b1b' : '#166534'};">${k.is_revoked ? 'Revoked' : 'Active'}</span></td>
+      <td style="padding:0.6rem 0.75rem;color:var(--muted);">${k.last_used_at ? k.last_used_at.split(' ')[0] : '—'}</td>
+      <td style="padding:0.6rem 0.75rem;color:var(--muted);">${k.created_at ? k.created_at.split(' ')[0] : '—'}</td>
+      <td style="padding:0.6rem 0.75rem;">${k.is_revoked ? '' : `<button style="padding:0.25rem 0.5rem;background:#fee2e2;color:#991b1b;border:none;border-radius:4px;cursor:pointer;font-size:0.75rem;" onclick="revokeKey('${k.id}')">Revoke</button>`}</td>
+    </tr>`).join('');
+  } catch { /* tbody stays as-is */ }
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function showCreateForm() { document.getElementById('createForm').style.display = 'block'; document.getElementById('createKeyBtn').style.display = 'none'; }
+function hideCreateForm() { document.getElementById('createForm').style.display = 'none'; document.getElementById('createKeyBtn').style.display = 'block'; }
+async function createKey() {
+  const name = document.getElementById('keyName').value.trim();
+  if (!name) return;
+  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.cookie.split('; ').find(c => c.startsWith('csrf-token='))?.split('=')[1] ?? '' }, body: JSON.stringify({ name }) });
+  const data = await res.json();
+  const resultDiv = document.getElementById('newKeyResult');
+  if (data.ok) {
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `<strong style="display:block;margin-bottom:0.5rem;">Key created successfully. Copy it now — it will not be shown again:</strong><code style="display:block;padding:0.75rem;background:#fff3cd;border-radius:4px;font-size:0.8rem;word-break:break-all;user-select:all;">${esc(data.key.key)}</code>`;
+    hideCreateForm();
+    document.getElementById('keyName').value = '';
+    loadKeys();
+  } else {
+    resultDiv.style.display = 'block';
+    resultDiv.innerHTML = `<strong>Error:</strong> ${esc(data.error || 'Unknown error')}`;
+  }
+}
+async function revokeKey(id) {
+  if (!confirm('Revoke this API key? This cannot be undone.')) return;
+  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.cookie.split('; ').find(c => c.startsWith('csrf-token='))?.split('=')[1] ?? '' }, body: JSON.stringify({ id }) });
+  const data = await res.json();
+  if (data.ok) loadKeys();
+}
+loadKeys();
+</script>

@@ -52,16 +52,21 @@ const products = await d1Query(
      COALESCE(v.price_paisa, p.price_paisa) AS price_paisa,
      COALESCE('/cdn-cgi/image/fit=cover,width=512/' || pi.r2_key, NULL) AS image_url,
      v.id AS variant_id,
-     COALESCE(NULLIF(TRIM(COALESCE(v.size, '') || CASE WHEN v.size IS NOT NULL AND v.color IS NOT NULL THEN ' / ' ELSE '' END || COALESCE(v.color, '')), ''), v.sku) AS variant_label,
+     v.variant_label,
      MAX(0, COALESCE(i.quantity, 0) - COALESCE(i.reserved_quantity, 0)) AS available_quantity
    FROM products p
    JOIN categories c ON c.id = p.category_id
    LEFT JOIN categories parent ON parent.id = c.parent_id
-   JOIN product_variants v ON v.product_id = p.id AND v.is_deleted = 0
+   JOIN (
+     SELECT pv.*,
+       COALESCE(NULLIF(TRIM(COALESCE(pv.size, '') || CASE WHEN pv.size IS NOT NULL AND pv.color IS NOT NULL THEN ' / ' ELSE '' END || COALESCE(pv.color, '')), ''), pv.sku) AS variant_label,
+       ROW_NUMBER() OVER (PARTITION BY pv.product_id ORDER BY pv.created_at ASC) AS rn
+     FROM product_variants pv
+     WHERE pv.is_deleted = 0
+   ) v ON v.product_id = p.id AND v.rn = 1
    LEFT JOIN inventory_items i ON i.variant_id = v.id
    LEFT JOIN product_images pi ON pi.product_id = p.id AND pi.sort_order = 0
    WHERE p.status = 'published'
-   GROUP BY p.id
    ORDER BY p.created_at DESC`
 );
 

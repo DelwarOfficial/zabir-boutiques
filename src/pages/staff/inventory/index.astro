@@ -32,8 +32,8 @@ const alerts = await env.DB.prepare(
 ---
 
 <StaffLayout title="Inventory" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Inventory</h1>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">Inventory</h1>
     <span style="font-size:0.875rem;color:var(--muted);">{inventory.results?.length || 0} items</span>
   </div>
 
@@ -46,10 +46,10 @@ const alerts = await env.DB.prepare(
     </div>
   )}
 
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-sm">
       <thead>
-        <tr style="background:var(--surface-soft);text-align:left;">
+        <tr class="bg-surface-soft text-left">
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Product</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">SKU</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Size / Color</th>
@@ -63,7 +63,7 @@ const alerts = await env.DB.prepare(
       <tbody>
         {inventory.results?.map(i => {
           const available = i.quantity - i.reserved_quantity;
-          return <tr style={`border-top:1px solid var(--line-soft);${i.quantity <= 0 ? 'background:#fef2f2;' : available <= 5 ? 'background:#fffbeb;' : ''}`}>
+          return <tr class={`border-t border-line-soft ${i.quantity <= 0 ? 'bg-red-50' : available <= 5 ? 'bg-amber-50' : ''}`}>
             <td style="padding:0.6rem 0.75rem;"><span style="color:var(--brand);font-weight:600;">{i.product_name}</span></td>
             <td style="padding:0.6rem 0.75rem;font-family:monospace;font-size:0.8rem;">{i.sku}</td>
             <td style="padding:0.6rem 0.75rem;color:var(--muted);">{[i.size, i.color].filter(Boolean).join(" / ") || "—"}</td>

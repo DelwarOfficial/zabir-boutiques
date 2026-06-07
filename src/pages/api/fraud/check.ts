@@ -18,7 +18,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requirePermission(user, 'fraud.view');
+    requirePermission(user, 'fraud.override');
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;

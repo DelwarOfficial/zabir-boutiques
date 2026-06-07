@@ -50,64 +50,74 @@ const badge: Record<string, string> = {
 ---
 
 <StaffLayout title="Orders" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Orders</h1>
-    <span style="font-size:0.875rem;color:var(--muted);">{totalOrders} total</span>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">Orders</h1>
+    <span class="text-sm text-muted">{totalOrders} total</span>
   </div>
 
-  <div style="margin-bottom:1rem;display:flex;gap:0.5rem;flex-wrap:wrap;">
-    <a href="/staff/orders" style={`padding:0.35rem 0.75rem;border-radius:6px;font-size:0.8rem;text-decoration:none;${!statusFilter ? 'background:var(--brand);color:#fff;' : 'background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);'}`}>All</a>
+  <div class="mb-4 flex gap-2 flex-wrap">
+    <a href="/staff/orders" class={`px-3 py-1.5 rounded-md text-xs no-underline ${!statusFilter ? 'bg-brand text-white' : 'bg-surface text-ink-secondary border border-line'}`}>All</a>
     {statuses.map(s => (
-      <a href={`/staff/orders?status=${s}`} style={`padding:0.35rem 0.75rem;border-radius:6px;font-size:0.8rem;text-decoration:none;${statusFilter === s ? 'background:var(--brand);color:#fff;' : 'background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);'}`}>{s.replace(/_/g, " ")}</a>
+      <a href={`/staff/orders?status=${s}`} class={`px-3 py-1.5 rounded-md text-xs no-underline ${statusFilter === s ? 'bg-brand text-white' : 'bg-surface text-ink-secondary border border-line'}`}>
+        {s.replace(/_/g, " ")}
+      </a>
     ))}
   </div>
 
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-sm">
       <thead>
-        <tr style="background:var(--surface-soft);text-align:left;">
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Order</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Customer</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Total</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Payment</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Channel</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Fraud</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Created</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">By</th>
+        <tr class="bg-surface-soft text-left">
+          <th class="px-3 py-2.5 font-semibold">Order</th>
+          <th class="px-3 py-2.5 font-semibold">Customer</th>
+          <th class="px-3 py-2.5 font-semibold">Total</th>
+          <th class="px-3 py-2.5 font-semibold">Payment</th>
+          <th class="px-3 py-2.5 font-semibold">Status</th>
+          <th class="px-3 py-2.5 font-semibold">Channel</th>
+          <th class="px-3 py-2.5 font-semibold">Fraud</th>
+          <th class="px-3 py-2.5 font-semibold">Created</th>
+          <th class="px-3 py-2.5 font-semibold">By</th>
         </tr>
       </thead>
       <tbody>
         {orders.results?.length ? orders.results.map(o => (
-          <tr style="border-top:1px solid var(--line-soft);">
-            <td style="padding:0.6rem 0.75rem;"><a href={`/staff/orders/${o.id}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{o.order_number}</a></td>
-            <td style="padding:0.6rem 0.75rem;">
+          <tr class="border-t border-line-soft">
+            <td class="px-3 py-2.5"><a href={`/staff/orders/${o.id}`} class="text-brand font-semibold no-underline">{o.order_number}</a></td>
+            <td class="px-3 py-2.5">
               <div>{o.name}</div>
-              <div style="color:var(--muted);font-size:0.8em;">{o.phone}</div>
+              <div class="text-muted text-xs">{o.phone}</div>
             </td>
-            <td style="padding:0.6rem 0.75rem;font-weight:600;">{(o.total_paisa / 100).toFixed(2)}</td>
-            <td style="padding:0.6rem 0.75rem;">
-              <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${o.payment_status === 'paid' || o.payment_status === 'partially_paid' ? '#dcfce7' : o.payment_status === 'failed' ? '#fee2e2' : '#fef3c7'};color:${o.payment_status === 'paid' || o.payment_status === 'partially_paid' ? '#166534' : o.payment_status === 'failed' ? '#991b1b' : '#92400e'};`}>{o.payment_method}{o.payment_status !== 'paid' ? ` (${o.payment_status})` : ''}</span>
+            <td class="px-3 py-2.5 font-semibold">৳{(o.total_paisa / 100).toFixed(2)}</td>
+            <td class="px-3 py-2.5">
+              <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${['paid','partially_paid'].includes(o.payment_status) ? 'bg-green-100 text-green-800' : o.payment_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
+                {o.payment_method}{o.payment_status !== 'paid' ? ` (${o.payment_status})` : ''}
+              </span>
             </td>
-            <td style="padding:0.6rem 0.75rem;">
-              <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${badge[o.status] || '#f1f5f9'}22;color:${badge[o.status] || '#475569'};`}>{o.status.replace(/_/g, " ")}</span>
+            <td class="px-3 py-2.5">
+              <span class="inline-block px-1.5 py-0.5 rounded text-[10px]" style={`background:${badge[o.status] || '#f1f5f9'}22;color:${badge[o.status] || '#475569'};`}>
+                {o.status.replace(/_/g, " ")}
+              </span>
             </td>
-            <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.order_channel}</td>
-            <td style="padding:0.6rem 0.75rem;">
-              <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${o.fraud_decision === 'approved' ? '#dcfce7' : o.fraud_decision === 'blocked' ? '#fee2e2' : '#fef3c7'};color:${o.fraud_decision === 'approved' ? '#166534' : o.fraud_decision === 'blocked' ? '#991b1b' : '#92400e'};`}>{o.fraud_decision}</span>
+            <td class="px-3 py-2.5 text-muted text-xs">{o.order_channel}</td>
+            <td class="px-3 py-2.5">
+              <span class="inline-block px-1.5 py-0.5 rounded text-[10px]" style={`background:${o.fraud_decision === 'approved' ? '#dcfce7' : o.fraud_decision === 'blocked' ? '#fee2e2' : '#fef3c7'};color:${o.fraud_decision === 'approved' ? '#166534' : o.fraud_decision === 'blocked' ? '#991b1b' : '#92400e'};`}>
+                {o.fraud_decision}
+              </span>
             </td>
-            <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.created_at?.split(" ")[0]}</td>
-            <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.created_by_name || "—"}</td>
+            <td class="px-3 py-2.5 text-muted text-xs">{o.created_at?.split(" ")[0]}</td>
+            <td class="px-3 py-2.5 text-muted text-xs">{o.created_by_name || "—"}</td>
           </tr>
-        )) : <tr><td colspan="9" style="padding:2rem;text-align:center;color:var(--muted);">No orders found.</td></tr>}
+        )) : <tr><td colspan="9" class="px-4 py-8 text-center text-muted">No orders found.</td></tr>}
       </tbody>
     </table>
   </div>
 
   {totalPages > 1 && (
-    <div style="display:flex;gap:0.5rem;justify-content:center;margin-top:1.5rem;">
+    <div class="flex gap-2 justify-center mt-6">
       {Array.from({ length: totalPages }, (_, i) => (
-        <a href={`/staff/orders?page=${i + 1}${statusFilter ? `&status=${statusFilter}` : ""}`} style={`padding:0.35rem 0.7rem;border-radius:6px;text-decoration:none;font-size:0.85rem;${page === i + 1 ? 'background:var(--brand);color:#fff;' : 'background:var(--surface);color:var(--ink-secondary);border:1px solid var(--line);'}`}>{i + 1}</a>
+        <a href={`/staff/orders?page=${i + 1}${statusFilter ? `&status=${statusFilter}` : ""}`} class={`px-2.5 py-1 rounded text-xs no-underline ${page === i + 1 ? 'bg-brand text-white' : 'bg-surface text-ink-secondary border border-line'}`}>
+          {i + 1}
+        </a>
       ))}
     </div>
   )}

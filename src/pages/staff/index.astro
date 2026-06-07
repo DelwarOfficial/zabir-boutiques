@@ -51,73 +51,79 @@ const perms = {
 ---
 
 <StaffLayout title="Dashboard" user={user}>
-  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1.25rem;">
+  <div class="flex items-center justify-between mb-5">
     <div>
-      <h1 style="margin:0;font-size:1.5rem;font-weight:700;">Dashboard</h1>
-      <p style="margin:0.25rem 0 0;color:var(--muted);">Welcome back, {user.fullName} · {roleLabel[user.role] ?? user.role}</p>
+      <h1 class="m-0 text-2xl font-bold">Dashboard</h1>
+      <p class="mt-1 text-muted">Welcome back, {user.fullName} · {roleLabel[user.role] ?? user.role}</p>
     </div>
-    <div style="font-size:0.8rem;color:var(--muted);text-align:right;">{today}</div>
+    <div class="text-xs text-muted text-right">{today}</div>
   </div>
 
-  {dbError && <div style="background:#fee2e2;color:#991b1b;padding:0.6rem 1rem;border-radius:6px;font-size:0.85rem;margin-bottom:1rem;">{dbError}</div>}
+  {dbError && <div class="bg-red-100 text-red-800 px-4 py-2 rounded-md text-sm mb-4">{dbError}</div>}
 
-  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:0.75rem;margin-bottom:1.5rem;">
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
-      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Today's Orders</div>
-      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;">{stats.todayOrders}</div>
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <div class="text-[10px] uppercase tracking-wider text-muted">Today's Orders</div>
+      <div class="text-3xl font-semibold mt-0.5">{stats.todayOrders}</div>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
-      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Pending Review</div>
-      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;color:#f59e0b;">{stats.pendingReview}</div>
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <div class="text-[10px] uppercase tracking-wider text-muted">Pending Review</div>
+      <div class="text-3xl font-semibold mt-0.5 text-amber-600">{stats.pendingReview}</div>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
-      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Packing Queue</div>
-      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;color:#06b6d4;">{stats.packingQueue}</div>
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <div class="text-[10px] uppercase tracking-wider text-muted">Packing Queue</div>
+      <div class="text-3xl font-semibold mt-0.5 text-cyan-600">{stats.packingQueue}</div>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;">
-      <div style="font-size:0.7rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;">Low Stock Alerts</div>
-      <div style="font-size:1.6rem;font-weight:700;margin-top:0.1rem;color:#ef4444;">{stats.lowStockAlerts}</div>
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <div class="text-[10px] uppercase tracking-wider text-muted">Low Stock Alerts</div>
+      <div class="text-3xl font-semibold mt-0.5 text-red-600">{stats.lowStockAlerts}</div>
     </div>
   </div>
 
-  <div style="display:grid;grid-template-columns:2fr 1fr;gap:1rem;margin-bottom:1.5rem;">
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.5rem;">
-        <h2 style="margin:0;font-size:0.95rem;font-weight:600;">Recent Orders</h2>
-        {perms.orders && <a href="/staff/orders" style="font-size:0.75rem;color:var(--brand);text-decoration:none;">View all →</a>}
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-6">
+    <div class="lg:col-span-3 bg-surface border border-line rounded-lg p-4">
+      <div class="flex justify-between items-center mb-2">
+        <h2 class="m-0 text-base font-semibold">Recent Orders</h2>
+        {perms.orders && <a href="/staff/orders" class="text-sm text-brand no-underline hover:underline">View all →</a>}
       </div>
-      {recentOrders.length > 0 ? <table style="width:100%;font-size:0.8rem;border-collapse:collapse;">
-        <tbody>
-          {recentOrders.map(o => <tr style="border-top:1px solid var(--line-soft);">
-            <td style="padding:0.35rem 0;"><a href={`/staff/orders/${o.id}`} style="color:var(--brand);font-weight:600;text-decoration:none;">{o.order_number}</a></td>
-            <td style="padding:0.35rem 0;color:var(--muted);">{o.name}</td>
-            <td style="padding:0.35rem 0;text-align:right;font-weight:600;">৳{(o.total_paisa/100).toFixed(0)}</td>
-            <td style="padding:0.35rem 0 0.35rem 0.5rem;color:var(--muted);font-size:0.7rem;">{o.created_at?.split(" ")[0]}</td>
-            <td style="padding:0.35rem 0;"><span style="font-size:0.65rem;padding:1px 5px;border-radius:3px;background:#f1f5f9;">{o.status.replace(/_/g," ")}</span></td>
-          </tr>)}
-        </tbody>
-      </table> : <p style="color:var(--muted);font-size:0.85rem;margin:0.5rem 0;">No orders yet.</p>}
+      {recentOrders.length > 0 ? (
+        <div class="overflow-x-auto">
+          <table class="w-full text-sm border-collapse">
+            <tbody>
+              {recentOrders.map(o => (
+                <tr class="border-t border-line-soft">
+                  <td class="py-1.5"><a href={`/staff/orders/${o.id}`} class="text-brand font-medium no-underline">{o.order_number}</a></td>
+                  <td class="py-1.5 text-muted">{o.name}</td>
+                  <td class="py-1.5 text-right font-medium">৳{(o.total_paisa/100).toFixed(0)}</td>
+                  <td class="py-1.5 pl-2 text-xs text-muted">{o.created_at?.split(" ")[0]}</td>
+                  <td class="py-1.5"><span class="text-[10px] px-1.5 py-px rounded bg-line-soft text-ink-secondary">{o.status.replace(/_/g," ")}</span></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : <p class="text-muted text-sm my-2">No orders yet.</p>}
     </div>
 
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
-      <h2 style="margin:0 0 0.5rem;font-size:0.95rem;font-weight:600;">Attention Needed</h2>
+    <div class="lg:col-span-2 bg-surface border border-line rounded-lg p-4">
+      <h2 class="m-0 mb-2 text-base font-semibold">Attention Needed</h2>
       {flagged.length > 0 && perms.fraud
-        ? <ul style="margin:0;padding-left:1rem;font-size:0.8rem;">{flagged.map(f => <li style="margin-bottom:0.25rem;"><a href={`/staff/orders/${f.id}`} style="color:var(--brand);">{f.order_number}</a> — {f.name} <span style="color:#b45309;font-size:0.7rem;">({f.fraud_decision})</span></li>)}</ul>
-        : <p style="color:var(--muted);font-size:0.8rem;margin:0;">No fraud flags.</p>}
+        ? <ul class="text-sm pl-4 m-0">{flagged.map(f => <li class="mb-1"><a href={`/staff/orders/${f.id}`} class="text-brand">{f.order_number}</a> — {f.name} <span class="text-amber-700 text-xs">({f.fraud_decision})</span></li>)}</ul>
+        : <p class="text-muted text-sm m-0">No fraud flags.</p>}
 
-      <div style="margin-top:0.75rem;border-top:1px solid var(--line);padding-top:0.5rem;">
-        <div style="font-size:0.7rem;color:var(--muted);margin-bottom:0.25rem;">Quick Actions</div>
-        <div style="display:flex;flex-wrap:wrap;gap:0.4rem;">
-          {perms.sales && <a href="/staff/sales/new" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--brand);color:#fff;border-radius:4px;text-decoration:none;">New Order</a>}
-          {perms.sales && <a href="/staff/sales/instore" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">In-Store Sale</a>}
-          {perms.packing && <a href="/staff/packing" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">Packing Queue</a>}
-          {perms.products && <a href="/staff/products" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">Products</a>}
-          {perms.orders && <a href="/staff/orders" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">All Orders</a>}
-          <a href="/staff/support" style="font-size:0.75rem;padding:0.25rem 0.6rem;background:var(--surface);border:1px solid var(--line);border-radius:4px;text-decoration:none;">Support</a>
+      <div class="mt-3 pt-3 border-t border-line">
+        <div class="text-xs text-muted mb-1.5">Quick Actions</div>
+        <div class="flex flex-wrap gap-2 text-sm">
+          {perms.sales && <a href="/staff/sales/new" class="px-2.5 py-1 bg-brand text-white rounded text-xs no-underline font-medium">+ New Order</a>}
+          {perms.sales && <a href="/staff/sales/instore" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">In-Store Sale</a>}
+          {perms.packing && <a href="/staff/packing" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">Packing Queue</a>}
+          {perms.products && <a href="/staff/products" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">Products</a>}
+          {perms.orders && <a href="/staff/orders" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">All Orders</a>}
+          <a href="/staff/support" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">Support</a>
         </div>
       </div>
     </div>
   </div>
 
-  <p style="color:var(--muted);font-size:0.8rem;margin-top:1rem;">All staff actions are audited. Use the left navigation for your full toolset.</p>
+  <p class="text-muted text-xs mt-4">All staff actions are audited. Use the left navigation for your full toolset.</p>
 </StaffLayout>

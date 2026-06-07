@@ -20,15 +20,15 @@ const flagged = await env.DB.prepare(
 ---
 
 <StaffLayout title="Fraud Review" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Fraud Review</h1>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">Fraud Review</h1>
     <span style="font-size:0.875rem;color:var(--muted);">{flagged.results?.length || 0} flagged orders</span>
   </div>
 
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-sm">
       <thead>
-        <tr style="background:var(--surface-soft);text-align:left;">
+        <tr class="bg-surface-soft text-left">
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Order</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Customer</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Total</th>
@@ -39,7 +39,7 @@ const flagged = await env.DB.prepare(
         </tr>
       </thead>
       <tbody>
-        {flagged.results?.length ? flagged.results.map(f => <tr style="border-top:1px solid var(--line-soft);">
+        {flagged.results?.length ? flagged.results.map(f => <tr class="border-t border-line-soft">
           <td style="padding:0.6rem 0.75rem;"><a href={`/staff/orders/${f.id}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{f.order_number}</a></td>
           <td style="padding:0.6rem 0.75rem;">
             <div>{f.name}</div>

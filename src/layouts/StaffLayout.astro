@@ -57,24 +57,35 @@ const roleLabel: Record<string, string> = {
       }
     </style>
   </head>
-  <body class="font-sans" style="background:var(--bg);color:var(--ink);margin:0;">
-    <header style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1.5rem;background:var(--surface);border-bottom:1px solid var(--line);">
-      <div style="display:flex;align-items:center;gap:0.75rem;">
-        <button id="sidebar-toggle" class="staff-toggle" type="button" aria-label="Toggle navigation" style="font-size:1.25rem;line-height:1;">☰</button>
-        <a href="/staff" style="color:var(--brand);font-size:1.125rem;font-weight:700;text-decoration:none;">Zabir Boutiques — Staff</a>
+  <body class="bg-bg text-ink font-sans m-0">
+    <header class="flex justify-between items-center px-6 py-3 bg-surface border-b border-line">
+      <div class="flex items-center gap-3">
+        <button id="sidebar-toggle" class="staff-toggle md:hidden text-xl leading-none" type="button" aria-label="Toggle navigation">☰</button>
+        <a href="/staff" class="text-brand text-[1.125rem] font-bold no-underline">Zabir Boutiques — Staff</a>
       </div>
-      <span style="display:flex;align-items:center;gap:1rem;font-size:0.875rem;">
-        <span>{user.fullName} · <span style="color:var(--muted);">{roleLabel[user.role] ?? user.role}</span></span>
-        <button id="logout-btn" type="button" style="padding:0.375rem 0.75rem;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink-secondary);cursor:pointer;font-size:0.875rem;">Sign out</button>
-      </span>
+      <div class="flex items-center gap-4 text-sm">
+        <span>{user.fullName} · <span class="text-muted">{roleLabel[user.role] ?? user.role}</span></span>
+        <button id="logout-btn" type="button" class="px-3 py-1.5 border border-line rounded-md bg-surface text-ink-secondary hover:bg-surface-soft text-sm cursor-pointer">Sign out</button>
+      </div>
     </header>
-    <div style="display:flex;gap:0;min-height:calc(100vh - 57px);">
-      <nav id="sidebar" class="staff-sidebar" aria-label="Staff navigation">
-        <ul style="list-style:none;padding:0;margin:0;">
-          {menu.map((item) => <li><a href={item.href} class={item.active ? 'active' : ''}>{item.label}</a></li>)}
+    <div class="flex min-h-[calc(100vh-57px)]">
+      <nav id="sidebar" class="staff-sidebar w-[220px] min-w-[220px] bg-surface-soft border-r border-line p-4 overflow-y-auto md:static md:translate-x-0" aria-label="Staff navigation">
+        <ul class="list-none p-0 m-0">
+          {menu.map((item) => (
+            <li>
+              <a 
+                href={item.href} 
+                class={`block px-5 py-2 text-sm text-ink-secondary no-underline border-l-3 transition-colors ${item.active 
+                  ? 'border-brand bg-brand-glow font-semibold text-ink' 
+                  : 'border-transparent hover:bg-surface hover:text-ink'}`}
+              >
+                {item.label}
+              </a>
+            </li>
+          ))}
         </ul>
       </nav>
-      <main style="flex:1;padding:1.5rem 2rem;overflow-y:auto;">
+      <main class="flex-1 p-6 overflow-y-auto">
         <slot />
       </main>
     </div>

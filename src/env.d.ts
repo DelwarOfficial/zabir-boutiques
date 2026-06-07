@@ -13,6 +13,7 @@ export type Env = {
   DEEPSEEK_API_KEY: string;
   OPENAI_API_KEY: string;
   SESSION_SECRET: string;
+  PASSWORD_PEPPER: string;
   PUBLIC_SITE_URL: string;
   PUBLIC_SITE_NAME: string;
 };

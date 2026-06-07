@@ -24,17 +24,17 @@ const variants = await env.DB.prepare(
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
     <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
       <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Customer Details</h2>
-      <form action="/api/staff/orders/create" method="post" style="display:flex;flex-direction:column;gap:0.75rem;">
-        <input type="text" name="name" placeholder="Customer name" required style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;" />
-        <input type="tel" name="phone" placeholder="Phone (e.g. 017xxxxxxxx)" required style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;" />
-        <textarea name="address" placeholder="Delivery address" required style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;min-height:60px;"></textarea>
-        <select name="channel" style="padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.9rem;">
+      <form action="/api/staff/orders/create" method="post" class="flex flex-col gap-3">
+        <input type="text" name="name" placeholder="Customer name" required class="control" />
+        <input type="tel" name="phone" placeholder="Phone (e.g. 017xxxxxxxx)" required class="control" />
+        <textarea name="address" placeholder="Delivery address" required class="control min-h-[60px]"></textarea>
+        <select name="channel" class="control">
           <option value="phone">Phone Order</option>
           <option value="whatsapp">WhatsApp</option>
           <option value="messenger">Messenger</option>
           <option value="in_store">In-Store</option>
         </select>
-        <button type="submit" style="padding:0.5rem 1rem;background:var(--brand);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Submit Order</button>
+        <button type="submit" class="mt-1 py-2.5 bg-brand text-white rounded-lg font-semibold text-sm border-0 cursor-pointer">Submit Order</button>
       </form>
     </div>
     <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">

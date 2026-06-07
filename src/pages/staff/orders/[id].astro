@@ -55,7 +55,7 @@ const statusColors: Record<string, string> = {
 ---
 
 <StaffLayout title={`Order ${order.order_number}`} user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
+  <div class="flex justify-between items-center mb-6">
     <div>
       <a href="/staff/orders" style="color:var(--muted);font-size:0.85rem;text-decoration:none;">&larr; Orders</a>
       <h1 style="margin:0.25rem 0 0;font-size:1.25rem;font-weight:700;">{order.order_number}</h1>

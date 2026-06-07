@@ -4,6 +4,8 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
 import { createCsrfToken } from '../../../lib/security';
+import { hashPassword, verifyPassword, legacyHashPassword } from '../../../lib/password';
+import { generateRandomHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 
@@ -38,19 +40,20 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (!staff) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
 
-  // NOTE: Password hashing uses HMAC-SHA256 with SESSION_SECRET.
-  // This is NOT a production-grade password hash — it lacks per-user salt,
-  // slow hashing (PBKDF2/bcrypt/argon2), and reuses the same secret used
-  // for session tokens and CSRF. A production upgrade should:
-  //   1. Add a `password_salt` column to staff_users
-  //   2. Use crypto.subtle.deriveKey with PBKDF2
-  //   3. Use a separate secret (PASSWORD_PEPPER) distinct from SESSION_SECRET
-  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(env.SESSION_SECRET), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const passwordSig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(password));
-  const passwordHash = Array.from(new Uint8Array(passwordSig)).map(b => b.toString(16).padStart(2, '0')).join('');
-
-  if (staff.password_hash !== passwordHash) {
-    return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+  // PBKDF2 verification with transparent upgrade from legacy HMAC-SHA256.
+  // If the stored hash uses the old format (no password_salt), verify with
+  // legacy HMAC and re-hash with PBKDF2 on success.
+  if (staff.password_salt) {
+    const valid = await verifyPassword(password, staff.password_hash, staff.password_salt, env.PASSWORD_PEPPER);
+    if (!valid) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+  } else {
+    const legacyHash = await legacyHashPassword(password, env.SESSION_SECRET);
+    if (staff.password_hash !== legacyHash) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+    const newSalt = generateRandomHex(16);
+    const newHash = await hashPassword(password, newSalt, env.PASSWORD_PEPPER);
+    await env.DB.prepare(
+      `UPDATE staff_users SET password_hash = ?2, password_salt = ?3 WHERE id = ?1`
+    ).bind(staff.id, newHash, newSalt).run();
   }
 
   const sessionToken = generateSessionToken();

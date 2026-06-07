@@ -21,7 +21,7 @@
   "dependencies": {
     "@astrojs/cloudflare": "^13.6.1",
     "@astrojs/react": "^5.0.7",
-    "@tailwindcss/vite": "^4.3.0",
+    "@tailwindcss/vite": "4.3.0",
     "astro": "^6.4.4",
     "lucide-react": "^0.468.0",
     "react": "^19.0.0",
@@ -33,7 +33,7 @@
     "@cloudflare/workers-types": "^4.20260602.1",
     "@types/react": "^19.0.0",
     "@types/react-dom": "^19.0.0",
-    "tailwindcss": "^4.0.0",
+    "tailwindcss": "4.3.0",
     "tsx": "^4.22.4",
     "typescript": "^5.8.0",
     "vitest": "^4.1.8",
