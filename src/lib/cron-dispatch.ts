@@ -2,7 +2,7 @@
  * Scheduled Jobs and Cron Dispatch [v6.8A]
  *
  * Job                                    | Frequency              | Purpose
- * Reservation cleanup + FraudBD poll     | Every 10 minutes       | Release expired reservations, poll fraud_polls
+ * Reservation cleanup + FraudBD poll     | Every 10 minutes       | Release expired reservations, timeout old fraud_polls (initial decision at checkout is authoritative)
  * Daily maintenance                      | Daily 03:00 UTC        | Session cleanup, Tinify retry, idempotency expiry
  * D1 backup to R2                        | Weekly Sunday 04:00    | Export key business tables to R2
  * Log archive                            | Monthly 1st 05:00      | Archive old events to R2

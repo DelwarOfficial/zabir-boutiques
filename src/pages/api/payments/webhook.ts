@@ -109,6 +109,10 @@ export async function POST(context: APIContext): Promise<Response> {
     if (failedReservation) {
       const deductedReservations = reservations.results.filter((_, index) => deductResults[index]?.meta.changes === 1);
       if (deductedReservations.length > 0) {
+        // Compensate ONLY items that were successfully deducted in this batch (caller filters).
+        // We are *adding back* stock that was subtracted, so no " >= " guard on the positive delta.
+        // Protection against double-compensate: (1) only the successfully-deducted subset,
+        // (2) payment_events INSERT OR IGNORE + early return on duplicate webhook, (3) status check before.
         const compensateStmts = deductedReservations.map(r =>
           env.DB.prepare(
             `UPDATE inventory_items
@@ -174,6 +178,9 @@ export async function POST(context: APIContext): Promise<Response> {
 
       const deductedItems = orderItems.results.filter((_, index) => atomicResults[index]?.meta.changes === 1);
       if (deductedItems.length > 0) {
+        // Compensate ONLY items successfully deducted in the atomic no-reservation fallback path.
+        // Pure quantity + (no reserved change here). Double-apply prevented by payment_events
+        // idempotency (INSERT OR IGNORE on the webhook event) and the 'allDeducted' / paid_over_allocated branch.
         const compensateStmts = deductedItems.map(item =>
           env.DB.prepare(
             `UPDATE inventory_items

@@ -41,7 +41,7 @@ export async function POST(context: APIContext): Promise<Response> {
            SET reserved_quantity = reserved_quantity - ?1,
                quantity = quantity - ?1,
                updated_at = ?3
-           WHERE variant_id = ?2 AND reserved_quantity >= ?1`
+           WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
         ).bind(r.quantity, r.variant_id, now)
       );
       const confirmStmts = reservations.results.map(r =>

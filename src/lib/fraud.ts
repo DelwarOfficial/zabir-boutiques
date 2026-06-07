@@ -104,6 +104,14 @@ export async function checkFraudBD(
 
 /**
  * Poll pending fraud checks. Called by every-10-minute cron.
+ *
+ * Current behavior (v6.8D):
+ * - The synchronous checkFraudBD() call at checkout / staff order creation time is the
+ *   authoritative source for the order's initial fraud_decision.
+ * - This poller exists for future async "status" follow-ups from FraudBD (not yet implemented).
+ * - Today it acts primarily as a sweeper + bounded bump for any legacy 'pending' rows
+ *   in fraud_polls so they eventually time out instead of staying forever.
+ * - No order fraud_decision is mutated here; staff can use fraud.override flows if needed.
  */
 export async function pollPendingFraudChecks(db: D1Database, _apiKey: string): Promise<void> {
   const now = nowSql();
@@ -123,8 +131,9 @@ export async function pollPendingFraudChecks(db: D1Database, _apiKey: string): P
       continue;
     }
 
-    // Attempt to resolve via FraudBD status endpoint
-    // Implementation depends on FraudBD async API contract
+    // No real async status endpoint implemented yet. Just advance the poll counter
+    // so the row will be caught by sweepTimedOutFraudPolls on a future tick.
+    // (Keeping the row allows future implementation to resume from poll_count.)
     await db.prepare(
       `UPDATE fraud_polls SET poll_count = poll_count + 1, next_poll_at = ?2, updated_at = ?3 WHERE id = ?1`
     ).bind(poll.id, nowSql(new Date(Date.now() + 10 * 60 * 1000)), now).run();
@@ -132,7 +141,8 @@ export async function pollPendingFraudChecks(db: D1Database, _apiKey: string): P
 }
 
 /**
- * Mark timed-out fraud polls. Called by every-10-minute cron.
+ * Mark timed-out fraud polls (poll_count >=5). Called by every-10-minute cron.
+ * Complements pollPendingFraudChecks (which also marks some timeouts).
  */
 export async function sweepTimedOutFraudPolls(db: D1Database): Promise<void> {
   const now = nowSql();

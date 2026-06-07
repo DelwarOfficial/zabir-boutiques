@@ -15,7 +15,7 @@ This master plan serves as the definitive technical and business architecture re
 | **Document Title** | Zabir Boutiques AI Commerce Master Plan |
 | **Version** | Production Reconciled v6.8D |
 | **Target Platform** | Cloudflare Workers + Static Assets + D1 + R2 + KV |
-| **Core Framework** | Astro 6 (Hybrid Output: prerender opt-in) + Cloudflare Workers |
+| **Core Framework** | Astro 6 (output: "static" + on-demand via adapter) + Cloudflare Workers |
 | **Adapter** | @astrojs/cloudflare 13.x |
 | **UI Strategy** | React 19 Islands (client:idle hydration) |
 | **Key Integrations** | UddoktaPay, FraudBD, DeepSeek/OpenAI |
@@ -24,12 +24,12 @@ This master plan serves as the definitive technical and business architecture re
 ---
 
 ## 3. Architecture Overview
-The platform uses **Astro hybrid rendering** (`output: "hybrid"`) — static pre-built pages for marketing routes (`export const prerender = true`) and **Cloudflare Workers runtime** for checkout, order tracking, staff workflows, payment verification, fraud routing, and API routes.
+The platform uses **Astro static output** (`output: "static"`) with the Cloudflare adapter providing the Worker runtime for on-demand routes. Static pre-built pages for marketing/content routes; server execution (via adapter) for checkout, order tracking, staff workflows, payment verification, fraud routing, and API routes.
 
-### 3.1 Key Distinction: Hybrid Mode + Pages Functions
-- **Static routes** (home, product detail, category listing) are pre-built during `astro build` as HTML files.
-- **Dynamic routes** (checkout, staff, API endpoints) are deployed as Cloudflare Pages Functions with access to D1, KV, R2, and secrets.
-- **Hybrid mode** allows per-route `prerender` export: `true` for static, `false` for server-rendered.
+### 3.1 Key Distinction: Static Build + Pages Functions / Worker
+- **Static routes** (home, product detail, category listing) are pre-built during `astro build` as HTML files (and can use build-time snapshots from D1).
+- **Dynamic / on-demand routes** (checkout, staff, API endpoints, any `prerender = false`) execute in the Cloudflare Worker / Pages Functions with full access to D1, KV, R2, and secrets.
+- Per-route control via `export const prerender = false` (or adapter behavior) for anything needing fresh data or mutations.
 
 ### 3.2 Absolute Guardrails
 - **Database:** Use only SQLite-compatible syntax (Cloudflare D1). No PostgreSQL-only features.

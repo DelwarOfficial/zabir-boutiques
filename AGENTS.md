@@ -2,9 +2,9 @@
 
 ## Architecture
 
-This project is the **Zabir Boutiques AI Commerce Platform v6.8A** — an **Astro Hybrid Monolith** deployed on **Cloudflare Pages + Workers**.
+This project is the **Zabir Boutiques AI Commerce Platform v6.8D** — an **Astro + Cloudflare** platform (static output with on-demand server routes via adapter) deployed on **Cloudflare Pages + Workers**.
 
-- **Framework:** Astro with `output: hybrid` and `@astrojs/cloudflare` adapter
+- **Framework:** Astro with `output: "static"` + `@astrojs/cloudflare` adapter (APIs and dynamic routes execute in the Worker)
 - **Database:** Cloudflare D1 (SQLite) — absolute source of truth
 - **Storage:** Cloudflare R2 for media, KV for caching
 - **Payment:** UddoktaPay (server-to-server verification only)

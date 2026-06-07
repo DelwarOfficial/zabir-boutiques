@@ -1,4 +1,4 @@
--- Zabir Boutiques v6.8A — Canonical D1 Schema
+-- Zabir Boutiques v6.8D — Canonical D1 Schema (complete with staff ops v2 + partial prepay columns/CHECKS)
 -- All IDs generated in runtime code using crypto.randomUUID()
 -- All timestamps use TEXT in format YYYY-MM-DD HH:MM:SS (UTC)
 -- All money values are INTEGER paisa
@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS coupons (
   starts_at TEXT,
   expires_at TEXT,
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
+  created_by TEXT REFERENCES staff_users(id),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
@@ -153,13 +154,18 @@ CREATE TABLE IF NOT EXISTS orders (
   delivery_paisa INTEGER NOT NULL DEFAULT 0 CHECK (delivery_paisa >= 0),
   discount_paisa INTEGER NOT NULL DEFAULT 0 CHECK (discount_paisa >= 0),
   total_paisa INTEGER NOT NULL CHECK (total_paisa >= 0),
-  payment_method TEXT NOT NULL CHECK (payment_method IN ('cod','uddoktapay')),
+  payment_method TEXT NOT NULL CHECK (payment_method IN ('cod','uddoktapay','partial_prepay','in_store')),
   payment_status TEXT NOT NULL DEFAULT 'created'
-    CHECK (payment_status IN ('created','pending','processing','paid','failed','cancelled','expired','refunded')),
+    CHECK (payment_status IN ('created','pending','processing','paid','partially_paid','failed','cancelled','expired','refunded')),
   fraud_decision TEXT NOT NULL DEFAULT 'review'
     CHECK (fraud_decision IN ('approved','review','blocked')),
   status TEXT NOT NULL DEFAULT 'pending_review'
     CHECK (status IN ('pending_review','pending_payment','payment_verified','paid_over_allocated','staff_confirmed','packing','shipped','delivered','cancelled','refunded')),
+  created_by TEXT REFERENCES staff_users(id),
+  order_channel TEXT DEFAULT 'web'
+    CHECK (order_channel IN ('web','in_store','phone','messenger','whatsapp')),
+  advance_paisa INTEGER NOT NULL DEFAULT 0 CHECK (advance_paisa >= 0),
+  balance_paisa INTEGER NOT NULL DEFAULT 0 CHECK (balance_paisa >= 0),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
