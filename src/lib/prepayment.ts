@@ -6,6 +6,9 @@
  *
  * Exemptions:
  * - In-store orders (payment_method === 'in_store') are always exempt.
+ * - Full UddoktaPay (payment_method === 'uddoktapay') pays the full amount online.
+ * - Partial prepay (payment_method === 'partial_prepay') is the retry path after
+ *   a 402 — the customer pays the 50% advance online, balance on delivery.
  *
  * All amounts are INTEGER paisa. No floating-point arithmetic.
  */
@@ -43,6 +46,14 @@ export function calculatePrepayment(
   // If customer already chose full UddoktaPay, no split needed — full amount is paid online
   if (paymentMethod === 'uddoktapay') {
     return { required: false, advancePaisa: totalPaisa, balancePaisa: 0, message: null };
+  }
+
+  // Partial prepay: customer is paying the advance portion via UddoktaPay.
+  // Computes the same 50% split but does not require further prepayment.
+  if (paymentMethod === 'partial_prepay') {
+    const advancePaisa = (totalPaisa + 1) >> 1;
+    const balancePaisa = totalPaisa - advancePaisa;
+    return { required: false, advancePaisa, balancePaisa, message: null };
   }
 
   // COD with ≤2 items: no prepayment needed

@@ -4,7 +4,7 @@ import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
-  output: "server",
+  output: "hybrid",
   integrations: [react()],
   adapter: cloudflare({
     imageService: { build: "compile", runtime: "passthrough" },

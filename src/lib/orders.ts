@@ -3,12 +3,20 @@
  * Format: ZB-YYYYMMDD-XXXXXX (6 hex chars from 3 random bytes)
  */
 
+function assertValidPaymentMethod(method: string): void {
+  if (!VALID_PAYMENT_METHODS.includes(method as never)) {
+    throw new Error(`Invalid payment_method: ${method}. Must be one of: ${VALID_PAYMENT_METHODS.join(', ')}`);
+  }
+}
+
 export function generateOrderNumber(): string {
   const date = new Date().toISOString().slice(0, 10).replace(/-/g, '');
   const bytes = crypto.getRandomValues(new Uint8Array(3));
   const hex = Array.from(bytes, b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
   return `ZB-${date}-${hex}`;
 }
+
+export const VALID_PAYMENT_METHODS = ['cod', 'uddoktapay', 'partial_prepay', 'in_store'] as const;
 
 type OrderInsertData = {
   phone: string;
@@ -20,7 +28,7 @@ type OrderInsertData = {
   delivery_paisa: number;
   discount_paisa: number;
   total_paisa: number;
-  payment_method: 'cod' | 'uddoktapay';
+  payment_method: 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store';
   fraud_decision: string;
   status?: string;
 };
@@ -73,6 +81,7 @@ export async function insertOrderWithRetry(
   now: string,
   maxAttempts = 3
 ): Promise<{ orderId: string; orderNumber: string }> {
+  assertValidPaymentMethod(orderData.payment_method);
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     const orderId = crypto.randomUUID();
     const orderNumber = generateOrderNumber();
@@ -105,6 +114,7 @@ export async function insertReservedOrderWithRetry(
   now: string,
   maxAttempts = 3
 ): Promise<{ orderId: string; orderNumber: string }> {
+  assertValidPaymentMethod(orderData.payment_method);
   const snapshots = await loadVariantSnapshots(db, items.map(item => item.variantId));
   const missing = items.find(item => !snapshots.has(item.variantId));
   if (missing) throw new Error(`Missing variant snapshot for ${missing.variantId}`);

@@ -56,17 +56,17 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Invoice does not belong to this order' }, { status: 409 });
   }
 
+  // Determine if this is a partial prepayment or a full payment
+  const isPartialPrepay = metadata?.type === 'partial_prepay' || payment.amount_paisa < (
+    await env.DB.prepare(`SELECT total_paisa FROM orders WHERE id = ?1`).bind(payment.order_id).first<{ total_paisa: number }>()
+  )?.total_paisa ?? Infinity;
+
   const eventResult = await env.DB.prepare(
     `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
-     VALUES (?1, ?2, ?3, 'webhook', 'paid', ?4, ?5)`
-  ).bind(crypto.randomUUID(), payment.id, invoiceId, rawResponse, now).run();
+     VALUES (?1, ?2, ?3, 'webhook', ?4, ?5, ?6)`
+  ).bind(crypto.randomUUID(), payment.id, invoiceId, isPartialPrepay ? 'partially_paid' : 'paid', rawResponse, now).run();
 
   if (eventResult.meta.changes !== 1) return Response.json({ received: true, status: 'duplicate' }, { status: 200 });
-
-  const reservations = await env.DB.prepare(
-    `SELECT id, variant_id, quantity, status FROM stock_reservations
-     WHERE order_id = ?1 AND status = 'active'`
-  ).bind(payment.order_id).all<{ id: string; variant_id: string; quantity: number; status: string }>();
 
   const paidResult = await env.DB.prepare(
     `UPDATE payments SET status = 'paid', verified_at = ?2, updated_at = ?2
@@ -74,6 +74,20 @@ export async function POST(context: APIContext): Promise<Response> {
   ).bind(payment.id, now).run();
 
   if (paidResult.meta.changes !== 1) return Response.json({ error: 'Payment already confirmed' }, { status: 409 });
+
+  // Partial prepayment: mark the advance as paid, but do NOT deduct inventory.
+  // Stock reservations remain active; staff will confirm the order manually.
+  if (isPartialPrepay) {
+    await env.DB.prepare(
+      `UPDATE orders SET payment_status = 'partially_paid', updated_at = ?2 WHERE id = ?1`
+    ).bind(payment.order_id, now).run();
+    return Response.json({ received: true, status: 'partially_paid' }, { status: 200 });
+  }
+
+  const reservations = await env.DB.prepare(
+    `SELECT id, variant_id, quantity, status FROM stock_reservations
+     WHERE order_id = ?1 AND status = 'active'`
+  ).bind(payment.order_id).all<{ id: string; variant_id: string; quantity: number; status: string }>();
 
   if (reservations.results && reservations.results.length > 0) {
     const deductStmts = reservations.results.map(r =>

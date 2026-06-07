@@ -110,8 +110,12 @@ export async function POST(context: APIContext): Promise<Response> {
   const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
 
   // Determine payment method and prepayment
-  const paymentMethod = isInStore ? 'in_store' : (body.payment_method ?? 'cod');
+  let paymentMethod: string = isInStore ? 'in_store' : (body.payment_method ?? 'cod');
   const prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
+  // If prepayment is required but caller sent 'cod', upgrade to 'partial_prepay'
+  if (prepayment.required && paymentMethod === 'cod') {
+    paymentMethod = 'partial_prepay';
+  }
 
   // FraudBD check (skip for in-store)
   let fraudDecision = 'approved';

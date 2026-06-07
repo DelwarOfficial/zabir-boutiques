@@ -40,6 +40,22 @@ describe('calculatePrepayment', () => {
     expect(r.balancePaisa).toBe(0);
   });
 
+  it('partial_prepay always returns not required with computed split', () => {
+    const r = calculatePrepayment(5, 20000, 'partial_prepay');
+    expect(r.required).toBe(false);
+    expect(r.advancePaisa).toBe(10000);
+    expect(r.balancePaisa).toBe(10000);
+    expect(r.message).toBeNull();
+  });
+
+  it('partial_prepay uses integer ceil for odd total', () => {
+    const r = calculatePrepayment(3, 10001, 'partial_prepay');
+    expect(r.advancePaisa).toBe(5001);
+    expect(r.balancePaisa).toBe(5000);
+    expect(r.advancePaisa + r.balancePaisa).toBe(10001);
+    expect(r.message).toBeNull();
+  });
+
   it('threshold is exactly 2', () => {
     expect(PREPAYMENT_ITEM_THRESHOLD).toBe(2);
   });

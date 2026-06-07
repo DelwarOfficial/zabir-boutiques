@@ -154,6 +154,17 @@ export async function POST(context: APIContext): Promise<Response> {
       }, { status: 402 });
     }
 
+    // Determine advance/balance tracking values
+    let advancePaisa = 0;
+    let balancePaisa = totalPaisa;
+    if (paymentMethod === 'uddoktapay') {
+      advancePaisa = totalPaisa;
+      balancePaisa = 0;
+    } else if (paymentMethod === 'partial_prepay') {
+      advancePaisa = prepayment.advancePaisa;
+      balancePaisa = prepayment.balancePaisa;
+    }
+
     // 7. FraudBD check (Check Courier Info API expects local 01XXXXXXXXX format)
     const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
     const fraudDecision = decideFraudRisk(score);
@@ -197,11 +208,19 @@ export async function POST(context: APIContext): Promise<Response> {
       delivery_paisa: deliveryPaisa,
       discount_paisa: discountPaisa,
       total_paisa: totalPaisa,
-      payment_method: body.payment_method ?? 'cod',
+      payment_method: paymentMethod,
       fraud_decision: fraudDecision
     }, orderItems, now);
 
-    const response = { ok: true, order_id: orderId, order_number: orderNumber, status: 'created' };
+    // Store advance/balance tracking
+    await env.DB.prepare(
+      `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`
+    ).bind(orderId, advancePaisa, balancePaisa, now).run();
+
+    const response = {
+      ok: true, order_id: orderId, order_number: orderNumber, status: 'created',
+      advance_paisa: advancePaisa, balance_paisa: balancePaisa
+    };
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
 
     return Response.json(response, { status: 201 });
