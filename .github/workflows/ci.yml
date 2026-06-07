@@ -1,8 +1,6 @@
 name: CI — Quality Checks
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
@@ -23,4 +21,8 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
-      - run: npm run build:skip-snapshots
+      - run: npm run build:with-snapshots
+        env:
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID || '' }}
+          CF_D1_DATABASE_ID: ${{ secrets.CF_D1_DATABASE_ID || '' }}
+          CF_D1_READ_TOKEN: ${{ secrets.CF_D1_READ_TOKEN || '' }}

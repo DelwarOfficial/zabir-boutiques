@@ -325,7 +325,7 @@ All 21 tables (migration `0001_initial_v6_8a_schema.sql`):
 
 ## Deployment
 
-**Git-based CI/CD via Cloudflare Pages.** Every push to GitHub triggers an automatic build and deployment to production. Branch-based preview URLs enable staging and review before merging. Instant one-click rollbacks and zero-downtime releases are built into the platform. This is the industry standard for serverless Jamstack applications — Cloudflare's native Git integration eliminates the need for a separate CI server, reduces deployment complexity, and ensures infrastructure-as-code consistency across environments.
+**CI/CD via GitHub Actions + Cloudflare Pages.** Every push to `main` runs quality checks, builds with live D1 snapshots, and deploys to Cloudflare Pages via wrangler-action. Pull requests run quality checks and build verification. Instant one-click rollbacks and zero-downtime releases are built into the Cloudflare platform.
 
 ### Prerequisites
 
@@ -357,37 +357,53 @@ Build-time variables (set in CI):
 | `CF_D1_DATABASE_ID` | D1 database ID |
 | `CF_D1_READ_TOKEN` | D1 read-only API token |
 
+### GitHub Secrets Required
+
+Set these [GitHub Actions secrets](https://github.com/DelwarOfficial/zabir-boutiques/settings/secrets/actions):
+
+| Secret | Description |
+|--------|-------------|
+| `CF_ACCOUNT_ID` | Cloudflare account ID |
+| `CF_D1_DATABASE_ID` | D1 database ID (`zabir-db`) |
+| `CF_D1_READ_TOKEN` | D1 read-only API token |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Pages write permissions |
+
+Runtime secrets (`SESSION_SECRET`, `TINIFY_API_KEY`, `UDDOKTAPAY_API_KEY`, etc.) are set via `wrangler secret put` on the Cloudflare Pages project.
+
 ### Deploy
 
-Deploy via **Cloudflare Pages native Git integration** (recommended):
+Deploy via **GitHub Actions** (push to `main`):
 
-1. Push to `main` → Cloudflare auto-builds + deploys
-2. PRs automatically get preview URLs
+1. Push to `main` → CI runs quality checks → builds with D1 snapshots → deploys to Cloudflare Pages
+2. PRs run quality checks + build verification automatically
 
 Or manually via CLI:
 
 ```bash
+# Set build-time env vars
+set CF_ACCOUNT_ID=xxx && set CF_D1_DATABASE_ID=xxx && set CF_D1_READ_TOKEN=xxx
+
 # Build with D1 snapshots
-CF_ACCOUNT_ID=xxx CF_D1_DATABASE_ID=xxx CF_D1_READ_TOKEN=xxx npm run build:with-snapshots
+npm run build:with-snapshots
 
 # Deploy to Cloudflare Pages
-wrangler pages deploy dist --project-name zabir-boutiques
+npx wrangler pages deploy dist --project-name zabir-boutiques
 ```
 
 ### CI/CD
 
-GitHub Actions (`.github/workflows/ci.yml`) runs quality checks on every push and PR:
-- TypeScript type checking (`npm run typecheck`)
-- 122 Vitest tests (`npm test`)
-- Build verification (`npm run build:with-snapshots`, with D1 snapshots if secrets are available)
+GitHub Actions (`.github/workflows/`) handles all CI/CD:
 
-Deployment is handled by **Cloudflare Pages native Git integration** — push to `main` and Cloudflare builds + deploys automatically. No API tokens to manage in GitHub.
+| Workflow | Trigger | Jobs |
+|----------|---------|------|
+| `ci.yml` | Pull requests | TypeScript checks, 133 Vitest tests, build verification |
+| `deploy.yml` | Push to `main` | TypeScript checks, tests, production build with D1 snapshots, deploy to Cloudflare Pages via wrangler-action |
 
-### Cloudflare Pages Setup
+### Cloudflare Pages (Dashboard) Setup
 
 1. Go to **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git**
 2. Select your GitHub repo (`DelwarOfficial/zabir-boutiques`)
-3. Set build configuration:
+3. Set build configuration (if you want preview deployments without relying on wrangler-action):
 
    | Setting | Value |
    |---------|-------|
@@ -400,20 +416,13 @@ Deployment is handled by **Cloudflare Pages native Git integration** — push to
 
    | Variable | Type | Description |
    |----------|------|-------------|
-   | `CF_ACCOUNT_ID` | Plain text | Your Cloudflare account ID |
+   | `CF_ACCOUNT_ID` | Plain text | Cloudflare account ID |
    | `CF_D1_DATABASE_ID` | Plain text | D1 database ID (`zabir-db`) |
    | `CF_D1_READ_TOKEN` | Encrypted (secret) | D1 read-only API token |
-   | `SESSION_SECRET` | Encrypted (secret) | HMAC key for sessions + CSRF |
-   | `TINIFY_API_KEY` | Encrypted (secret) | Image compression |
-   | `UDDOKTAPAY_API_KEY` | Encrypted (secret) | Payment gateway |
-   | `UDDOKTAPAY_BASE_URL` | Plain text | `https://sandbox.uddoktapay.com` |
-   | `FRAUDBD_API_KEY` | Encrypted (secret) | Fraud scoring |
-   | `DEEPSEEK_API_KEY` | Encrypted (secret) | AI features |
-   | `OPENAI_API_KEY` | Encrypted (secret) | AI features |
 
-5. Deploy — first build may take 2-3 minutes. Every push to `main` auto-deploys.
+5. Deploy — first build may take 2-3 minutes.
 
-**PR previews** are automatic — Cloudflare creates a unique URL for every PR.
+**PR previews** require Cloudflare Pages Git integration to be active alongside GitHub Actions.
 
 ## Scripts
 
