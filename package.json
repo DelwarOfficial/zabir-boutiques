@@ -1,7 +1,7 @@
 {
   "name": "zabir-boutiques",
   "version": "6.8.0",
-  "description": "Zabir Boutiques AI Commerce Platform - Astro Hybrid Monolith on Cloudflare",
+  "description": "Zabir Boutiques AI Commerce Platform - Astro + Cloudflare (static output with server adapter)",
   "private": true,
   "type": "module",
   "scripts": {

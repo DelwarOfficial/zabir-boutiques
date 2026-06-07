@@ -155,7 +155,7 @@ export async function POST(context: APIContext): Promise<Response> {
       delivery_paisa: deliveryPaisa,
       discount_paisa: discountPaisa,
       total_paisa: totalPaisa,
-      payment_method: paymentMethod as 'cod' | 'uddoktapay',
+      payment_method: paymentMethod as 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store',
       fraud_decision: fraudDecision,
       status
     }, orderItems, now);

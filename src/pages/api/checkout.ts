@@ -36,6 +36,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let body: any;
   let stockReserved = false;
   let couponClaimed = false;
+  let claimedCouponCode = '';
   let items: CheckoutCartItem[] = [];
 
   try {
@@ -134,6 +135,7 @@ export async function POST(context: APIContext): Promise<Response> {
         return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
       }
       discountPaisa = assertPaisa(couponResult.discountPaisa, 'discount_paisa');
+      claimedCouponCode = couponCode;
       couponClaimed = true;
     }
 
@@ -146,7 +148,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // If prepayment is required, reject pure COD — client must use 'partial_prepay'
     if (prepayment.required && paymentMethod === 'cod') {
-      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
+      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false,
@@ -173,7 +175,7 @@ export async function POST(context: APIContext): Promise<Response> {
     const fraudDecision = decideFraudRisk(score);
 
     if (fraudDecision === 'blocked') {
-      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
+      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false, code: 'FRAUD_BLOCKED',
@@ -184,7 +186,7 @@ export async function POST(context: APIContext): Promise<Response> {
     // 8. Reserve stock (only inventory reservation path).
     const reserveResult = await reserveVariants(env.DB, items, now);
     if (!reserveResult.ok) {
-      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
+      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false,
@@ -230,7 +232,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     return Response.json(response, { status: 201 });
   } catch (err) {
-    if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
+    if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
     if (stockReserved) {
       await releaseReservedVariants(env.DB, items, now);
     }
