@@ -1,10 +1,18 @@
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+
+const SESSION_SECRET = readFileSync('.env.local', 'utf-8')
+  .split('\n')
+  .find(l => l.startsWith('SESSION_SECRET='))
+  ?.split('=', 2)[1]
+  ?.trim() ?? 'dev-session-secret-at-least-32-chars-long-for-hmac';
 
 const STAFF = {
   id: randomUUID(),
   email: 'admin@zabirboutiques.com',
   phone: '+8801712345678',
   password: 'admin123',
+  passwordHash: createHmac('sha256', SESSION_SECRET).update('admin123').digest('hex'),
   full_name: 'Admin User',
   role: 'super_admin'
 };
@@ -32,7 +40,7 @@ function generateSQL(): string {
   const now = '2026-06-04 00:00:00';
   let sql = '-- Zabir Boutiques v6.8A Seed Data\n';
   sql += `INSERT OR IGNORE INTO staff_users (id, email, phone, password_hash, full_name, role, is_active, created_at, updated_at)\n`;
-  sql += `  VALUES ('${STAFF.id}', '${STAFF.email}', '${STAFF.phone}', '${STAFF.password}', '${STAFF.full_name}', '${STAFF.role}', 1, '${now}', '${now}');\n\n`;
+  sql += `  VALUES ('${STAFF.id}', '${STAFF.email}', '${STAFF.phone}', '${STAFF.passwordHash}', '${STAFF.full_name}', '${STAFF.role}', 1, '${now}', '${now}');\n\n`;
 
   for (const cat of CATEGORIES) {
     sql += `INSERT OR IGNORE INTO categories (id, name, slug, sort_order, is_active, created_at, updated_at)\n`;
