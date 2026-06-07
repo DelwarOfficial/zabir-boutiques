@@ -26,7 +26,7 @@ const products = await env.DB.prepare(
     <span style="font-size:0.875rem;color:var(--muted);">{products.results?.length || 0} products</span>
   </div>
 
-  <div class="overflow-x-auto border border-line rounded-lg">
+  <div class="overflow-x-auto border border-line rounded-lg mb-6">
     <table class="w-full border-collapse text-sm">
       <thead>
         <tr class="bg-surface-soft text-left">
@@ -60,4 +60,76 @@ const products = await env.DB.prepare(
       </tbody>
     </table>
   </div>
+
+  <div style="border:1px solid var(--line);border-radius:8px;padding:1.25rem;">
+    <h2 style="font-size:1rem;font-weight:600;margin:0 0 1rem;">AI Content Generator</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
+      <div>
+        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Product Name *</label>
+        <input id="aiProductName" type="text" placeholder="e.g. Printed Cotton Kurti" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+      </div>
+      <div>
+        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Category</label>
+        <input id="aiCategory" type="text" placeholder="e.g. Women's Fashion" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+      </div>
+      <div>
+        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Price (paisa)</label>
+        <input id="aiPrice" type="number" placeholder="e.g. 129900" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+      </div>
+      <div>
+        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Key Features (comma-separated)</label>
+        <input id="aiFeatures" type="text" placeholder="e.g. Soft fabric, Premium stitch, Eco-friendly" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+      </div>
+    </div>
+    <button id="aiGenerateBtn" style="padding:0.5rem 1rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;" onclick="generateContent()">Generate with AI</button>
+    <div id="aiResult" style="display:none;margin-top:1rem;border:1px solid var(--line);border-radius:8px;padding:1rem;background:var(--surface-soft);font-size:0.85rem;white-space:pre-wrap;"></div>
+    <div id="aiError" style="display:none;margin-top:1rem;color:#991b1b;font-size:0.85rem;"></div>
+  </div>
 </StaffLayout>
+
+<script>
+function getCsrf() {
+  const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+  return m ? decodeURIComponent(m[1]) : '';
+}
+async function generateContent() {
+  const btn = document.getElementById('aiGenerateBtn');
+  const result = document.getElementById('aiResult');
+  const error = document.getElementById('aiError');
+  btn.disabled = true;
+  btn.textContent = 'Generating...';
+  result.style.display = 'none';
+  error.style.display = 'none';
+
+  const name = document.getElementById('aiProductName').value.trim();
+  if (!name) { error.textContent = 'Product name is required.'; error.style.display = 'block'; btn.disabled = false; btn.textContent = 'Generate with AI'; return; }
+
+  try {
+    const res = await fetch('/api/staff/ai/generate-product-content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+      body: JSON.stringify({
+        name,
+        category: document.getElementById('aiCategory').value.trim() || undefined,
+        price_paisa: parseInt(document.getElementById('aiPrice').value) || undefined,
+        key_features: document.getElementById('aiFeatures').value.split(',').map(s => s.trim()).filter(Boolean)
+      })
+    });
+    const data = await res.json();
+    if (data.ok) {
+      result.style.display = 'block';
+      result.innerHTML = `<strong>Description:</strong>\n${esc(data.content.description)}\n\n<strong>Meta Title:</strong> ${esc(data.content.metaTitle)}\n\n<strong>Meta Description:</strong> ${esc(data.content.metaDescription)}`;
+    } else {
+      error.textContent = data.error || 'Generation failed';
+      error.style.display = 'block';
+    }
+  } catch (e) {
+    error.textContent = 'Network error: ' + e.message;
+    error.style.display = 'block';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate with AI';
+  }
+}
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+</script>

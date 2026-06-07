@@ -33,10 +33,10 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const staff = await env.DB.prepare(
-    `SELECT id, email, phone, password_hash, full_name, role, is_active
+    `SELECT id, email, phone, password_hash, password_salt, full_name, role, is_active
      FROM staff_users
      WHERE (email = ?1 OR phone = ?1) AND is_active = 1`
-  ).bind(identifier).first<{ id: string; email: string | null; phone: string | null; password_hash: string; full_name: string; role: string; is_active: number }>();
+  ).bind(identifier).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number }>();
 
   if (!staff) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
 

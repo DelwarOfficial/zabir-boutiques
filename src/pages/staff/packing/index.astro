@@ -7,7 +7,7 @@ if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Packing Queue" user={user}>
-  <h1 style="margin:0 0 0.5rem;font-size:1.25rem;font-weight:700;">Packing Queue</h1>
+  <h1 class="m-0 text-xl font-bold mb-1">Packing Queue</h1>
   <p style="color:var(--muted);margin-bottom:1rem;">Orders ready to pack or in progress. Use the specialized packing views.</p>
 
   <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">

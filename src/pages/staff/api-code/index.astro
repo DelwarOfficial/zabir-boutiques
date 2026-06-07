@@ -8,20 +8,20 @@ if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
 ---
 
 <StaffLayout title="API Keys" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">API Keys</h1>
-    <button id="createKeyBtn" style="padding:0.5rem 1rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;" onclick="showCreateForm()">+ New Key</button>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">API Keys</h1>
+    <button id="createKeyBtn" class="px-4 py-2 bg-brand text-white border-0 rounded cursor-pointer text-sm font-semibold" onclick="showCreateForm()">+ New Key</button>
   </div>
 
   <div id="createForm" style="display:none;border:1px solid var(--line);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem;background:var(--surface-soft);">
     <h2 style="font-size:1rem;font-weight:600;margin:0 0 1rem;">Create API Key</h2>
     <div style="margin-bottom:0.75rem;">
       <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Key Name</label>
-      <input id="keyName" type="text" placeholder="e.g. checkout-webhook" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+      <input id="keyName" type="text" placeholder="e.g. checkout-webhook" class="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-ink" />
     </div>
     <div style="display:flex;gap:0.5rem;">
-      <button style="padding:0.5rem 1rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;" onclick="createKey()">Create</button>
-      <button style="padding:0.5rem 1rem;background:transparent;color:var(--text);border:1px solid var(--line);border-radius:6px;cursor:pointer;font-size:0.85rem;" onclick="hideCreateForm()">Cancel</button>
+      <button class="px-4 py-2 bg-brand text-white border-0 rounded-md cursor-pointer text-sm font-semibold" onclick="createKey()">Create</button>
+      <button class="px-4 py-2 bg-transparent text-ink border border-line rounded-md cursor-pointer text-sm" onclick="hideCreateForm()">Cancel</button>
     </div>
   </div>
 
@@ -72,7 +72,7 @@ function hideCreateForm() { document.getElementById('createForm').style.display 
 async function createKey() {
   const name = document.getElementById('keyName').value.trim();
   if (!name) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.cookie.split('; ').find(c => c.startsWith('csrf-token='))?.split('=')[1] ?? '' }, body: JSON.stringify({ name }) });
+  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ name }) });
   const data = await res.json();
   const resultDiv = document.getElementById('newKeyResult');
   if (data.ok) {
@@ -88,7 +88,7 @@ async function createKey() {
 }
 async function revokeKey(id) {
   if (!confirm('Revoke this API key? This cannot be undone.')) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': document.cookie.split('; ').find(c => c.startsWith('csrf-token='))?.split('=')[1] ?? '' }, body: JSON.stringify({ id }) });
+  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ id }) });
   const data = await res.json();
   if (data.ok) loadKeys();
 }

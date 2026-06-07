@@ -19,10 +19,10 @@ const logs = await env.DB.prepare(
 ).bind(limit, (page - 1) * limit).all<any>();
 ---
 <StaffLayout title="Audit Logs" user={user}>
-  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Audit Logs</h1>
-  <p style="color:var(--muted);margin-bottom:1rem;font-size:0.85rem;">All staff actions recorded for security and compliance.</p>
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+  <h1 class="m-0 text-xl font-bold mb-1">Audit Logs</h1>
+  <p class="text-muted mb-4 text-sm">All staff actions recorded for security and compliance.</p>
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-xs">
       <thead><tr style="background:var(--surface-soft);text-align:left;">
         <th style="padding:0.4rem 0.6rem;">Date</th>
         <th style="padding:0.4rem 0.6rem;">Staff</th>

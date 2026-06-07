@@ -15,8 +15,8 @@ const recent = await env.DB.prepare(
 ).all<any>();
 ---
 <StaffLayout title="Support" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Support</h1>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">Support</h1>
     <a href="/staff/support/search" style="padding:0.4rem 0.75rem;background:var(--brand);color:#fff;border-radius:6px;text-decoration:none;font-size:0.85rem;font-weight:600;">Search Orders</a>
   </div>
   <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">

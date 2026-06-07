@@ -15,27 +15,27 @@ const staff = await env.DB.prepare(
 ).all<any>();
 ---
 <StaffLayout title="Staff Users" user={user}>
-  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:1.5rem;">
-    <h1 style="margin:0;font-size:1.25rem;font-weight:700;">Staff Users</h1>
-    <span style="font-size:0.875rem;color:var(--muted);">{staff.results?.length || 0} users</span>
+  <div class="flex justify-between items-center mb-6">
+    <h1 class="m-0 text-xl font-bold">Staff Users</h1>
+    <span class="text-sm text-muted">{staff.results?.length || 0} users</span>
   </div>
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-      <thead><tr style="background:var(--surface-soft);text-align:left;">
-        <th style="padding:0.5rem 0.75rem;">Name</th>
-        <th style="padding:0.5rem 0.75rem;">Email</th>
-        <th style="padding:0.5rem 0.75rem;">Phone</th>
-        <th style="padding:0.5rem 0.75rem;">Role</th>
-        <th style="padding:0.5rem 0.75rem;">Active</th>
-        <th style="padding:0.5rem 0.75rem;">Last Login</th>
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-sm">
+      <thead><tr class="bg-surface-soft text-left">
+        <th class="px-3 py-2.5">Name</th>
+        <th class="px-3 py-2.5">Email</th>
+        <th class="px-3 py-2.5">Phone</th>
+        <th class="px-3 py-2.5">Role</th>
+        <th class="px-3 py-2.5">Active</th>
+        <th class="px-3 py-2.5">Last Login</th>
       </tr></thead>
-      <tbody>{staff.results?.map(s => <tr style="border-top:1px solid var(--line-soft);">
-        <td style="padding:0.5rem 0.75rem;font-weight:600;">{s.full_name}</td>
-        <td style="padding:0.5rem 0.75rem;">{s.email || "—"}</td>
-        <td style="padding:0.5rem 0.75rem;">{s.phone || "—"}</td>
-        <td style="padding:0.5rem 0.75rem;"><span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${s.role === 'super_admin' || s.role === 'owner' ? '#fef3c7' : '#e0f2fe'};color:${s.role === 'super_admin' || s.role === 'owner' ? '#92400e' : '#075985'};`}>{s.role}</span></td>
-        <td style="padding:0.5rem 0.75rem;"><span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${s.is_active ? '#dcfce7' : '#fee2e2'};color:${s.is_active ? '#166534' : '#991b1b'};`}>{s.is_active ? 'Active' : 'Inactive'}</span></td>
-        <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.8em;">{s.last_login_at || "Never"}</td>
+      <tbody>{staff.results?.map(s => <tr class="border-t border-line-soft">
+        <td class="px-3 py-2 font-semibold">{s.full_name}</td>
+        <td class="px-3 py-2">{s.email || "—"}</td>
+        <td class="px-3 py-2">{s.phone || "—"}</td>
+        <td class="px-3 py-2"><span class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${['super_admin','owner'].includes(s.role) ? 'bg-amber-100 text-amber-800' : 'bg-sky-100 text-sky-800'}`}>{s.role}</span></td>
+        <td class="px-3 py-2"><span class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${s.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{s.is_active ? 'Active' : 'Inactive'}</span></td>
+        <td class="px-3 py-2 text-muted text-xs">{s.last_login_at || "Never"}</td>
       </tr>)}</tbody>
     </table>
   </div>
