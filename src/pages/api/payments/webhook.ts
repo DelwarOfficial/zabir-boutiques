@@ -38,12 +38,17 @@ export async function POST(context: APIContext): Promise<Response> {
   // Amount authority: the verified paid amount MUST match what we charged.
   // Defends against amount tampering / partial settlement / invoice reuse.
   if (amountPaisa === null || amountPaisa !== payment.amount_paisa) {
+    // Resolve a real variant_id for the alert (use the first order_item's variant)
+    const firstItem = await env.DB.prepare(
+      `SELECT variant_id FROM order_items WHERE order_id = ?1 LIMIT 1`
+    ).bind(payment.order_id).first<{ variant_id: string }>();
+    const alertVariantId = firstItem?.variant_id ?? 'unknown';
     await env.DB.prepare(
       `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
        VALUES (?1, ?2, ?3, ?4)`
     ).bind(
       crypto.randomUUID(),
-      payment.order_id,
+      alertVariantId,
       `payment_amount_mismatch invoice=${invoiceId} expected=${payment.amount_paisa} verified=${amountPaisa}. Manual review required.`,
       now
     ).run();
@@ -57,9 +62,8 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Determine if this is a partial prepayment or a full payment
-  const isPartialPrepay = metadata?.type === 'partial_prepay' || payment.amount_paisa < (
-    await env.DB.prepare(`SELECT total_paisa FROM orders WHERE id = ?1`).bind(payment.order_id).first<{ total_paisa: number }>()
-  )?.total_paisa ?? Infinity;
+  const orderTotalPaisa = (await env.DB.prepare(`SELECT total_paisa FROM orders WHERE id = ?1`).bind(payment.order_id).first<{ total_paisa: number }>())?.total_paisa ?? Infinity;
+  const isPartialPrepay = metadata?.type === 'partial_prepay' || payment.amount_paisa < orderTotalPaisa;
 
   const eventResult = await env.DB.prepare(
     `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)

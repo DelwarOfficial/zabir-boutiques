@@ -18,7 +18,7 @@ import { releaseReservedVariants, reserveVariants } from '../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../lib/orders';
 import { nowSql } from '../../lib/dates';
 import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency } from '../../lib/idempotency';
-import { assertPaisa, applyCouponAtomic } from '../../lib/money';
+import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic } from '../../lib/money';
 import {
   assertNoClientMoneyTrust,
   loadVariantSnapshots,
@@ -35,6 +35,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   let body: any;
   let stockReserved = false;
+  let couponClaimed = false;
   let items: CheckoutCartItem[] = [];
 
   try {
@@ -133,6 +134,7 @@ export async function POST(context: APIContext): Promise<Response> {
         return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
       }
       discountPaisa = assertPaisa(couponResult.discountPaisa, 'discount_paisa');
+      couponClaimed = true;
     }
 
     // 6. Server-computed total. discount never exceeds subtotal + delivery.
@@ -144,6 +146,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // If prepayment is required, reject pure COD — client must use 'partial_prepay'
     if (prepayment.required && paymentMethod === 'cod') {
+      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false,
@@ -170,6 +173,7 @@ export async function POST(context: APIContext): Promise<Response> {
     const fraudDecision = decideFraudRisk(score);
 
     if (fraudDecision === 'blocked') {
+      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false, code: 'FRAUD_BLOCKED',
@@ -180,6 +184,7 @@ export async function POST(context: APIContext): Promise<Response> {
     // 8. Reserve stock (only inventory reservation path).
     const reserveResult = await reserveVariants(env.DB, items, now);
     if (!reserveResult.ok) {
+      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false,
@@ -225,6 +230,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     return Response.json(response, { status: 201 });
   } catch (err) {
+    if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, couponCode); couponClaimed = false; }
     if (stockReserved) {
       await releaseReservedVariants(env.DB, items, now);
     }
