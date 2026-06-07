@@ -14,7 +14,7 @@ const { title, user } = Astro.props;
 const currentPath = Astro.url.pathname;
 const menu = menuForRole(user.role).map(item => ({
   ...item,
-  active: item.href === currentPath || (item.href !== '/staff' && currentPath.startsWith(item.href)),
+  active: item.href === currentPath || (item.href !== "/staff" && currentPath.startsWith(item.href)),
 }));
 
 const roleLabel: Record<string, string> = {
@@ -33,20 +33,45 @@ const roleLabel: Record<string, string> = {
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <link rel="icon" href="/favicon.ico" />
+    <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>{title} — Zabir Boutiques Staff</title>
+    <script is:inline>
+      (function(){
+        var t = localStorage.getItem('zb-theme');
+        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches)) {
+          document.documentElement.setAttribute('data-theme','dark');
+        }
+      })();
+    </script>
+    <style is:inline>
+      .staff-sidebar { width:220px;min-width:220px;background:var(--surface-soft);border-right:1px solid var(--line);padding:1rem 0;overflow-y:auto;transition:transform 0.2s; }
+      .staff-sidebar a { display:block;padding:0.5rem 1.25rem;color:var(--ink-secondary);text-decoration:none;font-size:0.875rem;border-left:3px solid transparent;transition:background 0.15s,border-color 0.15s,color 0.15s; }
+      .staff-sidebar a:hover { background:var(--brand-glow);color:var(--ink); }
+      .staff-sidebar a.active { border-left-color:var(--brand);background:var(--brand-glow);font-weight:600;color:var(--ink); }
+      .staff-toggle { display:none;background:none;border:none;cursor:pointer;padding:0.25rem;color:var(--ink-secondary); }
+      @media (max-width:768px) {
+        .staff-sidebar { position:fixed;top:57px;left:0;bottom:0;z-index:100;transform:translateX(-100%); }
+        .staff-sidebar.open { transform:translateX(0);box-shadow:4px 0 20px rgba(0,0,0,0.1); }
+        .staff-toggle { display:block; }
+      }
+    </style>
   </head>
   <body class="font-sans" style="background:var(--bg);color:var(--ink);margin:0;">
     <header style="display:flex;justify-content:space-between;align-items:center;padding:0.75rem 1.5rem;background:var(--surface);border-bottom:1px solid var(--line);">
-      <a href="/staff" style="color:var(--brand);font-size:1.125rem;font-weight:700;text-decoration:none;">Zabir Boutiques — Staff</a>
+      <div style="display:flex;align-items:center;gap:0.75rem;">
+        <button id="sidebar-toggle" class="staff-toggle" type="button" aria-label="Toggle navigation" style="font-size:1.25rem;line-height:1;">☰</button>
+        <a href="/staff" style="color:var(--brand);font-size:1.125rem;font-weight:700;text-decoration:none;">Zabir Boutiques — Staff</a>
+      </div>
       <span style="display:flex;align-items:center;gap:1rem;font-size:0.875rem;">
         <span>{user.fullName} · <span style="color:var(--muted);">{roleLabel[user.role] ?? user.role}</span></span>
         <button id="logout-btn" type="button" style="padding:0.375rem 0.75rem;border:1px solid var(--line);border-radius:6px;background:var(--surface);color:var(--ink-secondary);cursor:pointer;font-size:0.875rem;">Sign out</button>
       </span>
     </header>
     <div style="display:flex;gap:0;min-height:calc(100vh - 57px);">
-      <nav aria-label="Staff navigation" style="width:220px;min-width:220px;background:var(--surface-soft);border-right:1px solid var(--line);padding:1rem 0;overflow-y:auto;">
+      <nav id="sidebar" class="staff-sidebar" aria-label="Staff navigation">
         <ul style="list-style:none;padding:0;margin:0;">
-          {menu.map((item) => <li><a href={item.href} style={`display:block;padding:0.5rem 1.25rem;color:var(--ink-secondary);text-decoration:none;font-size:0.875rem;border-left:3px solid ${item.active ? 'var(--brand)' : 'transparent'};background:${item.active ? 'var(--brand-glow)' : 'transparent'};font-weight:${item.active ? '600' : '400'};`}>{item.label}</a></li>)}
+          {menu.map((item) => <li><a href={item.href} class={item.active ? 'active' : ''}>{item.label}</a></li>)}
         </ul>
       </nav>
       <main style="flex:1;padding:1.5rem 2rem;overflow-y:auto;">
@@ -54,10 +79,21 @@ const roleLabel: Record<string, string> = {
       </main>
     </div>
     <script is:inline>
+      // Sidebar toggle (mobile)
+      document.getElementById('sidebar-toggle')?.addEventListener('click', function() {
+        document.getElementById('sidebar')?.classList.toggle('open');
+      });
+      // Close sidebar on nav click (mobile)
+      document.getElementById('sidebar')?.addEventListener('click', function(e) {
+        if (window.innerWidth <= 768 && e.target instanceof HTMLAnchorElement) {
+          this.classList.remove('open');
+        }
+      });
+
       // Logout handler
       document.getElementById('logout-btn')?.addEventListener('click', async () => {
-        const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
-        const csrf = match ? decodeURIComponent(match[1]) : '';
+        const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+        const csrf = m ? decodeURIComponent(m[1]) : '';
         await fetch('/api/staff/logout', {
           method: 'POST',
           headers: { 'X-CSRF-Token': csrf }
@@ -65,9 +101,7 @@ const roleLabel: Record<string, string> = {
         window.location.href = '/staff/login';
       });
 
-      // CSRF enhancer for staff mutation forms (plain <form method="post" action="/api/staff/...">)
-      // Reads the csrf-token cookie (set at login) and adds X-CSRF-Token header.
-      // This makes the action buttons in order detail etc. pass the middleware CSRF check.
+      // CSRF enhancer for staff mutation forms
       function getCsrf() {
         const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
         return m ? decodeURIComponent(m[1]) : '';
@@ -79,7 +113,6 @@ const roleLabel: Record<string, string> = {
         if (form.method.toLowerCase() === 'post' && action.includes('/api/staff/')) {
           const csrf = getCsrf();
           if (csrf) {
-            // For native submit we can't easily set header, so we hijack to fetch + same behavior.
             e.preventDefault();
             const data = new FormData(form);
             fetch(action, {
@@ -87,12 +120,8 @@ const roleLabel: Record<string, string> = {
               headers: { 'X-CSRF-Token': csrf },
               body: data
             }).then(res => {
-              if (res.ok) {
-                // Reload to see updated state (or redirect if API returns location)
-                window.location.reload();
-              } else {
-                res.json().then(b => alert(b.error || b.message || 'Action failed')).catch(() => alert('Action failed'));
-              }
+              if (res.ok) { window.location.reload(); }
+              else { res.json().then(b => alert(b.error || b.message || 'Action failed')).catch(() => alert('Action failed')); }
             }).catch(() => alert('Network error'));
           }
         }
