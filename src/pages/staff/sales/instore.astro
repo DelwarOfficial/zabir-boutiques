@@ -39,7 +39,8 @@ const rows = variants.results ?? [];
         </div>
         <div>
           <label class="block text-xs text-ink-secondary mb-1" for="cust-phone">Phone</label>
-          <input id="cust-phone" name="phone" type="tel" required placeholder="017XXXXXXXX" autocomplete="off"
+          <input id="cust-phone" name="phone" type="tel" required placeholder="01712345678" autocomplete="off"
+            pattern="[0-9+\s\-]{10,15}" title="Bangladeshi mobile: 01XXXXXXXXX or +8801XXXXXXXXX"
             class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
         </div>
         <div>

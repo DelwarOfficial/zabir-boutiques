@@ -26,7 +26,7 @@ const variants = await env.DB.prepare(
       <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-4">Customer Details</h2>
       <form action="/api/staff/orders/create" method="post" class="flex flex-col gap-3">
         <input type="text" name="name" placeholder="Customer name" required class="control" />
-        <input type="tel" name="phone" placeholder="Phone (e.g. 017xxxxxxxx)" required class="control" />
+        <input type="tel" name="phone" placeholder="Phone (e.g. 01712345678)" required class="control" pattern="[0-9+\s\-]{10,15}" title="Bangladeshi mobile: 01XXXXXXXXX or +8801XXXXXXXXX" />
         <textarea name="address" placeholder="Delivery address" required class="control min-h-[60px]"></textarea>
         <select name="channel" class="control">
           <option value="phone">Phone Order</option>

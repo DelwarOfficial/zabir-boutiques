@@ -21,10 +21,8 @@ const order = await env.DB.prepare(
 if (!order) return new Response("Order not found", { status: 404 });
 
 const items = await env.DB.prepare(
-  `SELECT oi.*, pv.sku, COALESCE(pi.r2_key, '') as image_key
+  `SELECT oi.product_name, oi.variant_label, oi.quantity, oi.unit_price_paisa, oi.total_price_paisa
    FROM order_items oi
-   LEFT JOIN product_variants pv ON pv.id = oi.variant_id
-   LEFT JOIN (SELECT variant_id, MIN(r2_key) as r2_key FROM product_images GROUP BY variant_id) pi ON pi.r2_key LIKE '%' || REPLACE(oi.product_name, ' ', '%') || '%'
    WHERE oi.order_id = ?
    ORDER BY oi.created_at`
 ).bind(id).all<any>();
@@ -137,11 +135,55 @@ const statusColors: Record<string, string> = {
   )}
 
   <div class="flex gap-2 mb-6 flex-wrap">
-    {userCanConfirm && order.status === "payment_verified" && <form method="post" action={`/api/staff/orders/${order.id}/confirm`} class="inline"><input type="hidden" name="_csrf" value="" /><button type="submit" class="px-4 py-2 bg-cyan-600 text-white border-0 rounded cursor-pointer font-semibold text-sm">Confirm Order</button></form>}
-    {userCanPack && order.status === "staff_confirmed" && <form method="post" action={`/api/staff/orders/${order.id}/pack`} class="inline"><input type="hidden" name="_csrf" value="" /><button type="submit" class="px-4 py-2 bg-cyan-600 text-white border-0 rounded cursor-pointer font-semibold text-sm">Mark Packing</button></form>}
-    {userCanShip && order.status === "packing" && <form method="post" action={`/api/staff/orders/${order.id}/ship`} class="inline"><input type="hidden" name="_csrf" value="" /><button type="submit" class="px-4 py-2 bg-indigo-600 text-white border-0 rounded cursor-pointer font-semibold text-sm">Mark Shipped</button></form>}
+    {userCanConfirm && ['pending_review', 'payment_verified'].includes(order.status) && (
+      <button type="button" class="px-4 py-2 bg-cyan-600 text-white border-0 rounded cursor-pointer font-semibold text-sm order-action-btn" data-action="confirm" data-order-id={order.id}>
+        {order.status === 'pending_review' ? 'Approve & Confirm' : 'Confirm Order'}
+      </button>
+    )}
+    {userCanPack && order.status === "staff_confirmed" && (
+      <button type="button" class="px-4 py-2 bg-cyan-600 text-white border-0 rounded cursor-pointer font-semibold text-sm order-action-btn" data-action="pack" data-order-id={order.id}>Mark Packing</button>
+    )}
+    {userCanShip && order.status === "packing" && (
+      <button type="button" class="px-4 py-2 bg-indigo-600 text-white border-0 rounded cursor-pointer font-semibold text-sm order-action-btn" data-action="ship" data-order-id={order.id}>Mark Shipped</button>
+    )}
+    {order.fraud_decision === 'blocked' && (
+      <span class="px-3 py-2 bg-red-100 text-red-800 rounded text-xs font-semibold">⚠️ FraudBD Blocked — requires override to confirm</span>
+    )}
     <a href={`/api/staff/orders/${order.id}/label`} target="_blank" class="px-4 py-2 bg-surface text-ink-secondary border border-line rounded cursor-pointer font-semibold text-sm no-underline inline-flex items-center">Print Label</a>
   </div>
+
+<script is:inline>
+  (function() {
+    function getCsrf() {
+      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+    document.querySelectorAll('.order-action-btn').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const action = btn.dataset.action;
+        const orderId = btn.dataset.orderId;
+        if (!confirm(`Are you sure you want to ${action} this order?`)) return;
+        btn.disabled = true; btn.textContent = 'Processing…';
+        try {
+          const res = await fetch(`/api/staff/orders/${orderId}/${action}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() }
+          });
+          const data = await res.json().catch(() => ({}));
+          if (res.ok && data.ok) {
+            window.location.reload();
+          } else {
+            alert(data.error || data.message || `Failed to ${action} order.`);
+            btn.disabled = false; btn.textContent = btn.textContent;
+          }
+        } catch {
+          alert('Network error.');
+          btn.disabled = false;
+        }
+      });
+    });
+  })();
+</script>
 
   <div class="bg-surface border border-line rounded-lg p-4">
     <h2 class="text-xs font-semibold text-muted uppercase tracking-wider mb-3">Status History</h2>

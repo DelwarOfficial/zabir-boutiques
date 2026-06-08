@@ -42,7 +42,7 @@ const products = await env.DB.prepare(
       <tbody>
         {products.results?.length ? products.results.map(p => <tr class="border-t border-line-soft">
           <td class="px-3 py-2.5">
-            <a href={`/products/${p.slug}`} class="text-brand no-underline font-semibold">{p.name}</a>
+            <a href={`/staff/products/${p.id}`} class="text-brand no-underline font-semibold">{p.name}</a>
           </td>
           <td class="px-3 py-2.5 text-muted">{p.category_name || "—"}</td>
           <td class="px-3 py-2.5 font-semibold">৳{Math.floor(p.price_paisa / 100)}</td>
