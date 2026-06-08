@@ -26,9 +26,12 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
     const { cleanExpiredSessions } = await import('./sessions');
     const { retryUncompressedImages } = await import('./tinify');
     const { cleanExpiredIdempotencyKeys } = await import('./maintenance/idempotency');
+    const { recordAuditIntegrityCheck, writeAuditCheckpoint } = await import('./audit');
     await cleanExpiredSessions(env.DB);
     await retryUncompressedImages(env.DB, env.MEDIA, env.TINIFY_API_KEY);
     await cleanExpiredIdempotencyKeys(env.DB);
+    await recordAuditIntegrityCheck(env.DB);
+    await writeAuditCheckpoint(env.DB);
   },
   '0 4 * * 0': async (env) => {
     const { backupD1ToR2 } = await import('./maintenance/backup');
@@ -36,7 +39,7 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
   },
   '0 5 1 * *': async (env) => {
     const { archiveOldEvents } = await import('./maintenance/archive');
-    await archiveOldEvents(env.DB, env.BACKUPS);
+    await archiveOldEvents(env.DB, env.BACKUPS, env.AUDIT_LEDGER_SECRET);
   }
 };
 

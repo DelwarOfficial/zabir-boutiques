@@ -12,7 +12,8 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertOwnerOnly, RbacError } from '../../../../lib/rbac';
 import { nowSql } from '../../../../lib/dates';
-import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
 export async function PATCH(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -25,8 +26,10 @@ export async function PATCH(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertOwnerOnly(user);
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 
@@ -48,7 +51,7 @@ export async function PATCH(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'NOT_FOUND', message: 'Coupon not found.' }, { status: 404 });
   }
 
-  await writeAuditLog(env.DB, {
+  await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: isActive ? 'coupon.activate' : 'coupon.deactivate',

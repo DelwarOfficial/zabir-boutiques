@@ -3,10 +3,17 @@ export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
+import { requireRecentStaffSession, CriticalAuthError } from "../../../lib/critical-auth";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
 if (!can(user.role, "staff.manage")) return new Response("Forbidden", { status: 403 });
+try {
+  await requireRecentStaffSession(Astro, user);
+} catch (err) {
+  if (err instanceof CriticalAuthError) return err.toResponse();
+  throw err;
+}
 
 const env = getEnv(Astro);
 const staff = await env.DB.prepare(

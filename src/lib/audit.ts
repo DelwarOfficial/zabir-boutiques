@@ -1,4 +1,5 @@
 import { nowSql } from './dates';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 
 export interface AuditEntry {
   actorStaffId: string | null;
@@ -50,12 +51,14 @@ async function computeHashChain(db: D1Database, entry: AuditEntry, now: string):
     userAgent: entry.userAgent ?? null,
     now
   });
-  const chainBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
-  const chainHash = Array.from(new Uint8Array(chainBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const secret = (cloudflareEnv as { AUDIT_LEDGER_SECRET?: string })?.AUDIT_LEDGER_SECRET;
+  const chainHash = secret
+    ? await hmacSha256Hex(payload, secret)
+    : await sha256Hex(payload);
   return { previousHash, chainHash };
 }
 
-export async function writeAuditLog(db: D1Database, entry: AuditEntry): Promise<void> {
+export async function writeAuditLog(db: D1Database, entry: AuditEntry): Promise<boolean> {
   try {
     const now = nowSql();
     const id = crypto.randomUUID();
@@ -79,8 +82,17 @@ export async function writeAuditLog(db: D1Database, entry: AuditEntry): Promise<
       previousHash,
       chainHash
     ).run();
+    return true;
   } catch (err) {
     console.error('[audit] write failed:', err);
+    return false;
+  }
+}
+
+export async function writeCriticalAuditLog(db: D1Database, entry: AuditEntry): Promise<void> {
+  const written = await writeAuditLog(db, entry);
+  if (!written) {
+    throw new Error(`Critical audit write failed for ${entry.action}:${entry.entityType}:${entry.entityId}`);
   }
 }
 
@@ -116,9 +128,10 @@ export async function verifyAuditChain(db: D1Database, limit = 1000): Promise<{ 
       userAgent: r.user_agent,
       now: r.created_at
     });
-    const chainBuf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(payload));
-    const computed = Array.from(new Uint8Array(chainBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
-    if (computed !== r.chain_hash) {
+    const secret = (cloudflareEnv as { AUDIT_LEDGER_SECRET?: string })?.AUDIT_LEDGER_SECRET;
+    const computedSha = await sha256Hex(payload);
+    const computedHmac = secret ? await hmacSha256Hex(payload, secret) : null;
+    if (computedSha !== r.chain_hash && computedHmac !== r.chain_hash) {
       return { valid: false, checked: i + 1, firstBadIndex: i };
     }
     expectedPreviousHash = r.chain_hash;
@@ -137,4 +150,36 @@ export async function writeAuditCheckpoint(db: D1Database): Promise<void> {
   } catch (err) {
     console.error('[audit] checkpoint write failed:', err);
   }
+}
+
+export async function recordAuditIntegrityCheck(db: D1Database, limit = 10000): Promise<void> {
+  const result = await verifyAuditChain(db, limit);
+  await db.prepare(
+    `INSERT INTO audit_integrity_alerts (id, checked_at, valid, checked_rows, first_bad_index, details_json)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+  ).bind(
+    crypto.randomUUID(),
+    nowSql(),
+    result.valid ? 1 : 0,
+    result.checked,
+    result.firstBadIndex ?? null,
+    JSON.stringify(result)
+  ).run();
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hmacSha256Hex(value: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
 }

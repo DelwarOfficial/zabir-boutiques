@@ -14,7 +14,8 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertOwnerOnly, RbacError } from '../../../../lib/rbac';
 import { assertPaisa } from '../../../../lib/money';
 import { nowSql } from '../../../../lib/dates';
-import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
 const ALLOWED_FIXED_AMOUNTS = [5000, 10000, 15000, 20000] as const;
 
@@ -24,8 +25,10 @@ export async function GET(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertOwnerOnly(user);
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 
@@ -95,7 +98,7 @@ export async function POST(context: APIContext): Promise<Response> {
     throw err;
   }
 
-  await writeAuditLog(env.DB, {
+  await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: 'coupon.create',

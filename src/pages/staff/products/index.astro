@@ -88,6 +88,7 @@ const products = await env.DB.prepare(
 </StaffLayout>
 
 <script>
+// @ts-nocheck
 function getCsrf() {
   const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : '';

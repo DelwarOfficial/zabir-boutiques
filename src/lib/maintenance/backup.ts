@@ -8,7 +8,8 @@
 const BACKUP_TABLES = [
   'orders', 'order_items', 'payments', 'payment_events',
   'products', 'product_variants', 'inventory_items', 'categories',
-  'staff_users', 'coupons', 'site_settings'
+  'staff_users', 'coupons', 'site_settings',
+  'api_keys', 'media_objects', 'audit_log', 'audit_checkpoints', 'audit_integrity_alerts'
 ];
 
 export async function backupD1ToR2(db: D1Database, backups: R2Bucket): Promise<void> {

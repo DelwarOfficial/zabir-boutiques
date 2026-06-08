@@ -8,12 +8,14 @@ export const prerender = false;
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertOwnerOnly, requirePermission, RbacError } from '../../../../lib/rbac';
-import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
 // Secret KEY NAMES only — values are never read or rendered.
 const SECRET_KEY_NAMES = [
   'SESSION_SECRET', 'TINIFY_API_KEY', 'UDDOKTAPAY_API_KEY', 'UDDOKTAPAY_BASE_URL',
-  'FRAUDBD_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY'
+  'FRAUDBD_API_KEY', 'DEEPSEEK_API_KEY', 'OPENAI_API_KEY', 'API_KEY_PEPPER',
+  'AUDIT_LEDGER_SECRET'
 ];
 
 export async function GET(context: APIContext): Promise<Response> {
@@ -54,13 +56,15 @@ export async function POST(context: APIContext): Promise<Response> {
     user = await requireAuth(context);
     assertOwnerOnly(user);
     requirePermission(user, 'system.api_code.manage');
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 
   // Mutations here (e.g. saving developer config) would be audited.
-  await writeAuditLog(env.DB, {
+  await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: 'system.api_code.update',

@@ -12,7 +12,7 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, assertSalesAccess, RbacError } from '../../../../lib/rbac';
+import { requireAuth, assertSalesAccess, isOwnerTier, RbacError } from '../../../../lib/rbac';
 import { normalizeBangladeshPhone } from '../../../../lib/phone';
 import { reserveVariants, releaseReservedVariants } from '../../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../../lib/orders';
@@ -107,6 +107,13 @@ export async function POST(context: APIContext): Promise<Response> {
   // Coupon (if provided)
   const couponCode = typeof body.coupon_code === 'string' ? body.coupon_code.trim() : '';
   if (couponCode) {
+    if (!isOwnerTier(user.role)) {
+      return Response.json({
+        ok: false,
+        code: 'COUPON_OWNER_ONLY',
+        message: 'Staff-assisted orders cannot apply coupon codes.'
+      }, { status: 403 });
+    }
     const couponResult = await applyCouponAtomic(env.DB, couponCode, subtotalPaisa, now);
     if (!couponResult.ok) {
       return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });

@@ -2,9 +2,16 @@
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
+try {
+  await requireRecentStaffSession(Astro, user);
+} catch (err) {
+  if (err instanceof CriticalAuthError) return err.toResponse();
+  throw err;
+}
 ---
 
 <StaffLayout title="API Keys" user={user}>
@@ -18,6 +25,10 @@ if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
     <div style="margin-bottom:0.75rem;">
       <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Key Name</label>
       <input id="keyName" type="text" placeholder="e.g. checkout-webhook" class="w-full px-3 py-2 border border-line rounded-md text-sm bg-surface text-ink" />
+    </div>
+    <div style="margin-bottom:0.75rem;">
+      <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.35rem;">Scopes</label>
+      <div id="scopeList" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:0.4rem;font-size:0.8rem;"></div>
     </div>
     <div style="display:flex;gap:0.5rem;">
       <button class="px-4 py-2 bg-brand text-white border-0 rounded-md cursor-pointer text-sm font-semibold" onclick="createKey()">Create</button>
@@ -33,6 +44,7 @@ if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
         <tr style="background:var(--surface-soft);text-align:left;">
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Name</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Key Prefix</th>
+          <th style="padding:0.6rem 0.75rem;font-weight:600;">Scopes</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Last Used</th>
           <th style="padding:0.6rem 0.75rem;font-weight:600;">Created</th>
@@ -40,25 +52,36 @@ if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
         </tr>
       </thead>
       <tbody id="keysTableBody">
-        <tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">Loading...</td></tr>
+        <tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--muted);">Loading...</td></tr>
       </tbody>
     </table>
   </div>
 </StaffLayout>
 
 <script>
+// @ts-nocheck
+const ALLOWED_SCOPES = [
+  'orders:create_assisted',
+  'orders:read_own_integration',
+  'stock:read_public',
+  'media:upload_product_pending',
+  'media:read_own',
+  'webhooks:payment_status_read'
+];
+
 async function loadKeys() {
   try {
     const res = await fetch('/api/staff/api-keys');
     const data = await res.json();
     const tbody = document.getElementById('keysTableBody');
     if (!data.ok || !data.keys?.length) {
-      tbody.innerHTML = `<tr><td colspan="6" style="padding:2rem;text-align:center;color:var(--muted);">No API keys found.</td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="7" style="padding:2rem;text-align:center;color:var(--muted);">No API keys found.</td></tr>`;
       return;
     }
     tbody.innerHTML = data.keys.map(k => `<tr style="border-top:1px solid var(--line-soft);">
       <td style="padding:0.6rem 0.75rem;font-weight:600;">${esc(k.name)}</td>
       <td style="padding:0.6rem 0.75rem;font-family:monospace;color:var(--muted);">${esc(k.key_prefix)}...</td>
+      <td style="padding:0.6rem 0.75rem;color:var(--muted);">${esc(scopeText(k))}</td>
       <td style="padding:0.6rem 0.75rem;"><span style="padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${k.is_revoked ? '#fee2e2' : '#dcfce7'};color:${k.is_revoked ? '#991b1b' : '#166534'};">${k.is_revoked ? 'Revoked' : 'Active'}</span></td>
       <td style="padding:0.6rem 0.75rem;color:var(--muted);">${k.last_used_at ? k.last_used_at.split(' ')[0] : '—'}</td>
       <td style="padding:0.6rem 0.75rem;color:var(--muted);">${k.created_at ? k.created_at.split(' ')[0] : '—'}</td>
@@ -67,12 +90,22 @@ async function loadKeys() {
   } catch { /* tbody stays as-is */ }
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function scopeText(k) {
+  try {
+    const scopes = JSON.parse(k.scopes_json || k.permissions || '[]');
+    return Array.isArray(scopes) ? scopes.join(', ') : '';
+  } catch {
+    return '';
+  }
+}
 function showCreateForm() { document.getElementById('createForm').style.display = 'block'; document.getElementById('createKeyBtn').style.display = 'none'; }
 function hideCreateForm() { document.getElementById('createForm').style.display = 'none'; document.getElementById('createKeyBtn').style.display = 'block'; }
 async function createKey() {
   const name = document.getElementById('keyName').value.trim();
+  const scopes = Array.from(document.querySelectorAll('input[name="apiScope"]:checked')).map(input => input.value);
   if (!name) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ name }) });
+  if (!scopes.length) return;
+  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ name, scopes }) });
   const data = await res.json();
   const resultDiv = document.getElementById('newKeyResult');
   if (data.ok) {
@@ -92,5 +125,11 @@ async function revokeKey(id) {
   const data = await res.json();
   if (data.ok) loadKeys();
 }
+document.getElementById('scopeList').innerHTML = ALLOWED_SCOPES.map(scope => `
+  <label style="display:flex;align-items:center;gap:0.45rem;padding:0.35rem 0.5rem;border:1px solid var(--line);border-radius:6px;background:var(--surface);">
+    <input type="checkbox" name="apiScope" value="${esc(scope)}" />
+    <span>${esc(scope)}</span>
+  </label>
+`).join('');
 loadKeys();
 </script>

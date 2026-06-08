@@ -2,9 +2,16 @@
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
+try {
+  await requireRecentStaffSession(Astro, user);
+} catch (err) {
+  if (err instanceof CriticalAuthError) return err.toResponse();
+  throw err;
+}
 ---
 <StaffLayout title="Media / R2 Admin" user={user}>
   <h1>Media / R2 Admin</h1>

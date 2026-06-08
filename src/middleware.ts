@@ -17,6 +17,8 @@ const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number
   { pattern: /^\/api\/staff\/login$/, limit: 10, windowSeconds: 60 },
   { pattern: /^\/api\/payments\/create$/, limit: 20, windowSeconds: 60 },
   { pattern: /^\/api\/fraud\/check$/, limit: 30, windowSeconds: 60 },
+  { pattern: /^\/api\/staff\/fraud\/override$/, limit: 10, windowSeconds: 60 },
+  { pattern: /^\/api\/staff\/api-keys$/, limit: 20, windowSeconds: 60 },
 ];
 
 export const onRequest: MiddlewareHandler = async (context, next) => {
