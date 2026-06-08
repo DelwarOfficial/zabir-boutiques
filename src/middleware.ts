@@ -6,11 +6,15 @@
  */
 import type { MiddlewareHandler } from 'astro';
 import { verifyCsrfToken } from './lib/security';
+import { getCurrentStaffUser } from './lib/rbac';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 const CSRF_EXEMPT_PATHS = new Set(['/api/staff/login']);
+const AUTH_EXEMPT_PATHS = new Set(['/staff/login', '/api/staff/login']);
+// Matches /staff, /staff/, /staff/*, and /api/staff/* for the auth guard.
+const STAFF_PROTECTED = /^(?:\/api\/staff\/|\/staff(?:\/|$))/;
 const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number }> = [
   { pattern: /^\/api\/checkout$/, limit: 20, windowSeconds: 60 },
   { pattern: /^\/api\/orders\/track$/, limit: 30, windowSeconds: 60 },
@@ -26,12 +30,27 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(request.url);
   const runtimeEnv = cloudflareEnv as { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string };
 
-  if (url.pathname === '/api/staff/login' && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
+  if (url.pathname === '/api/staff/login' && !SAFE_METHODS.has(request.method) && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
     return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }));
   }
 
   const limited = await rateLimit(context, url.pathname);
   if (limited) return withSecurityHeaders(limited);
+
+  // Central authentication guard (defense-in-depth). Resolves the staff session
+  // exactly once and caches it on locals so getCurrentStaffUser does not re-query
+  // D1 on the same request. A page that forgets its own check stays protected.
+  if (STAFF_PROTECTED.test(url.pathname) && !AUTH_EXEMPT_PATHS.has(url.pathname)) {
+    const user = await getCurrentStaffUser(context);
+    context.locals.staffUser = user;
+    context.locals.staffUserResolved = true;
+    if (!user) {
+      if (url.pathname.startsWith('/api/')) {
+        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }));
+      }
+      return withSecurityHeaders(context.redirect('/staff/login'));
+    }
+  }
 
   if (STAFF_MUTATION_PATHS.test(url.pathname) && !SAFE_METHODS.has(request.method) && !CSRF_EXEMPT_PATHS.has(url.pathname)) {
     const cookieToken = getCookieValue(request.headers.get('Cookie'), 'csrf-token');
@@ -59,7 +78,9 @@ function getCookieValue(cookieHeader: string | null, name: string): string | nul
 
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
   const origin = request.headers.get('Origin');
-  if (!origin) return true;
+  // For state-changing login requests a same-origin browser always sends Origin.
+  // A missing Origin on a non-safe method is treated as disallowed (fail closed).
+  if (!origin) return false;
 
   const requestOrigin = new URL(request.url).origin;
   const allowed = new Set([requestOrigin, 'http://localhost:4321', 'http://127.0.0.1:4321']);

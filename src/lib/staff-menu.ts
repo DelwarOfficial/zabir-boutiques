@@ -13,12 +13,12 @@ export interface MenuItem {
 }
 
 const ALL: MenuItem[] = [
-  { label: 'Dashboard', href: '/staff', roles: ['owner-tier', 'manager', 'salesman', 'packing', 'support'] },
+  { label: 'Dashboard', href: '/staff', roles: ['owner-tier', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'] },
   { label: 'Orders', href: '/staff/orders', roles: ['owner-tier', 'manager'] },
   { label: 'Products', href: '/staff/products', roles: ['owner-tier', 'manager'] },
   { label: 'Inventory', href: '/staff/inventory', roles: ['owner-tier', 'manager'] },
   { label: 'Fraud Review', href: '/staff/fraud', roles: ['owner-tier', 'manager'] },
-  { label: 'Reports', href: '/staff/reports', roles: ['owner-tier', 'manager'] },
+  { label: 'Reports', href: '/staff/reports', roles: ['owner-tier', 'manager', 'auditor'] },
   { label: 'Media Upload', href: '/staff/media', roles: ['owner-tier', 'manager'] },
   { label: 'Support', href: '/staff/support', roles: ['owner-tier', 'manager', 'support'] },
   // Sales
@@ -44,8 +44,13 @@ const ALL: MenuItem[] = [
   { label: 'Site Settings', href: '/staff/settings', roles: ['owner-tier'] },
   { label: 'Media / R2', href: '/staff/media-admin', roles: ['owner-tier'] },
   { label: 'Backups', href: '/staff/backups', roles: ['owner-tier'] },
-  { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier'] }
+  { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier', 'auditor'] }
 ];
+
+// The MenuItem.roles array supports the literal role names plus 'owner-tier'.
+// Note: the 'developer' role intentionally has no API-keys menu link — the
+// /staff/api-code page is the owner-only key-minting console. A dedicated
+// read-only developer console is deferred to the Phase 8 work.
 
 export function menuForRole(role: StaffRole): MenuItem[] {
   const owner = isOwnerTier(role);

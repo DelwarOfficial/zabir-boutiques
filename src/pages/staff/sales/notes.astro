@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'support.note')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Customer Notes" user={user}>
-  <h1>Customer Notes</h1>
-  <p style="color:var(--muted);">View and add customer notes across all orders.</p>
+  <PageHeader title="Customer Notes" subtitle="View and add customer notes across orders." />
+  <ComingSoon title="Customer notes are coming" description="A running log of notes per customer so the whole team shares the same context.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Add timestamped notes against a phone number</li>
+      <li>See prior interactions before calling back</li>
+      <li>Flag VIP and repeat customers</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

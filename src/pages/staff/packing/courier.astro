@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.ship')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Courier Handoff" user={user}>
-  <h1>Courier Handoff</h1>
-  <p style="color:var(--muted);">Hand off packed orders to courier for delivery.</p>
+  <PageHeader title="Courier Handoff" subtitle="Hand packed orders to the courier for delivery." />
+  <ComingSoon title="Courier handoff flow is planned" description="Mark parcels as dispatched and record which courier took them, in one pass.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Move packed orders to shipped in bulk</li>
+      <li>Record courier name and tracking reference</li>
+      <li>Auto-update order status and customer-facing tracking</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

@@ -1,6 +1,8 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
@@ -14,6 +16,12 @@ try {
 }
 ---
 <StaffLayout title="Media / R2 Admin" user={user}>
-  <h1>Media / R2 Admin</h1>
-  <p style="color:var(--muted);">Full R2 bucket management — browse, delete, and review stored media.</p>
+  <PageHeader title="Media / R2 Admin" subtitle="Full R2 bucket management — browse, delete, review." />
+  <ComingSoon title="R2 admin console is planned" description="Owner-level browsing and cleanup of stored media, authorized through D1 metadata.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Browse media by owner type (product, order proof, support)</li>
+      <li>Permission-checked, audited deletes</li>
+      <li>Spot orphaned objects with no D1 record</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

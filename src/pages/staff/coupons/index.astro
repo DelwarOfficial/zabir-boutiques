@@ -10,47 +10,214 @@ if (!isOwnerTier(user.role)) return new Response("Forbidden", { status: 403 });
 
 const env = getEnv(Astro);
 const coupons = await env.DB.prepare(
-  `SELECT c.*, s.full_name as created_by_name
+  `SELECT c.id, c.code, c.discount_type, c.discount_amount_paisa, c.discount_percent,
+          c.max_discount_paisa, c.min_order_paisa, c.usage_limit, c.used_count,
+          c.expires_at, c.is_active, s.full_name AS created_by_name
    FROM coupons c
    LEFT JOIN staff_users s ON s.id = c.created_by
-   ORDER BY c.created_at DESC`
+   ORDER BY c.created_at DESC
+   LIMIT 200`
 ).all<any>();
+const rows = coupons.results ?? [];
 ---
 
 <StaffLayout title="Coupons" user={user}>
-  <div class="flex justify-between items-center mb-6">
+  <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
     <h1 class="m-0 text-xl font-bold">Coupon Management</h1>
-    <span class="text-sm text-muted">{coupons.results?.length || 0} coupons</span>
+    <div class="flex items-center gap-3">
+      <span class="text-sm text-muted">{rows.length} coupons</span>
+      <button id="new-coupon-btn" type="button"
+        class="px-3 py-1.5 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer">+ New Coupon</button>
+    </div>
   </div>
+
+  <!-- Create form (hidden until toggled) -->
+  <form id="coupon-form" class="hidden bg-surface border border-line rounded-lg p-4 mb-5">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1" for="f-code">Code</label>
+        <input id="f-code" name="code" type="text" required maxlength="30" placeholder="EID50"
+          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border uppercase" />
+      </div>
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1" for="f-amount">Discount</label>
+        <select id="f-amount" name="amount" class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border">
+          <option value="5000">৳50</option>
+          <option value="10000">৳100</option>
+          <option value="15000">৳150</option>
+          <option value="20000">৳200</option>
+        </select>
+      </div>
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1" for="f-min">Min order (৳) <span class="text-muted">opt.</span></label>
+        <input id="f-min" name="min" type="number" min="0" step="1" placeholder="0"
+          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+      </div>
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1" for="f-limit">Usage limit <span class="text-muted">opt.</span></label>
+        <input id="f-limit" name="limit" type="number" min="1" step="1" placeholder="∞"
+          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+      </div>
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1" for="f-expires">Expires <span class="text-muted">opt.</span></label>
+        <input id="f-expires" name="expires" type="date"
+          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+      </div>
+    </div>
+    <div class="flex items-center gap-3 mt-3">
+      <button type="submit" id="coupon-submit"
+        class="px-4 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50">Create Coupon</button>
+      <button type="button" id="coupon-cancel"
+        class="px-4 py-2 bg-surface border border-line rounded-md text-sm cursor-pointer">Cancel</button>
+      <p id="coupon-msg" class="text-xs m-0 hidden"></p>
+    </div>
+  </form>
 
   <div class="overflow-x-auto border border-line rounded-lg">
     <table class="w-full border-collapse text-sm">
       <thead>
         <tr class="bg-surface-soft text-left">
           <th class="px-3 py-2.5 font-semibold">Code</th>
-          <th class="px-3 py-2.5 font-semibold">Type</th>
           <th class="px-3 py-2.5 font-semibold">Discount</th>
           <th class="px-3 py-2.5 font-semibold">Min Order</th>
-          <th class="px-3 py-2.5 font-semibold">Used</th>
-          <th class="px-3 py-2.5 font-semibold">Limit</th>
+          <th class="px-3 py-2.5 font-semibold text-center">Used</th>
+          <th class="px-3 py-2.5 font-semibold text-center">Limit</th>
           <th class="px-3 py-2.5 font-semibold">Expires</th>
-          <th class="px-3 py-2.5 font-semibold">Active</th>
+          <th class="px-3 py-2.5 font-semibold text-center">Status</th>
           <th class="px-3 py-2.5 font-semibold">Created By</th>
+          <th class="px-3 py-2.5 font-semibold text-right">Action</th>
         </tr>
       </thead>
       <tbody>
-        {coupons.results?.length ? coupons.results.map(c => <tr class="border-t border-line-soft">
-          <td class="px-3 py-2 font-mono font-bold">{c.code}</td>
-          <td class="px-3 py-2">{c.discount_type}</td>
-          <td class="px-3 py-2 font-semibold">{c.discount_type === 'percentage' ? `${c.discount_percent}%${c.max_discount_paisa ? ` (max ৳${(c.max_discount_paisa/100).toFixed(0)})` : ''}` : `৳${(c.discount_amount_paisa/100).toFixed(2)}`}</td>
-          <td class="px-3 py-2">{c.min_order_paisa ? `৳${(c.min_order_paisa/100).toFixed(2)}` : '—'}</td>
-          <td class="px-3 py-2 text-center">{c.used_count}</td>
-          <td class="px-3 py-2 text-center">{c.usage_limit ?? '∞'}</td>
-          <td class="px-3 py-2 text-muted">{c.expires_at ? c.expires_at.split(' ')[0] : '—'}</td>
-          <td class="px-3 py-2"><span class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${c.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>{c.is_active ? 'Yes' : 'No'}</span></td>
-          <td class="px-3 py-2 text-muted">{c.created_by_name || '—'}</td>
-        </tr>) : <tr><td colspan="9" class="px-4 py-8 text-center text-muted">No coupons found.</td></tr>}
+        {rows.length ? rows.map((c) => (
+          <tr class="border-t border-line-soft">
+            <td class="px-3 py-2 font-mono font-bold">{c.code}</td>
+            <td class="px-3 py-2 font-semibold">{c.discount_type === 'percentage'
+              ? `${c.discount_percent}%${c.max_discount_paisa ? ` (max ৳${Math.floor(c.max_discount_paisa / 100)})` : ''}`
+              : `৳${Math.floor(c.discount_amount_paisa / 100)}`}</td>
+            <td class="px-3 py-2">{c.min_order_paisa ? `৳${Math.floor(c.min_order_paisa / 100)}` : '—'}</td>
+            <td class="px-3 py-2 text-center">{c.used_count}</td>
+            <td class="px-3 py-2 text-center">{c.usage_limit ?? '∞'}</td>
+            <td class="px-3 py-2 text-muted">{c.expires_at ? c.expires_at.split(' ')[0] : '—'}</td>
+            <td class="px-3 py-2 text-center">
+              <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${c.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
+                {c.is_active ? 'Active' : 'Inactive'}
+              </span>
+            </td>
+            <td class="px-3 py-2 text-muted">{c.created_by_name || '—'}</td>
+            <td class="px-3 py-2 text-right">
+              <button type="button" class="coupon-toggle px-2.5 py-1 border border-line rounded text-xs cursor-pointer hover:bg-surface-soft"
+                data-id={c.id} data-active={c.is_active ? '1' : '0'}>
+                {c.is_active ? 'Deactivate' : 'Activate'}
+              </button>
+            </td>
+          </tr>
+        )) : (
+          <tr><td colspan="9" class="px-4 py-8 text-center text-muted">No coupons yet. Create one to get started.</td></tr>
+        )}
       </tbody>
     </table>
   </div>
+
+<script is:inline>
+  (function () {
+    function getCsrf() {
+      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+    function stepUpHint(json) {
+      return json && json.code === 'STEP_UP_REQUIRED'
+        ? 'For security, this action needs a recent sign-in. Please sign out and back in, then retry.'
+        : (json && (json.message || json.error)) || 'Action failed.';
+    }
+
+    // --- Create form toggle ---
+    const form = document.getElementById('coupon-form');
+    const openBtn = document.getElementById('new-coupon-btn');
+    const cancelBtn = document.getElementById('coupon-cancel');
+    const submitBtn = document.getElementById('coupon-submit');
+    const msg = document.getElementById('coupon-msg');
+
+    openBtn?.addEventListener('click', () => { form.classList.toggle('hidden'); });
+    cancelBtn?.addEventListener('click', () => { form.classList.add('hidden'); });
+
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = 'text-xs m-0 ' + (ok ? 'text-green-700' : 'text-red-600');
+    }
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const code = form.querySelector('[name=code]').value.trim().toUpperCase();
+      const amount = parseInt(form.querySelector('[name=amount]').value, 10);
+      const minTaka = parseInt(form.querySelector('[name=min]').value || '0', 10);
+      const limitRaw = form.querySelector('[name=limit]').value.trim();
+      const expiresDate = form.querySelector('[name=expires]').value.trim();
+
+      if (code.length < 3 || code.length > 30) { showMsg('Code must be 3–30 characters.', false); return; }
+
+      const payload = {
+        code,
+        discount_amount_paisa: amount,
+        min_order_paisa: Number.isFinite(minTaka) && minTaka > 0 ? minTaka * 100 : 0,
+        usage_limit: limitRaw ? parseInt(limitRaw, 10) : null,
+        // Store end-of-day so the whole expiry date is valid.
+        expires_at: expiresDate ? expiresDate + ' 23:59:59' : null
+      };
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating…';
+      try {
+        const res = await fetch('/api/staff/coupons', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+          body: JSON.stringify(payload)
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.ok) {
+          showMsg('Created ' + json.code, true);
+          setTimeout(() => window.location.reload(), 700);
+        } else {
+          showMsg(stepUpHint(json), false);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Create Coupon';
+        }
+      } catch {
+        showMsg('Network error. Try again.', false);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Create Coupon';
+      }
+    });
+
+    // --- Activate / deactivate toggle ---
+    document.querySelectorAll('.coupon-toggle').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const id = btn.dataset.id;
+        const nextActive = btn.dataset.active !== '1';
+        const original = btn.textContent;
+        btn.disabled = true;
+        btn.textContent = '…';
+        try {
+          const res = await fetch('/api/staff/coupons/' + id, {
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+            body: JSON.stringify({ is_active: nextActive })
+          });
+          const json = await res.json().catch(() => ({}));
+          if (res.ok && json.ok) {
+            window.location.reload();
+          } else {
+            alert(stepUpHint(json));
+            btn.disabled = false;
+            btn.textContent = original;
+          }
+        } catch {
+          alert('Network error. Try again.');
+          btn.disabled = false;
+          btn.textContent = original;
+        }
+      });
+    });
+  })();
+</script>
 </StaffLayout>

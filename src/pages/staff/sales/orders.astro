@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.view')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="My Orders" user={user}>
-  <h1>My Orders</h1>
-  <p style="color:var(--muted);">Orders created by you — track, follow up, and manage.</p>
+  <PageHeader title="My Orders" subtitle="Orders you created — track, follow up, and manage." />
+  <ComingSoon title="Your orders list is on the way" description="This view will list every order you created, with status, payment, and quick follow-up actions.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Filter by status and date</li>
+      <li>Jump straight to order detail and packing status</li>
+      <li>One-tap re-contact for COD confirmation</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

@@ -7,7 +7,7 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, assertOwnerOnly, requirePermission, RbacError } from '../../../../lib/rbac';
+import { requireAuth, requirePermission, RbacError } from '../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
@@ -24,7 +24,6 @@ export async function GET(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    assertOwnerOnly(user);
     requirePermission(user, 'system.api_code.manage');
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
@@ -54,7 +53,6 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    assertOwnerOnly(user);
     requirePermission(user, 'system.api_code.manage');
     await requireRecentStaffSession(context, user);
   } catch (err) {

@@ -15,6 +15,7 @@ const today = nowSql().slice(0, 10);
 const roleLabel: Record<string, string> = {
   super_admin: "Super Admin", owner: "Owner", manager: "Manager",
   salesman: "Sales Staff", packing: "Packing Staff", support: "Support",
+  developer: "Developer", auditor: "Auditor",
 };
 
 let stats = { pendingReview: 0, packingQueue: 0, lowStockAlerts: 0, todayOrders: 0 };

@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Print Slips" user={user}>
-  <h1>Print Slips</h1>
-  <p style="color:var(--muted);">Print packing slips and shipping labels for orders.</p>
+  <PageHeader title="Print Slips" subtitle="Print packing slips and shipping labels." />
+  <ComingSoon title="Batch slip printing is planned" description="Print packing slips and the 3-up A4 shipping labels for a batch of orders at once.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Select multiple orders and print together</li>
+      <li>Three labels per A4 sheet for efficient courier prep</li>
+      <li>Single-label printing already available on each order detail page</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

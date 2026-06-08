@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'support.view')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Escalations" user={user}>
-  <h1>Escalations</h1>
-  <p style="color:var(--muted);">Support tickets and escalated customer issues requiring attention.</p>
+  <PageHeader title="Escalations" subtitle="Support tickets and issues needing attention." />
+  <ComingSoon title="Escalations queue is planned" description="A prioritized list of customer issues that need a manager or owner to step in.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Flag an order or customer for escalation</li>
+      <li>Assign to a manager and track resolution</li>
+      <li>Tie escalations back to the audit trail</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

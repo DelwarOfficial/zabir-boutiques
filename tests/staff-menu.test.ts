@@ -38,4 +38,15 @@ describe('Role-aware staff menu', () => {
     expect(hrefs).toContain('/staff/packing');
     expect(hrefs).not.toContain('/staff/products');
   });
+
+  it('auditor sees only Dashboard, Reports and Audit Logs', () => {
+    const hrefs = menuForRole('auditor').map(m => m.href).sort();
+    expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/reports']);
+  });
+
+  it('developer sees only the Dashboard (no API-keys / owner-only links)', () => {
+    const hrefs = menuForRole('developer').map(m => m.href);
+    expect(hrefs).toEqual(['/staff']);
+    for (const owned of OWNER_ONLY_HREFS) expect(hrefs).not.toContain(owned);
+  });
 });

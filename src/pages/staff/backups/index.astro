@@ -1,6 +1,8 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
@@ -14,6 +16,12 @@ try {
 }
 ---
 <StaffLayout title="Backups" user={user}>
-  <h1>Backups</h1>
-  <p style="color:var(--muted);">Database and media backups — schedule, download, and restore.</p>
+  <PageHeader title="Backups" subtitle="Database and media backups — schedule, download, restore." />
+  <ComingSoon title="Backup management is planned" description="Owner-level controls to schedule, download, and restore D1 and R2 backups.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Scheduled daily D1 snapshots (cron-driven)</li>
+      <li>On-demand export and secure download</li>
+      <li>Guarded restore with critical-audit logging</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

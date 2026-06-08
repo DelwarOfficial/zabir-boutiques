@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Packed Orders" user={user}>
-  <h1>Packed Orders</h1>
-  <p style="color:var(--muted);">Orders that have been packed and await courier handoff.</p>
+  <PageHeader title="Packed Orders" subtitle="Orders packed and awaiting courier handoff." />
+  <ComingSoon title="Packed-orders queue is planned" description="A focused list of orders already packed, ready to scan over to the courier.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>See everything packed but not yet dispatched</li>
+      <li>Batch-select for courier handoff</li>
+      <li>Reprint a label if a parcel is repacked</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

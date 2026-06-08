@@ -20,8 +20,14 @@ export type Env = {
   PUBLIC_SITE_NAME: string;
 };
 
-declare namespace App {
-  interface Locals {
-    cfContext: ExecutionContext;
+declare global {
+  namespace App {
+    interface Locals {
+      cfContext: ExecutionContext;
+      /** Set by middleware after resolving the staff session (defense-in-depth auth guard). */
+      staffUser?: import('./lib/rbac').StaffUser | null;
+      /** True once middleware has attempted to resolve the staff session for this request. */
+      staffUserResolved?: boolean;
+    }
   }
 }

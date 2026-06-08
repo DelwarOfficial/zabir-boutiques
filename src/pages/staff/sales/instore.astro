@@ -2,11 +2,188 @@
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.create')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+const variants = await env.DB.prepare(
+  `SELECT pv.id, pv.size, pv.price_paisa, p.name AS product_name,
+          (ii.quantity - ii.reserved_quantity) AS available
+   FROM product_variants pv
+   JOIN products p ON p.id = pv.product_id
+   JOIN inventory_items ii ON ii.variant_id = pv.id
+   WHERE pv.is_deleted = 0 AND p.status = 'published' AND ii.quantity > ii.reserved_quantity
+   ORDER BY p.name`
+).all<any>();
+const rows = variants.results ?? [];
 ---
 <StaffLayout title="In-Store Order" user={user}>
-  <h1>In-Store Order</h1>
-  <p style="color:var(--muted);">Point-of-sale order creation for walk-in customers (immediate pickup).</p>
+  <div class="flex items-center justify-between mb-1 flex-wrap gap-2">
+    <h1 class="m-0 text-xl font-bold">In-Store Order (POS)</h1>
+    <span class="text-xs px-2 py-1 rounded bg-green-100 text-green-800 font-semibold">Auto-confirmed · Cash/Paid · No delivery</span>
+  </div>
+  <p class="text-muted text-sm mt-0 mb-4">Walk-in counter sale. Stock is deducted immediately and the order is marked confirmed. No online payment or fraud check applies.</p>
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+    <!-- Customer + summary -->
+    <section class="lg:col-span-2 bg-surface border border-line rounded-lg p-4 h-fit">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Customer</h2>
+      <form id="instore-form" class="flex flex-col gap-3">
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="cust-name">Customer name</label>
+          <input id="cust-name" name="name" type="text" required autocomplete="off"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="cust-phone">Phone</label>
+          <input id="cust-phone" name="phone" type="tel" required placeholder="017XXXXXXXX" autocomplete="off"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="cust-note">Note <span class="text-muted">(optional)</span></label>
+          <input id="cust-note" name="note" type="text" autocomplete="off"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+
+        <div class="mt-1 pt-3 border-t border-line">
+          <div class="flex justify-between items-center text-sm mb-1">
+            <span class="text-muted">Items</span><span id="sum-count" class="font-medium">0</span>
+          </div>
+          <div class="flex justify-between items-center text-base font-bold">
+            <span>Total</span><span id="sum-total">৳0</span>
+          </div>
+        </div>
+
+        <button type="submit" id="submit-btn"
+          class="mt-1 py-2.5 bg-brand text-white rounded-lg font-semibold text-sm border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          Complete Sale
+        </button>
+        <p id="form-msg" class="text-xs text-center m-0 hidden"></p>
+      </form>
+    </section>
+
+    <!-- Product picker -->
+    <section class="lg:col-span-3 bg-surface border border-line rounded-lg p-4">
+      <div class="flex items-center justify-between mb-3 gap-2">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0">Products</h2>
+        <input id="prod-filter" type="search" placeholder="Filter…"
+          class="px-2.5 py-1.5 border border-line rounded-md bg-bg text-ink text-xs box-border w-40" />
+      </div>
+      {rows.length > 0 ? (
+        <div class="overflow-x-auto max-h-[460px] overflow-y-auto">
+          <table class="w-full border-collapse text-sm">
+            <thead>
+              <tr class="text-left sticky top-0 bg-surface">
+                <th class="px-2 py-2 font-semibold border-b border-line">Product</th>
+                <th class="px-2 py-2 font-semibold border-b border-line">Size</th>
+                <th class="px-2 py-2 font-semibold border-b border-line text-right">Price</th>
+                <th class="px-2 py-2 font-semibold border-b border-line text-center">Avail</th>
+                <th class="px-2 py-2 font-semibold border-b border-line text-center w-20">Qty</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((v) => (
+                <tr class="border-b border-line-soft pos-row" data-name={`${v.product_name} ${v.size ?? ''}`.toLowerCase()}>
+                  <td class="px-2 py-1.5">{v.product_name}</td>
+                  <td class="px-2 py-1.5 text-muted">{v.size || '—'}</td>
+                  <td class="px-2 py-1.5 text-right">৳{Math.floor(v.price_paisa / 100)}</td>
+                  <td class="px-2 py-1.5 text-center text-muted">{v.available}</td>
+                  <td class="px-2 py-1.5 text-center">
+                    <input type="number" class="pos-qty w-16 px-1.5 py-1 border border-line rounded text-sm text-center bg-bg"
+                      data-variant-id={v.id} data-price={v.price_paisa} min="0" max={v.available} value="0" inputmode="numeric" />
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <div class="text-center text-muted text-sm py-12">No published, in-stock variants available.</div>
+      )}
+    </section>
+  </div>
+
+<script is:inline>
+  (function () {
+    const fmt = (paisa) => '৳' + Math.floor(paisa / 100);
+    const qtyInputs = Array.from(document.querySelectorAll('.pos-qty'));
+    const sumCount = document.getElementById('sum-count');
+    const sumTotal = document.getElementById('sum-total');
+    const submitBtn = document.getElementById('submit-btn');
+    const msg = document.getElementById('form-msg');
+    const form = document.getElementById('instore-form');
+    const filter = document.getElementById('prod-filter');
+
+    function recalc() {
+      let count = 0, total = 0;
+      qtyInputs.forEach((inp) => {
+        const q = parseInt(inp.value || '0', 10);
+        if (q > 0) { count += 1; total += q * Number(inp.dataset.price || '0'); }
+      });
+      sumCount.textContent = String(count);
+      sumTotal.textContent = fmt(total);
+    }
+    qtyInputs.forEach((inp) => inp.addEventListener('input', recalc));
+
+    filter?.addEventListener('input', () => {
+      const term = filter.value.trim().toLowerCase();
+      document.querySelectorAll('.pos-row').forEach((row) => {
+        row.style.display = !term || (row.dataset.name || '').includes(term) ? '' : 'none';
+      });
+    });
+
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = 'text-xs text-center m-0 ' + (ok ? 'text-green-700' : 'text-red-600');
+    }
+
+    function getCsrf() {
+      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const items = [];
+      qtyInputs.forEach((inp) => {
+        const q = parseInt(inp.value || '0', 10);
+        if (q > 0 && inp.dataset.variantId) items.push({ variantId: inp.dataset.variantId, qty: q });
+      });
+      if (items.length === 0) { showMsg('Add at least one item.', false); return; }
+
+      const name = form.querySelector('[name=name]').value.trim();
+      const phone = form.querySelector('[name=phone]').value.trim();
+      const note = form.querySelector('[name=note]').value.trim();
+      if (!name || !phone) { showMsg('Customer name and phone are required.', false); return; }
+
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Processing…';
+      try {
+        const res = await fetch('/api/staff/orders/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+          body: JSON.stringify({ channel: 'in_store', name, phone, note, items })
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.ok) {
+          showMsg('Sale completed: ' + json.order_number, true);
+          setTimeout(() => { window.location.href = '/staff/orders/' + json.order_id; }, 900);
+        } else {
+          showMsg(json.message || json.error || 'Could not complete the sale.', false);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Complete Sale';
+        }
+      } catch {
+        showMsg('Network error. Try again.', false);
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Complete Sale';
+      }
+    });
+
+    recalc();
+  })();
+</script>
 </StaffLayout>

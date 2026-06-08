@@ -17,7 +17,7 @@ import { env as cloudflareEnv } from 'cloudflare:workers';
 import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
 
-export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support';
+export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
 export type Permission =
   | 'owner.full_access'
@@ -76,6 +76,18 @@ const SUPPORT_PERMS: Permission[] = [
   'support.view', 'support.note', 'orders.view'
 ];
 
+// Developer: scoped to the read-only API Code / Developer area only.
+// No coupon, fraud override, payment mutation, staff/role, or order access.
+// API key minting stays owner-only (assertOwnerOnly on /api/staff/api-keys).
+const DEVELOPER_PERMS: Permission[] = [
+  'system.api_code.manage'
+];
+
+// Auditor: strictly read-only audit + report access.
+const AUDITOR_PERMS: Permission[] = [
+  'system.audit.view', 'reports.view'
+];
+
 /**
  * Static permission matrix. Owner-tier gets every permission implicitly via `can()`.
  */
@@ -85,7 +97,9 @@ const PERMISSION_MATRIX: Record<StaffRole, ReadonlySet<Permission>> = {
   manager: new Set(MANAGER_PERMS),
   salesman: new Set(SALESMAN_PERMS),
   packing: new Set(PACKING_PERMS),
-  support: new Set(SUPPORT_PERMS)
+  support: new Set(SUPPORT_PERMS),
+  developer: new Set(DEVELOPER_PERMS),
+  auditor: new Set(AUDITOR_PERMS)
 };
 
 export class RbacError extends Error {
@@ -100,6 +114,16 @@ export class RbacError extends Error {
 
 export function isOwnerTier(role: StaffRole): boolean {
   return OWNER_TIER.has(role);
+}
+
+/**
+ * Rule #9 (v6.8D): a FraudBD-`blocked` order may only be confirmed by a holder
+ * of `fraud.override` (owner-tier by default). Non-blocked orders confirm
+ * normally. Pure predicate so it can be unit-tested without an HTTP harness.
+ */
+export function canConfirmOrder(role: StaffRole, fraudDecision: string | null | undefined): boolean {
+  if (fraudDecision === 'blocked') return can(role, 'fraud.override');
+  return true;
 }
 
 /**
@@ -123,6 +147,11 @@ function readSessionCookie(request: Request): string | null {
  * Returns null when unauthenticated / revoked / expired / inactive.
  */
 export async function getCurrentStaffUser(context: APIContext): Promise<StaffUser | null> {
+  // Reuse the session resolved by middleware (defense-in-depth guard) to avoid
+  // a second indexed D1 lookup on the same request.
+  const locals = context.locals as App.Locals | undefined;
+  if (locals?.staffUserResolved) return locals.staffUser ?? null;
+
   const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string };
   if (!env?.DB || !env.SESSION_SECRET) return null;
 

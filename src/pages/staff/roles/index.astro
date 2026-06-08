@@ -1,7 +1,9 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
-import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
+import { getCurrentStaffUser, can, permissionsFor, type StaffRole } from '../../../lib/rbac';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
@@ -12,8 +14,52 @@ try {
   if (err instanceof CriticalAuthError) return err.toResponse();
   throw err;
 }
+
+// The matrix is static (defined in src/lib/rbac.ts). We render it read-only so
+// owners can see exactly what each role can do; dynamic editing is deferred.
+const roles: StaffRole[] = ['super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'];
+const roleLabel: Record<StaffRole, string> = {
+  super_admin: 'Super Admin', owner: 'Owner', manager: 'Manager', salesman: 'Sales Staff',
+  packing: 'Packing Staff', support: 'Support', developer: 'Developer', auditor: 'Auditor',
+};
+const rows = roles.map((r) => ({ role: r, label: roleLabel[r], perms: permissionsFor(r) }));
 ---
 <StaffLayout title="Roles & Permissions" user={user}>
-  <h1>Roles & Permissions</h1>
-  <p style="color:var(--muted);">Define and assign role-based permissions (static matrix — dynamic editing deferred).</p>
+  <PageHeader title="Roles & Permissions" subtitle="Read-only view of the static permission matrix." />
+
+  <div class="overflow-x-auto border border-line rounded-lg mb-5">
+    <table class="w-full border-collapse text-sm">
+      <thead>
+        <tr class="bg-surface-soft text-left">
+          <th class="px-3 py-2.5 font-semibold">Role</th>
+          <th class="px-3 py-2.5 font-semibold">Granted permissions</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr class="border-t border-line-soft align-top">
+            <td class="px-3 py-2 font-semibold whitespace-nowrap">
+              {row.label}
+              {['super_admin', 'owner'].includes(row.role) && (
+                <span class="ml-1 inline-block px-1.5 py-0.5 rounded text-[10px] bg-amber-100 text-amber-800">Owner-tier</span>
+              )}
+            </td>
+            <td class="px-3 py-2">
+              {row.perms[0] === 'owner.full_access' ? (
+                <span class="text-ink-secondary">Full access to every permission</span>
+              ) : (
+                <div class="flex flex-wrap gap-1.5">
+                  {row.perms.map((p) => (
+                    <code class="px-1.5 py-0.5 rounded bg-line-soft text-ink-secondary text-[11px] font-mono">{p}</code>
+                  ))}
+                </div>
+              )}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+
+  <ComingSoon title="Editing roles in the UI is deferred" description="Permissions are defined in code (src/lib/rbac.ts) as a static matrix for safety. Inline editing is planned for a later release." status="planned" />
 </StaffLayout>

@@ -1,0 +1,24 @@
+---
+/**
+ * Consistent staff page header. Title + optional subtitle on the left,
+ * an optional `actions` slot on the right (buttons, counts, filters).
+ * Responsive: actions wrap below the title on narrow screens.
+ */
+interface Props {
+  title: string;
+  subtitle?: string;
+}
+const { title, subtitle } = Astro.props;
+const hasActions = Astro.slots.has('actions');
+---
+<div class="flex items-start justify-between gap-3 flex-wrap mb-5">
+  <div class="min-w-0">
+    <h1 class="m-0 text-xl font-bold text-ink leading-tight break-words">{title}</h1>
+    {subtitle && <p class="mt-1 mb-0 text-sm text-muted">{subtitle}</p>}
+  </div>
+  {hasActions && (
+    <div class="flex items-center gap-2 flex-wrap shrink-0">
+      <slot name="actions" />
+    </div>
+  )}
+</div>

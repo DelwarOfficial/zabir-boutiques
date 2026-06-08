@@ -1,12 +1,20 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'products.manage')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Product Search" user={user}>
-  <h1>Product Search</h1>
-  <p style="color:var(--muted);">Quick product lookup by name, SKU, or category.</p>
+  <PageHeader title="Product Search" subtitle="Quick product lookup by name, SKU, or category." />
+  <ComingSoon title="Fast product lookup is planned" description="A dedicated search to find variants, prices, and live stock while talking to a customer.">
+    <ul class="list-disc pl-5 space-y-1">
+      <li>Search by product name, SKU, or category</li>
+      <li>See price and available stock at a glance</li>
+      <li>Add directly to a new assisted order</li>
+    </ul>
+  </ComingSoon>
 </StaffLayout>

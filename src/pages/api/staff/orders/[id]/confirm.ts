@@ -3,8 +3,8 @@ export const prerender = false;
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../../lib/env';
 import { nowSql } from '../../../../../lib/dates';
-import { requireAuth, requirePermission, RbacError } from '../../../../../lib/rbac';
-import { writeAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
+import { requireAuth, requirePermission, canConfirmOrder, RbacError } from '../../../../../lib/rbac';
+import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -23,10 +23,30 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const order = await env.DB.prepare(
-    `SELECT id, status, payment_status FROM orders WHERE id = ?1`
-  ).bind(orderId).first<{ id: string; status: string; payment_status: string }>();
+    `SELECT id, status, payment_status, fraud_decision FROM orders WHERE id = ?1`
+  ).bind(orderId).first<{ id: string; status: string; payment_status: string; fraud_decision: string }>();
 
   if (!order) return Response.json({ error: 'Order not found' }, { status: 404 });
+
+  // Rule #9: FraudBD-blocked orders must not be confirmed by normal staff.
+  // D1 fraud_decision is the source of truth; only a holder of fraud.override
+  // (owner-tier) may confirm a blocked order, and the attempt is audited.
+  if (!canConfirmOrder(user.role, order.fraud_decision)) {
+    await writeAuditLog(env.DB, {
+      actorStaffId: user.id,
+      actorRole: user.role,
+      action: 'orders.confirm_denied_fraud',
+      entityType: 'order',
+      entityId: orderId,
+      metadata: { reason: 'fraud_blocked', order_status: order.status },
+      ipAddress: clientIp(context.request),
+      userAgent: userAgent(context.request)
+    });
+    return Response.json(
+      { ok: false, code: 'FRAUD_BLOCKED', error: 'Order is fraud-blocked and cannot be confirmed without fraud override.' },
+      { status: 403 }
+    );
+  }
 
   if (order.status === 'pending_review' || order.status === 'pending_payment') {
     const reservations = await env.DB.prepare(
@@ -66,7 +86,7 @@ export async function POST(context: APIContext): Promise<Response> {
      VALUES (?1, ?2, ?3, 'staff_confirmed', ?4, ?5)`
   ).bind(crypto.randomUUID(), orderId, order.status, user.id, now).run();
 
-  await writeAuditLog(env.DB, {
+  await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: 'orders.confirm',
