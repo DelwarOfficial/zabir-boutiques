@@ -1,16 +1,19 @@
 /**
- * Central RBAC System [v6.8A]
+ * Central RBAC System [v6.8D — Platform Security Hardening]
  *
- * - Server-side enforcement only. Directory route splitting / menu hiding is NOT authorization.
- * - Static in-memory permission matrix for MVP (dynamic permission editing deferred, Owner-only later).
- * - Free-tier-safe auth path: ONE indexed joined session+user lookup, then in-memory matrix check.
+ * KEY DISTINCTION (v6.8D security audit):
+ *   super_admin → FULL platform-control access (API keys, integrations, backups, webhooks)
+ *   owner       → Business-level full access, but NO platform secret/API-control authority
  *
- * Roles (5 business roles + super_admin alias for owner-tier):
- *   super_admin / owner  → full system access
- *   manager              → daily operations, no owner-only system tools
- *   salesman             → sales dashboard + COD order creation
- *   packing              → packing queue + courier handoff
- *   support              → order search + support notes
+ * Roles:
+ *   super_admin  → full platform + business access
+ *   owner        → full business access, limited platform read
+ *   manager      → daily operations
+ *   salesman     → sales + COD order creation
+ *   packing      → packing queue + courier handoff
+ *   support      → order search + support notes
+ *   developer    → read-only API Code / Developer info
+ *   auditor      → read-only audit + reports
  */
 import type { APIContext } from 'astro';
 import { env as cloudflareEnv } from 'cloudflare:workers';
@@ -20,6 +23,7 @@ import { nowSql } from './dates';
 export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
 export type Permission =
+  // Legacy business permissions (preserved for backward compatibility)
   | 'owner.full_access'
   | 'staff.manage'
   | 'roles.manage'
@@ -46,7 +50,25 @@ export type Permission =
   | 'media.upload'
   | 'support.view'
   | 'support.note'
-  | 'reports.view';
+  | 'reports.view'
+  // Platform-control permissions (super_admin only)
+  | 'platform.full_access'
+  | 'integrations.read'
+  | 'integrations.test'
+  | 'integrations.logs.read'
+  | 'api_keys.read'
+  | 'api_keys.create'
+  | 'api_keys.revoke'
+  | 'api_keys.delete'
+  | 'api_code.read'
+  | 'api_code.update'
+  | 'backups.read'
+  | 'backups.download'
+  | 'backups.restore'
+  | 'webhooks.read'
+  | 'webhooks.update'
+  | 'settings.platform.read'
+  | 'settings.platform.update';
 
 export interface StaffUser {
   id: string;
@@ -55,7 +77,24 @@ export interface StaffUser {
   sessionId: string;
 }
 
-const OWNER_TIER: ReadonlySet<StaffRole> = new Set(['super_admin', 'owner']);
+/**
+ * CRITICAL DISTINCTION: super_admin has platform access; owner does NOT.
+ * For business-level operations (orders, products, coupons), both pass.
+ * For platform-control (API keys, integrations, backups), only super_admin passes.
+ */
+const SUPER_ADMIN_ONLY: ReadonlySet<StaffRole> = new Set(['super_admin']);
+const BUSINESS_OWNER_TIER: ReadonlySet<StaffRole> = new Set(['super_admin', 'owner']);
+
+// Platform-control permissions — super_admin ONLY
+const PLATFORM_PERMS: ReadonlySet<Permission> = new Set([
+  'platform.full_access',
+  'integrations.read', 'integrations.test', 'integrations.logs.read',
+  'api_keys.read', 'api_keys.create', 'api_keys.revoke', 'api_keys.delete',
+  'api_code.update',
+  'backups.restore',
+  'webhooks.read', 'webhooks.update',
+  'settings.platform.update'
+]);
 
 const MANAGER_PERMS: Permission[] = [
   'products.manage', 'categories.manage', 'inventory.manage', 'inventory.adjust',
@@ -76,24 +115,34 @@ const SUPPORT_PERMS: Permission[] = [
   'support.view', 'support.note', 'orders.view'
 ];
 
-// Developer: scoped to the read-only API Code / Developer area only.
-// No coupon, fraud override, payment mutation, staff/role, or order access.
-// API key minting stays owner-only (assertOwnerOnly on /api/staff/api-keys).
+// Developer: read-only API Code / Developer area only.
 const DEVELOPER_PERMS: Permission[] = [
-  'system.api_code.manage'
+  'api_code.read'
 ];
 
-// Auditor: strictly read-only audit + report access.
+// Auditor: read-only audit + reports.
 const AUDITOR_PERMS: Permission[] = [
   'system.audit.view', 'reports.view'
 ];
 
+// Owner: business-level permissions (not platform-control)
+const OWNER_PERMS: Permission[] = [
+  'staff.manage', 'roles.manage', 'settings.manage',
+  'system.audit.view', 'system.backup.manage',
+  'products.manage', 'categories.manage', 'inventory.manage', 'inventory.adjust',
+  'orders.view', 'orders.create', 'orders.update', 'orders.confirm', 'orders.cancel',
+  'orders.pack', 'orders.ship', 'fraud.view', 'fraud.override', 'media.upload',
+  'support.view', 'support.note', 'reports.view', 'payments.view', 'payments.verify', 'payments.refund',
+  'api_code.read', 'backups.read', 'backups.download',
+  'integrations.read'
+];
+
 /**
- * Static permission matrix. Owner-tier gets every permission implicitly via `can()`.
+ * Static permission matrix.
  */
 const PERMISSION_MATRIX: Record<StaffRole, ReadonlySet<Permission>> = {
-  super_admin: new Set<Permission>(), // handled by OWNER_TIER short-circuit
-  owner: new Set<Permission>(),       // handled by OWNER_TIER short-circuit
+  super_admin: new Set<Permission>(), // handled by isSuperAdmin short-circuit
+  owner: new Set(OWNER_PERMS),
   manager: new Set(MANAGER_PERMS),
   salesman: new Set(SALESMAN_PERMS),
   packing: new Set(PACKING_PERMS),
@@ -112,14 +161,19 @@ export class RbacError extends Error {
   }
 }
 
+/** True only for super_admin — the sole platform controller. */
+export function isSuperAdmin(role: StaffRole): boolean {
+  return SUPER_ADMIN_ONLY.has(role);
+}
+
+/** True for super_admin OR owner — business-level full access. */
 export function isOwnerTier(role: StaffRole): boolean {
-  return OWNER_TIER.has(role);
+  return BUSINESS_OWNER_TIER.has(role);
 }
 
 /**
  * Rule #9 (v6.8D): a FraudBD-`blocked` order may only be confirmed by a holder
- * of `fraud.override` (owner-tier by default). Non-blocked orders confirm
- * normally. Pure predicate so it can be unit-tested without an HTTP harness.
+ * of `fraud.override` (super_admin or owner). Pure predicate for unit testing.
  */
 export function canConfirmOrder(role: StaffRole, fraudDecision: string | null | undefined): boolean {
   if (fraudDecision === 'blocked') return can(role, 'fraud.override');
@@ -127,10 +181,13 @@ export function canConfirmOrder(role: StaffRole, fraudDecision: string | null | 
 }
 
 /**
- * In-memory permission check. Owner / Super Admin always allowed.
+ * In-memory permission check.
+ * - super_admin: always true (full platform + business access).
+ * - owner: true for business perms, false for platform-control perms.
+ * - others: explicit matrix lookup.
  */
 export function can(role: StaffRole, permission: Permission): boolean {
-  if (OWNER_TIER.has(role)) return true;
+  if (SUPER_ADMIN_ONLY.has(role)) return true;
   return PERMISSION_MATRIX[role]?.has(permission) ?? false;
 }
 
@@ -142,13 +199,8 @@ function readSessionCookie(request: Request): string | null {
 
 /**
  * Resolve the current staff user from the session cookie.
- * Free-tier-safe: single joined query against the partial index
- * idx_sessions_token_active (token_hash WHERE is_revoked = 0).
- * Returns null when unauthenticated / revoked / expired / inactive.
  */
 export async function getCurrentStaffUser(context: APIContext): Promise<StaffUser | null> {
-  // Reuse the session resolved by middleware (defense-in-depth guard) to avoid
-  // a second indexed D1 lookup on the same request.
   const locals = context.locals as App.Locals | undefined;
   if (locals?.staffUserResolved) return locals.staffUser ?? null;
 
@@ -182,9 +234,6 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   };
 }
 
-/**
- * Require an authenticated staff user or throw RbacError(401).
- */
 export async function requireAuth(context: APIContext): Promise<StaffUser> {
   const user = await getCurrentStaffUser(context);
   if (!user) throw new RbacError(401, 'UNAUTHENTICATED', 'Authentication required');
@@ -203,7 +252,14 @@ export function requirePermission(user: StaffUser, permission: Permission): void
   }
 }
 
-/** Owner / Super Admin only — used for all developer/config/secret/backup areas. */
+/** Super Admin only — platform-control operations. */
+export function assertSuperAdminOnly(user: StaffUser): void {
+  if (!isSuperAdmin(user.role)) {
+    throw new RbacError(403, 'SUPER_ADMIN_ONLY', 'Super Admin access required for platform operations');
+  }
+}
+
+/** Owner / Super Admin — business-level operations (coupons, staff, fraud override). */
 export function assertOwnerOnly(user: StaffUser): void {
   if (!isOwnerTier(user.role)) {
     throw new RbacError(403, 'OWNER_ONLY', 'Owner / Super Admin access required');
@@ -228,9 +284,8 @@ export function assertSupportAccess(user: StaffUser): void {
 
 /**
  * List of permissions granted to a role (for menu building / debugging).
- * Owner-tier returns the sentinel ['owner.full_access'].
  */
 export function permissionsFor(role: StaffRole): Permission[] {
-  if (OWNER_TIER.has(role)) return ['owner.full_access'];
+  if (SUPER_ADMIN_ONLY.has(role)) return ['platform.full_access'];
   return Array.from(PERMISSION_MATRIX[role] ?? []);
 }

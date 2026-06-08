@@ -2,7 +2,7 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, assertOwnerOnly, requirePermission, RbacError } from '../../../../lib/rbac';
+import { requireAuth, assertSuperAdminOnly, requirePermission, RbacError } from '../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateApiKey, hashApiKey, normalizeApiKeyScopes, ApiKeyError, API_KEY_SCOPES } from '../../../../lib/api-keys';
 import { nowSql } from '../../../../lib/dates';
@@ -14,8 +14,8 @@ export async function GET(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    assertOwnerOnly(user);
-    requirePermission(user, 'system.api_code.manage');
+    assertSuperAdminOnly(user);
+    requirePermission(user, 'api_keys.read');
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
@@ -46,8 +46,8 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    assertOwnerOnly(user);
-    requirePermission(user, 'system.api_code.manage');
+    assertSuperAdminOnly(user);
+    requirePermission(user, 'api_keys.create');
     await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
@@ -123,8 +123,8 @@ export async function DELETE(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    assertOwnerOnly(user);
-    requirePermission(user, 'system.api_code.manage');
+    assertSuperAdminOnly(user);
+    requirePermission(user, 'api_keys.revoke');
     await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();

@@ -11,7 +11,7 @@
  * - Prepayment rule boundary conditions
  */
 import { describe, it, expect } from 'vitest';
-import { can, isOwnerTier, canConfirmOrder, type StaffRole, type Permission } from '../src/lib/rbac';
+import { can, isSuperAdmin, isOwnerTier, canConfirmOrder, type StaffRole, type Permission } from '../src/lib/rbac';
 import { createCsrfToken, verifyCsrfToken, generateRandomHex, hmacSha256Hex } from '../src/lib/security';
 import { calculatePrepayment } from '../src/lib/prepayment';
 import { normalizeApiKeyScopes, API_KEY_SCOPES } from '../src/lib/api-keys';
@@ -25,8 +25,7 @@ describe('RBAC coupon mutation blocking', () => {
   const nonOwnerRoles: StaffRole[] = ['manager', 'salesman', 'packing', 'support', 'developer', 'auditor'];
 
   it('no non-owner role has implicit coupon access', () => {
-    // There's no explicit "coupons.manage" permission in the matrix;
-    // coupon endpoints use assertOwnerOnly() which checks isOwnerTier().
+    // Coupon endpoints use assertOwnerOnly() which checks isOwnerTier().
     for (const role of nonOwnerRoles) {
       expect(isOwnerTier(role)).toBe(false);
     }
@@ -53,28 +52,35 @@ describe('RBAC coupon mutation blocking', () => {
 });
 
 // ─── Backup permission enforcement ──────────────────────────────────
-describe('Backup permission (system.backup.manage)', () => {
-  it('only owner-tier can access backup management', () => {
-    expect(can('owner', 'system.backup.manage')).toBe(true);
-    expect(can('super_admin', 'system.backup.manage')).toBe(true);
+describe('Backup permission (super_admin only for platform control)', () => {
+  it('only super_admin can restore backups', () => {
+    expect(can('super_admin', 'backups.restore')).toBe(true);
+    expect(can('owner', 'backups.restore')).toBe(false);
+  });
+
+  it('owner can read/download backups but not restore', () => {
+    expect(can('owner', 'backups.read')).toBe(true);
+    expect(can('owner', 'backups.download')).toBe(true);
+    expect(can('owner', 'backups.restore')).toBe(false);
   });
 
   it('every non-owner role is denied backup access', () => {
     const blocked: StaffRole[] = ['manager', 'salesman', 'packing', 'support', 'developer', 'auditor'];
     for (const role of blocked) {
-      expect(can(role, 'system.backup.manage')).toBe(false);
+      expect(can(role, 'backups.read')).toBe(false);
+      expect(can(role, 'backups.restore')).toBe(false);
     }
   });
 });
 
 // ─── Developer/auditor deep scoping ─────────────────────────────────
 describe('Developer and Auditor role deep scoping', () => {
-  it('developer has exactly one permission: system.api_code.manage', () => {
-    expect(can('developer', 'system.api_code.manage')).toBe(true);
-    // Ensure no accidental "leaked" permissions
+  it('developer has exactly one permission: api_code.read', () => {
+    expect(can('developer', 'api_code.read')).toBe(true);
     const dangerous: Permission[] = [
       'orders.create', 'orders.confirm', 'payments.verify', 'payments.refund',
-      'fraud.override', 'staff.manage', 'system.backup.manage', 'settings.manage'
+      'fraud.override', 'staff.manage', 'backups.restore', 'settings.platform.update',
+      'api_keys.create', 'api_code.update', 'integrations.test'
     ];
     for (const p of dangerous) expect(can('developer', p)).toBe(false);
   });
@@ -82,10 +88,9 @@ describe('Developer and Auditor role deep scoping', () => {
   it('auditor has exactly audit.view + reports.view', () => {
     expect(can('auditor', 'system.audit.view')).toBe(true);
     expect(can('auditor', 'reports.view')).toBe(true);
-    // No mutations
     const mutations: Permission[] = [
       'orders.create', 'orders.confirm', 'orders.cancel', 'inventory.adjust',
-      'media.upload', 'fraud.override', 'staff.manage'
+      'media.upload', 'fraud.override', 'staff.manage', 'api_keys.create'
     ];
     for (const p of mutations) expect(can('auditor', p)).toBe(false);
   });

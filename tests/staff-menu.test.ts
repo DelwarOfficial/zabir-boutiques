@@ -2,57 +2,56 @@ import { describe, it, expect } from 'vitest';
 import { menuForRole } from '../src/lib/staff-menu';
 import type { StaffRole } from '../src/lib/rbac';
 
-const OWNER_ONLY_HREFS = [
-  '/staff/users', '/staff/roles',
-  '/staff/settings', '/staff/media-admin', '/staff/backups', '/staff/audit'
+// Platform-control items visible only to super_admin
+const SUPER_ADMIN_ONLY_HREFS = ['/staff/api-code', '/staff/backups'];
+
+// Business owner items visible to both super_admin + owner
+const OWNER_TIER_HREFS = [
+  '/staff/users', '/staff/roles', '/staff/settings', '/staff/media-admin', '/staff/audit', '/staff/coupons'
 ];
 
-describe('Role-aware staff menu', () => {
-  it('owner-tier sees owner-only items', () => {
-    for (const role of ['owner', 'super_admin'] as StaffRole[]) {
-      const hrefs = menuForRole(role).map(m => m.href);
-      for (const owned of OWNER_ONLY_HREFS) expect(hrefs).toContain(owned);
-    }
+describe('Role-aware staff menu — platform security hardening', () => {
+  it('super_admin sees ALL items including platform-control', () => {
+    const hrefs = menuForRole('super_admin').map(m => m.href);
+    for (const h of SUPER_ADMIN_ONLY_HREFS) expect(hrefs).toContain(h);
+    for (const h of OWNER_TIER_HREFS) expect(hrefs).toContain(h);
   });
 
-  it('manager NEVER sees owner-only items (API Code / Roles / Backups / Audit / Settings)', () => {
+  it('owner sees business items but NOT platform-control items', () => {
+    const hrefs = menuForRole('owner').map(m => m.href);
+    for (const h of OWNER_TIER_HREFS) expect(hrefs).toContain(h);
+    // Owner must NOT see platform-control
+    for (const h of SUPER_ADMIN_ONLY_HREFS) expect(hrefs).not.toContain(h);
+  });
+
+  it('manager NEVER sees owner-tier or platform items', () => {
     const hrefs = menuForRole('manager').map(m => m.href);
-    for (const owned of OWNER_ONLY_HREFS) expect(hrefs).not.toContain(owned);
-  });
-
-  it('salesman/packing/support never see owner-only items', () => {
-    for (const role of ['salesman', 'packing', 'support'] as StaffRole[]) {
-      const hrefs = menuForRole(role).map(m => m.href);
-      for (const owned of OWNER_ONLY_HREFS) expect(hrefs).not.toContain(owned);
-    }
+    for (const h of OWNER_TIER_HREFS) expect(hrefs).not.toContain(h);
+    for (const h of SUPER_ADMIN_ONLY_HREFS) expect(hrefs).not.toContain(h);
   });
 
   it('every role sees the base Dashboard link', () => {
-    for (const role of ['owner', 'manager', 'salesman', 'packing', 'support'] as StaffRole[]) {
+    for (const role of ['super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'] as StaffRole[]) {
       expect(menuForRole(role).map(m => m.href)).toContain('/staff');
     }
+  });
+
+  it('developer sees Dashboard + API Code only', () => {
+    const hrefs = menuForRole('developer').map(m => m.href);
+    expect(hrefs).toContain('/staff');
+    expect(hrefs).toContain('/staff/api-code');
+    expect(hrefs).not.toContain('/staff/backups');
+    expect(hrefs).not.toContain('/staff/users');
+  });
+
+  it('auditor sees Dashboard, Reports, and Audit Logs only', () => {
+    const hrefs = menuForRole('auditor').map(m => m.href).sort();
+    expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/reports']);
   });
 
   it('packing sees packing queue, not product management', () => {
     const hrefs = menuForRole('packing').map(m => m.href);
     expect(hrefs).toContain('/staff/packing');
     expect(hrefs).not.toContain('/staff/products');
-  });
-
-  it('auditor sees only Dashboard, Reports and Audit Logs', () => {
-    const hrefs = menuForRole('auditor').map(m => m.href).sort();
-    expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/reports']);
-  });
-
-  it('developer sees only the Dashboard and API Code (no owner-only key minting)', () => {
-    const hrefs = menuForRole('developer').map(m => m.href);
-    expect(hrefs).toContain('/staff');
-    expect(hrefs).toContain('/staff/api-code');
-    // Still no access to owner-exclusive admin pages
-    expect(hrefs).not.toContain('/staff/users');
-    expect(hrefs).not.toContain('/staff/roles');
-    expect(hrefs).not.toContain('/staff/settings');
-    expect(hrefs).not.toContain('/staff/backups');
-    expect(hrefs).not.toContain('/staff/media-admin');
   });
 });

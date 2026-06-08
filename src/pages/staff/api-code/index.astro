@@ -1,22 +1,32 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
-import { getCurrentStaffUser, isOwnerTier, can } from '../../../lib/rbac';
+import StepUpRequired from '@/components/staff/StepUpRequired.astro';
+import { getCurrentStaffUser, isSuperAdmin, can } from '../../../lib/rbac';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
-if (!can(user.role, 'system.api_code.manage')) return new Response('Forbidden', { status: 403 });
-const canMintKeys = isOwnerTier(user.role);
+if (!can(user.role, 'api_code.read')) return new Response('Forbidden', { status: 403 });
+const canMintKeys = isSuperAdmin(user.role);
+let needsStepUp = false;
 try {
   await requireRecentStaffSession(Astro, user);
 } catch (err) {
-  if (err instanceof CriticalAuthError) return err.toResponse();
-  throw err;
+  if (err instanceof CriticalAuthError && err.code === 'STEP_UP_REQUIRED') {
+    needsStepUp = true;
+  } else if (err instanceof CriticalAuthError) {
+    return err.toResponse();
+  } else {
+    throw err;
+  }
 }
 ---
 
 <StaffLayout title="API Keys" user={user}>
-  <div class="flex justify-between items-center mb-6">
+  {needsStepUp ? (
+    <StepUpRequired message="API Key management requires recent authentication." />
+  ) : (
+  <div> class="flex justify-between items-center mb-6">
     <h1 class="m-0 text-xl font-bold">API Keys</h1>
     {canMintKeys && <button id="createKeyBtn" class="px-4 py-2 bg-brand text-white border-0 rounded cursor-pointer text-sm font-semibold" onclick="showCreateForm()">+ New Key</button>}
   </div>
@@ -57,6 +67,7 @@ try {
       </tbody>
     </table>
   </div>
+  )}
 </StaffLayout>
 
 <script>

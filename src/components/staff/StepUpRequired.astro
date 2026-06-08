@@ -1,0 +1,76 @@
+---
+/**
+ * Step-Up Authentication Required screen.
+ * Displayed when a staff page requires recent authentication but the session
+ * has been idle longer than the step-up window (10 minutes).
+ * Provides a re-authentication form that posts to /api/staff/login and
+ * refreshes the page on success.
+ */
+interface Props {
+  message?: string;
+}
+const { message = 'This section requires recent authentication for security.' } = Astro.props;
+---
+<div class="max-w-md mx-auto mt-8">
+  <div class="border border-line rounded-xl bg-surface p-6 shadow-sm">
+    <div class="flex items-center justify-center w-12 h-12 rounded-full bg-amber-100 text-amber-700 mx-auto mb-4" aria-hidden="true">
+      <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <rect width="18" height="11" x="3" y="11" rx="2" ry="2"></rect>
+        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+      </svg>
+    </div>
+    <h2 class="text-base font-semibold text-center m-0 mb-1">Re-authentication Required</h2>
+    <p class="text-sm text-muted text-center mt-0 mb-4">{message}</p>
+    <form id="step-up-form" class="flex flex-col gap-3">
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1" for="step-up-password">Password</label>
+        <input id="step-up-password" name="password" type="password" required autocomplete="current-password"
+          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+      </div>
+      <button type="submit" id="step-up-btn"
+        class="w-full py-2.5 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50">
+        Verify Identity
+      </button>
+      <p id="step-up-error" class="text-xs text-red-600 text-center m-0 hidden"></p>
+    </form>
+  </div>
+  <p class="text-xs text-muted text-center mt-4">Your session is still active. This step confirms your identity for sensitive operations.</p>
+</div>
+
+<script is:inline>
+  (function() {
+    const form = document.getElementById('step-up-form');
+    const btn = document.getElementById('step-up-btn');
+    const errEl = document.getElementById('step-up-error');
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pw = form.querySelector('[name=password]').value;
+      if (!pw) return;
+      btn.disabled = true; btn.textContent = 'Verifying…';
+      errEl.classList.add('hidden');
+      try {
+        // Re-authenticate by posting to login (refreshes session last_active_at)
+        const res = await fetch('/api/staff/step-up', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '')
+          },
+          body: JSON.stringify({ password: pw })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          window.location.reload();
+        } else {
+          errEl.textContent = data.error || 'Verification failed. Please try again.';
+          errEl.classList.remove('hidden');
+          btn.disabled = false; btn.textContent = 'Verify Identity';
+        }
+      } catch {
+        errEl.textContent = 'Network error. Please try again.';
+        errEl.classList.remove('hidden');
+        btn.disabled = false; btn.textContent = 'Verify Identity';
+      }
+    });
+  })();
+</script>

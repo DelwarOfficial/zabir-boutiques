@@ -20,10 +20,10 @@ const variants = await env.DB.prepare(
 ).all<any>();
 ---
 <StaffLayout title="Create Order" user={user}>
-  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Create Order</h1>
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;">
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
-      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Customer Details</h2>
+  <h1 class="m-0 mb-4 text-xl font-bold">Create Order</h1>
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-4">Customer Details</h2>
       <form action="/api/staff/orders/create" method="post" class="flex flex-col gap-3">
         <input type="text" name="name" placeholder="Customer name" required class="control" />
         <input type="tel" name="phone" placeholder="Phone (e.g. 017xxxxxxxx)" required class="control" />
@@ -37,31 +37,31 @@ const variants = await env.DB.prepare(
         <button type="submit" class="mt-1 py-2.5 bg-brand text-white rounded-lg font-semibold text-sm border-0 cursor-pointer">Submit Order</button>
       </form>
     </div>
-    <div style="background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:1rem;">
-      <h2 style="font-size:0.85rem;font-weight:600;margin:0 0 1rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;">Available Variants (select + set qty)</h2>
-      <form id="variants-form" style="max-height:380px;overflow-y:auto;">
-        <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
-          <thead><tr style="border-bottom:1px solid var(--line);text-align:left;">
-            <th style="padding:0.3rem 0.5rem;">Product</th>
-            <th style="padding:0.3rem 0.5rem;">Size</th>
-            <th style="padding:0.3rem 0.5rem;">Price</th>
-            <th style="padding:0.3rem 0.5rem;">Qty</th>
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-4">Available Variants (select + set qty)</h2>
+      <form id="variants-form" class="max-h-[380px] overflow-y-auto">
+        <table class="w-full border-collapse text-xs">
+          <thead><tr class="border-b border-line text-left">
+            <th class="px-2 py-1.5">Product</th>
+            <th class="px-2 py-1.5">Size</th>
+            <th class="px-2 py-1.5">Price</th>
+            <th class="px-2 py-1.5">Qty</th>
           </tr></thead>
           <tbody>
             {variants.results?.map(v => (
-              <tr style="border-bottom:1px solid var(--line-soft);">
-                <td style="padding:0.3rem 0.5rem;">{v.product_name}</td>
-                <td style="padding:0.3rem 0.5rem;color:var(--muted);">{v.size || "—"}</td>
-                <td style="padding:0.3rem 0.5rem;">৳{(v.price_paisa/100).toFixed(2)}</td>
-                <td style="padding:0.3rem 0.5rem;">
-                  <input type="number" class="variant-qty" data-variant-id={v.id} min="0" max={v.available} value="0" style="width:60px;padding:0.2rem 0.4rem;border:1px solid var(--line);border-radius:4px;font-size:0.8rem;" />
+              <tr class="border-b border-line-soft">
+                <td class="px-2 py-1.5">{v.product_name}</td>
+                <td class="px-2 py-1.5 text-muted">{v.size || "—"}</td>
+                <td class="px-2 py-1.5">৳{Math.floor(v.price_paisa / 100)}</td>
+                <td class="px-2 py-1.5">
+                  <input type="number" class="variant-qty w-14 px-1.5 py-1 border border-line rounded text-xs text-center bg-bg" data-variant-id={v.id} min="0" max={v.available} value="0" />
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
       </form>
-      <p style="font-size:0.7rem;color:var(--muted);margin-top:0.5rem;">Set quantities above. They will be included when you submit the order on the left.</p>
+      <p class="text-[10px] text-muted mt-2 m-0">Set quantities above. They will be included when you submit the order on the left.</p>
     </div>
   </div>
 <script>

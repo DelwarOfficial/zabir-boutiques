@@ -1,15 +1,20 @@
 /**
- * Role-aware staff menu configuration [v6.8A]
+ * Role-aware staff menu configuration [v6.8D — Platform Security Hardening]
+ *
  * Menu hiding is UX only — server-side RBAC remains mandatory on every route.
+ *
+ * Role markers:
+ *   'super-admin-only' → only super_admin
+ *   'owner-tier'       → super_admin + owner (business-level full access)
+ *   literal role name  → that specific role
  */
 import type { StaffRole } from './rbac';
-import { isOwnerTier } from './rbac';
+import { isSuperAdmin, isOwnerTier } from './rbac';
 
 export interface MenuItem {
   label: string;
   href: string;
-  /** Roles allowed to see this item. 'owner' covers super_admin + owner. */
-  roles: Array<StaffRole | 'owner-tier'>;
+  roles: Array<StaffRole | 'owner-tier' | 'super-admin-only'>;
 }
 
 const ALL: MenuItem[] = [
@@ -36,25 +41,26 @@ const ALL: MenuItem[] = [
   // Support extras
   { label: 'Order Search', href: '/staff/support/search', roles: ['support'] },
   { label: 'Escalations', href: '/staff/support/escalations', roles: ['support'] },
-  // Owner-only
+  // Business owner-level (super_admin + owner)
   { label: 'Coupon Management', href: '/staff/coupons', roles: ['owner-tier'] },
   { label: 'Staff Users', href: '/staff/users', roles: ['owner-tier'] },
   { label: 'Roles & Permissions', href: '/staff/roles', roles: ['owner-tier'] },
-  { label: 'API Code / Developer', href: '/staff/api-code', roles: ['owner-tier', 'developer'] },
   { label: 'Site Settings', href: '/staff/settings', roles: ['owner-tier'] },
   { label: 'Media / R2', href: '/staff/media-admin', roles: ['owner-tier'] },
-  { label: 'Backups', href: '/staff/backups', roles: ['owner-tier'] },
-  { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier', 'auditor'] }
+  { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier', 'auditor'] },
+  // Platform-control (super_admin ONLY)
+  { label: 'API Code / Developer', href: '/staff/api-code', roles: ['super-admin-only', 'developer'] },
+  { label: 'Backups', href: '/staff/backups', roles: ['super-admin-only'] },
 ];
 
-// The MenuItem.roles array supports the literal role names plus 'owner-tier'.
-// Note: the 'developer' role intentionally has no API-keys menu link — the
-// /staff/api-code page is the owner-only key-minting console. A dedicated
-// read-only developer console is deferred to the Phase 8 work.
-
 export function menuForRole(role: StaffRole): MenuItem[] {
+  const superAdmin = isSuperAdmin(role);
   const owner = isOwnerTier(role);
   return ALL.filter(item =>
-    item.roles.some(r => (r === 'owner-tier' ? owner : r === role))
+    item.roles.some(r => {
+      if (r === 'super-admin-only') return superAdmin;
+      if (r === 'owner-tier') return owner;
+      return r === role;
+    })
   );
 }

@@ -1,18 +1,65 @@
 ---
 export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
 if (!can(user.role, "media.upload")) return new Response("Forbidden", { status: 403 });
 ---
 <StaffLayout title="Media Upload" user={user}>
-  <h1 style="margin:0 0 1rem;font-size:1.25rem;font-weight:700;">Media Upload</h1>
-  <p style="color:var(--muted);margin-bottom:1rem;">Upload product images. Images are automatically compressed and WebP thumbnails generated.</p>
-  <div style="background:var(--surface);border:2px dashed var(--line);border-radius:8px;padding:2rem;text-align:center;">
-    <form action="/api/staff/uploads" method="post" enctype="multipart/form-data" style="display:flex;flex-direction:column;align-items:center;gap:1rem;">
-      <input type="file" name="file" accept="image/*" required style="font-size:0.9rem;" />
-      <button type="submit" style="padding:0.5rem 1.5rem;background:var(--brand);color:#fff;border:none;border-radius:6px;cursor:pointer;font-weight:600;">Upload</button>
+  <PageHeader title="Media Upload" subtitle="Upload product images. Automatically compressed with WebP thumbnails." />
+  <div class="bg-surface border-2 border-dashed border-line rounded-lg p-8 text-center max-w-lg mx-auto">
+    <form id="upload-form" action="/api/staff/uploads" method="post" enctype="multipart/form-data" class="flex flex-col items-center gap-4">
+      <label class="cursor-pointer">
+        <div class="text-muted text-sm mb-2">Select an image (JPEG, PNG, WebP, GIF, AVIF — max 20MB)</div>
+        <input type="file" name="file" accept="image/*" required class="text-sm" />
+      </label>
+      <div>
+        <label class="block text-xs text-ink-secondary mb-1">Product ID</label>
+        <input name="product_id" type="text" required placeholder="paste product UUID"
+          class="px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border w-64 font-mono" />
+      </div>
+      <button type="submit" id="upload-btn"
+        class="px-5 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50">Upload</button>
+      <p id="upload-msg" class="text-xs m-0 hidden"></p>
     </form>
   </div>
+
+<script is:inline>
+  (function() {
+    const form = document.getElementById('upload-form');
+    const btn = document.getElementById('upload-btn');
+    const msg = document.getElementById('upload-msg');
+    function getCsrf() {
+      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+    form?.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      btn.disabled = true; btn.textContent = 'Uploading…';
+      msg.className = 'text-xs m-0 hidden';
+      const data = new FormData(form);
+      try {
+        const res = await fetch('/api/staff/uploads', {
+          method: 'POST',
+          headers: { 'X-CSRF-Token': getCsrf() },
+          body: data
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.ok) {
+          msg.textContent = 'Uploaded: ' + json.r2_key + (json.compressed ? ' (compressed)' : '');
+          msg.className = 'text-xs m-0 text-green-700';
+        } else {
+          msg.textContent = json.error || json.message || 'Upload failed.';
+          msg.className = 'text-xs m-0 text-red-600';
+        }
+      } catch {
+        msg.textContent = 'Network error.';
+        msg.className = 'text-xs m-0 text-red-600';
+      }
+      btn.disabled = false; btn.textContent = 'Upload';
+    });
+  })();
+</script>
 </StaffLayout>

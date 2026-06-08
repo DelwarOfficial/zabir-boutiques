@@ -7,7 +7,7 @@ export const prerender = false;
 
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, requirePermission, RbacError } from '../../../../lib/rbac';
+import { requireAuth, requirePermission, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
@@ -24,7 +24,7 @@ export async function GET(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requirePermission(user, 'system.api_code.manage');
+    requirePermission(user, 'api_code.read');
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
@@ -53,7 +53,8 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requirePermission(user, 'system.api_code.manage');
+    assertSuperAdminOnly(user);
+    requirePermission(user, 'api_code.update');
     await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();

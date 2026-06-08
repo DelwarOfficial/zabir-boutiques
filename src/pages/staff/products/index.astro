@@ -29,60 +29,64 @@ const products = await env.DB.prepare(
     <table class="w-full border-collapse text-sm">
       <thead>
         <tr class="bg-surface-soft text-left">
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Name</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Category</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Price</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Compare</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Variants</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Stock</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
-          <th style="padding:0.6rem 0.75rem;font-weight:600;">Featured</th>
+          <th class="px-3 py-2.5 font-semibold">Name</th>
+          <th class="px-3 py-2.5 font-semibold">Category</th>
+          <th class="px-3 py-2.5 font-semibold">Price</th>
+          <th class="px-3 py-2.5 font-semibold">Compare</th>
+          <th class="px-3 py-2.5 font-semibold text-center">Variants</th>
+          <th class="px-3 py-2.5 font-semibold text-center">Stock</th>
+          <th class="px-3 py-2.5 font-semibold">Status</th>
+          <th class="px-3 py-2.5 font-semibold text-center">Featured</th>
         </tr>
       </thead>
       <tbody>
         {products.results?.length ? products.results.map(p => <tr class="border-t border-line-soft">
-          <td style="padding:0.6rem 0.75rem;">
-            <a href={`/products/${p.slug}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{p.name}</a>
+          <td class="px-3 py-2.5">
+            <a href={`/products/${p.slug}`} class="text-brand no-underline font-semibold">{p.name}</a>
           </td>
-          <td style="padding:0.6rem 0.75rem;color:var(--muted);">{p.category_name || "—"}</td>
-          <td style="padding:0.6rem 0.75rem;font-weight:600;">৳{(p.price_paisa / 100).toFixed(2)}</td>
-          <td style="padding:0.6rem 0.75rem;color:var(--muted);">{p.compare_price_paisa ? `৳${(p.compare_price_paisa / 100).toFixed(2)}` : "—"}</td>
-          <td style="padding:0.6rem 0.75rem;text-align:center;">{p.variant_count}</td>
-          <td style="padding:0.6rem 0.75rem;text-align:center;">
-            <span style={`font-weight:600;color:${p.total_stock === 0 ? 'var(--danger)' : p.total_stock < 20 ? '#f59e0b' : 'var(--success)'};`}>{p.total_stock}</span>
+          <td class="px-3 py-2.5 text-muted">{p.category_name || "—"}</td>
+          <td class="px-3 py-2.5 font-semibold">৳{Math.floor(p.price_paisa / 100)}</td>
+          <td class="px-3 py-2.5 text-muted">{p.compare_price_paisa ? `৳${Math.floor(p.compare_price_paisa / 100)}` : "—"}</td>
+          <td class="px-3 py-2.5 text-center">{p.variant_count}</td>
+          <td class="px-3 py-2.5 text-center">
+            <span class={`font-semibold ${p.total_stock === 0 ? 'text-red-600' : p.total_stock < 20 ? 'text-amber-500' : 'text-green-600'}`}>{p.total_stock}</span>
           </td>
-          <td style="padding:0.6rem 0.75rem;">
-            <span style={`padding:2px 6px;border-radius:4px;font-size:0.75rem;background:${p.status === 'published' ? '#dcfce7' : p.status === 'archived' ? '#fee2e2' : '#fef3c7'};color:${p.status === 'published' ? '#166534' : p.status === 'archived' ? '#991b1b' : '#92400e'};`}>{p.status}</span>
+          <td class="px-3 py-2.5">
+            <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${p.status === 'published' ? 'bg-green-100 text-green-800' : p.status === 'archived' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>{p.status}</span>
           </td>
-          <td style="padding:0.6rem 0.75rem;text-align:center;">{p.is_featured ? "⭐" : "—"}</td>
-        </tr>) : <tr><td colspan="8" style="padding:2rem;text-align:center;color:var(--muted);">No products found.</td></tr>}
+          <td class="px-3 py-2.5 text-center">{p.is_featured ? "⭐" : "—"}</td>
+        </tr>) : <tr><td colspan="8" class="px-4 py-8 text-center text-muted">No products found.</td></tr>}
       </tbody>
     </table>
   </div>
 
-  <div style="border:1px solid var(--line);border-radius:8px;padding:1.25rem;">
-    <h2 style="font-size:1rem;font-weight:600;margin:0 0 1rem;">AI Content Generator</h2>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.75rem;margin-bottom:1rem;">
+  <div class="border border-line rounded-lg p-5 mt-2">
+    <h2 class="text-base font-semibold m-0 mb-4">AI Content Generator</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4">
       <div>
-        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Product Name *</label>
-        <input id="aiProductName" type="text" placeholder="e.g. Printed Cotton Kurti" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+        <label class="block text-xs text-ink-secondary mb-1">Product Name *</label>
+        <input id="aiProductName" type="text" placeholder="e.g. Printed Cotton Kurti"
+          class="w-full px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border" />
       </div>
       <div>
-        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Category</label>
-        <input id="aiCategory" type="text" placeholder="e.g. Women's Fashion" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+        <label class="block text-xs text-ink-secondary mb-1">Category</label>
+        <input id="aiCategory" type="text" placeholder="e.g. Women's Fashion"
+          class="w-full px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border" />
       </div>
       <div>
-        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Price (paisa)</label>
-        <input id="aiPrice" type="number" placeholder="e.g. 129900" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+        <label class="block text-xs text-ink-secondary mb-1">Price (paisa)</label>
+        <input id="aiPrice" type="number" placeholder="e.g. 129900"
+          class="w-full px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border" />
       </div>
       <div>
-        <label style="display:block;font-size:0.85rem;font-weight:500;margin-bottom:0.25rem;">Key Features (comma-separated)</label>
-        <input id="aiFeatures" type="text" placeholder="e.g. Soft fabric, Premium stitch, Eco-friendly" style="width:100%;padding:0.5rem 0.75rem;border:1px solid var(--line);border-radius:6px;font-size:0.85rem;background:var(--surface);color:var(--text);" />
+        <label class="block text-xs text-ink-secondary mb-1">Key Features (comma-separated)</label>
+        <input id="aiFeatures" type="text" placeholder="e.g. Soft fabric, Premium stitch"
+          class="w-full px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border" />
       </div>
     </div>
-    <button id="aiGenerateBtn" style="padding:0.5rem 1rem;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;" onclick="generateContent()">Generate with AI</button>
-    <div id="aiResult" style="display:none;margin-top:1rem;border:1px solid var(--line);border-radius:8px;padding:1rem;background:var(--surface-soft);font-size:0.85rem;white-space:pre-wrap;"></div>
-    <div id="aiError" style="display:none;margin-top:1rem;color:#991b1b;font-size:0.85rem;"></div>
+    <button id="aiGenerateBtn" class="px-4 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50" onclick="generateContent()">Generate with AI</button>
+    <div id="aiResult" class="hidden mt-4 border border-line rounded-lg p-4 bg-surface-soft text-sm whitespace-pre-wrap"></div>
+    <div id="aiError" class="hidden mt-4 text-red-700 text-sm"></div>
   </div>
 </StaffLayout>
 
@@ -98,11 +102,11 @@ async function generateContent() {
   const error = document.getElementById('aiError');
   btn.disabled = true;
   btn.textContent = 'Generating...';
-  result.style.display = 'none';
-  error.style.display = 'none';
+  result.classList.add('hidden');
+  error.classList.add('hidden');
 
   const name = document.getElementById('aiProductName').value.trim();
-  if (!name) { error.textContent = 'Product name is required.'; error.style.display = 'block'; btn.disabled = false; btn.textContent = 'Generate with AI'; return; }
+  if (!name) { error.textContent = 'Product name is required.'; error.classList.remove('hidden'); btn.disabled = false; btn.textContent = 'Generate with AI'; return; }
 
   try {
     const res = await fetch('/api/staff/ai/generate-product-content', {
@@ -117,15 +121,15 @@ async function generateContent() {
     });
     const data = await res.json();
     if (data.ok) {
-      result.style.display = 'block';
+      result.classList.remove('hidden');
       result.innerHTML = `<strong>Description:</strong>\n${esc(data.content.description)}\n\n<strong>Meta Title:</strong> ${esc(data.content.metaTitle)}\n\n<strong>Meta Description:</strong> ${esc(data.content.metaDescription)}`;
     } else {
       error.textContent = data.error || 'Generation failed';
-      error.style.display = 'block';
+      error.classList.remove('hidden');
     }
   } catch (e) {
     error.textContent = 'Network error: ' + e.message;
-    error.style.display = 'block';
+    error.classList.remove('hidden');
   } finally {
     btn.disabled = false;
     btn.textContent = 'Generate with AI';

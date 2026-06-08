@@ -3,16 +3,9 @@ export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
-import { requireRecentStaffSession, CriticalAuthError } from "../../../lib/critical-auth";
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
 if (!can(user.role, "settings.manage")) return new Response("Forbidden", { status: 403 });
-try {
-  await requireRecentStaffSession(Astro, user);
-} catch (err) {
-  if (err instanceof CriticalAuthError) return err.toResponse();
-  throw err;
-}
 ---
 <StaffLayout title="Site Settings" user={user}>
   <PageHeader title="Site Settings" subtitle="Platform configuration, shipping rates, payment gateways, and feature flags." />

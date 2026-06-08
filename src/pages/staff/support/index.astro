@@ -19,23 +19,25 @@ const recent = await env.DB.prepare(
   <PageHeader title="Support" subtitle="Recent orders and customer support tools.">
     <a slot="actions" href="/staff/support/search" class="px-3 py-1.5 bg-brand text-white rounded-md text-xs font-semibold no-underline">Search Orders</a>
   </PageHeader>
-  <div style="overflow-x:auto;border:1px solid var(--line);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
-      <thead><tr style="background:var(--surface-soft);text-align:left;">
-        <th style="padding:0.6rem 0.75rem;font-weight:600;">Order</th>
-        <th style="padding:0.6rem 0.75rem;font-weight:600;">Customer</th>
-        <th style="padding:0.6rem 0.75rem;font-weight:600;">Total</th>
-        <th style="padding:0.6rem 0.75rem;font-weight:600;">Status</th>
-        <th style="padding:0.6rem 0.75rem;font-weight:600;">Date</th>
+  <div class="overflow-x-auto border border-line rounded-lg">
+    <table class="w-full border-collapse text-sm">
+      <thead><tr class="bg-surface-soft text-left">
+        <th class="px-3 py-2.5 font-semibold">Order</th>
+        <th class="px-3 py-2.5 font-semibold">Customer</th>
+        <th class="px-3 py-2.5 font-semibold">Total</th>
+        <th class="px-3 py-2.5 font-semibold">Status</th>
+        <th class="px-3 py-2.5 font-semibold">Date</th>
       </tr></thead>
       <tbody>
-        {recent.results?.map(o => <tr style="border-top:1px solid var(--line-soft);">
-          <td style="padding:0.6rem 0.75rem;"><a href={`/staff/orders/${o.id}`} style="color:var(--brand);text-decoration:none;font-weight:600;">{o.order_number}</a></td>
-          <td style="padding:0.6rem 0.75rem;">{o.name}<br /><span style="color:var(--muted);font-size:0.8em;">{o.phone}</span></td>
-          <td style="padding:0.6rem 0.75rem;font-weight:600;">৳{(o.total_paisa/100).toFixed(2)}</td>
-          <td style="padding:0.6rem 0.75rem;">{o.status.replace(/_/g, ' ')}</td>
-          <td style="padding:0.6rem 0.75rem;color:var(--muted);font-size:0.8em;">{o.created_at?.split(' ')[0]}</td>
-        </tr>)} || <tr><td colspan="5" style="padding:2rem;text-align:center;color:var(--muted);">No orders yet.</td></tr>}
+        {recent.results?.length ? recent.results.map(o => (
+          <tr class="border-t border-line-soft">
+            <td class="px-3 py-2"><a href={`/staff/orders/${o.id}`} class="text-brand no-underline font-semibold">{o.order_number}</a></td>
+            <td class="px-3 py-2">{o.name}<br /><span class="text-xs text-muted">{o.phone}</span></td>
+            <td class="px-3 py-2 font-semibold">৳{Math.floor(o.total_paisa / 100)}</td>
+            <td class="px-3 py-2"><span class="text-[10px] px-1.5 py-0.5 rounded bg-line-soft text-ink-secondary">{o.status.replace(/_/g, ' ')}</span></td>
+            <td class="px-3 py-2 text-xs text-muted">{o.created_at?.split(' ')[0]}</td>
+          </tr>
+        )) : <tr><td colspan="5" class="px-4 py-8 text-center text-muted">No orders yet.</td></tr>}
       </tbody>
     </table>
   </div>
