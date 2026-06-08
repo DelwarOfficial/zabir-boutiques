@@ -18,7 +18,7 @@ try {
 const env = getEnv(Astro);
 const staff = await env.DB.prepare(
   `SELECT id, email, phone, full_name, role, is_active, last_login_at, created_at
-   FROM staff_users ORDER BY created_at DESC`
+   FROM staff_users ORDER BY created_at DESC LIMIT 200`
 ).all<any>();
 ---
 <StaffLayout title="Staff Users" user={user}>

@@ -1,11 +1,12 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
-import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
+import { getCurrentStaffUser, isOwnerTier, can } from '../../../lib/rbac';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
-if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
+if (!can(user.role, 'system.api_code.manage')) return new Response('Forbidden', { status: 403 });
+const canMintKeys = isOwnerTier(user.role);
 try {
   await requireRecentStaffSession(Astro, user);
 } catch (err) {
@@ -17,7 +18,7 @@ try {
 <StaffLayout title="API Keys" user={user}>
   <div class="flex justify-between items-center mb-6">
     <h1 class="m-0 text-xl font-bold">API Keys</h1>
-    <button id="createKeyBtn" class="px-4 py-2 bg-brand text-white border-0 rounded cursor-pointer text-sm font-semibold" onclick="showCreateForm()">+ New Key</button>
+    {canMintKeys && <button id="createKeyBtn" class="px-4 py-2 bg-brand text-white border-0 rounded cursor-pointer text-sm font-semibold" onclick="showCreateForm()">+ New Key</button>}
   </div>
 
   <div id="createForm" style="display:none;border:1px solid var(--line);border-radius:8px;padding:1.25rem;margin-bottom:1.5rem;background:var(--surface-soft);">

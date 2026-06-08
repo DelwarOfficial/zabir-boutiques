@@ -24,7 +24,7 @@ export async function GET(context: APIContext): Promise<Response> {
   const keys = await env.DB.prepare(
     `SELECT id, name, key_prefix, scopes_json, permissions, is_revoked, expires_at, revoked_at,
             allowed_ips_json, rate_limit_profile, environment, purpose, last_used_at, created_at
-     FROM api_keys ORDER BY created_at DESC`
+     FROM api_keys ORDER BY created_at DESC LIMIT 200`
   ).all();
 
   await writeAuditLog(env.DB, {

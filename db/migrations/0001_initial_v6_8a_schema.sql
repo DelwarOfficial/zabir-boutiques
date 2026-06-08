@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS staff_users (
   password_hash TEXT NOT NULL,
   full_name TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'support'
-    CHECK (role IN ('super_admin','owner','manager','salesman','packing','support')),
+    CHECK (role IN ('super_admin','owner','manager','salesman','packing','support','developer','auditor')),
   is_active INTEGER NOT NULL DEFAULT 1 CHECK (is_active IN (0,1)),
   last_login_at TEXT,
   created_at TEXT NOT NULL,

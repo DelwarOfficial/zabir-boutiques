@@ -1,21 +1,86 @@
 ---
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+const queue = await env.DB.prepare(
+  `SELECT o.id, o.order_number, o.name, o.phone, o.address, o.total_paisa,
+          o.payment_method, o.advance_paisa, o.balance_paisa, o.status, o.created_at
+   FROM orders o
+   WHERE o.status IN ('staff_confirmed', 'packing')
+   ORDER BY o.created_at ASC
+   LIMIT 100`
+).all<any>();
+const rows = queue.results ?? [];
 ---
 <StaffLayout title="Packing Queue" user={user}>
-  <h1 class="m-0 text-xl font-bold mb-1">Packing Queue</h1>
-  <p style="color:var(--muted);margin-bottom:1rem;">Orders ready to pack or in progress. Use the specialized packing views.</p>
+  <PageHeader title="Packing Queue" subtitle={`${rows.length} orders ready to pack or in progress.`}>
+    <Fragment slot="actions">
+      <a href="/staff/packing/packed" class="px-3 py-1.5 border border-line rounded-md text-xs no-underline hover:bg-surface-soft">Packed</a>
+      <a href="/staff/packing/courier" class="px-3 py-1.5 border border-line rounded-md text-xs no-underline hover:bg-surface-soft">Courier</a>
+      <a href="/staff/packing/slips" class="px-3 py-1.5 border border-line rounded-md text-xs no-underline hover:bg-surface-soft">Print Slips</a>
+    </Fragment>
+  </PageHeader>
 
-  <div style="display:flex;gap:0.75rem;flex-wrap:wrap;">
-    <a href="/staff/packing" style="padding:0.6rem 1rem;background:var(--brand);color:#fff;border-radius:6px;text-decoration:none;font-weight:600;">Current Packing Queue</a>
-    <a href="/staff/packing/packed" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Already Packed</a>
-    <a href="/staff/packing/courier" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Courier Handoff</a>
-    <a href="/staff/packing/slips" style="padding:0.6rem 1rem;background:var(--surface);border:1px solid var(--line);border-radius:6px;text-decoration:none;">Print Packing Slips</a>
-  </div>
-
-  <p style="margin-top:1rem;color:var(--muted);font-size:0.85rem;">Confirm packing progress via the order detail page actions (manager/packing roles).</p>
+  {rows.length > 0 ? (
+    <div class="overflow-x-auto border border-line rounded-lg">
+      <table class="w-full border-collapse text-sm">
+        <thead>
+          <tr class="bg-surface-soft text-left">
+            <th class="px-3 py-2.5 font-semibold">Order</th>
+            <th class="px-3 py-2.5 font-semibold">Customer</th>
+            <th class="px-3 py-2.5 font-semibold">Address</th>
+            <th class="px-3 py-2.5 font-semibold text-right">Total</th>
+            <th class="px-3 py-2.5 font-semibold text-center">Payment</th>
+            <th class="px-3 py-2.5 font-semibold text-center">Status</th>
+            <th class="px-3 py-2.5 font-semibold">Label</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(o => (
+            <tr class="border-t border-line-soft">
+              <td class="px-3 py-2">
+                <a href={`/staff/orders/${o.id}`} class="text-brand font-semibold no-underline">{o.order_number}</a>
+              </td>
+              <td class="px-3 py-2">
+                <div class="font-medium">{o.name}</div>
+                <div class="text-xs text-muted">{o.phone}</div>
+              </td>
+              <td class="px-3 py-2 text-xs text-muted max-w-[200px] truncate" title={o.address}>{o.address}</td>
+              <td class="px-3 py-2 text-right font-medium">৳{Math.floor(o.total_paisa / 100)}</td>
+              <td class="px-3 py-2 text-center">
+                {o.payment_method === 'in_store' ? (
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-green-100 text-green-800 font-semibold">PAID</span>
+                ) : o.advance_paisa > 0 ? (
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-amber-100 text-amber-800 font-semibold">PARTIAL</span>
+                ) : (
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-line-soft text-ink-secondary">COD</span>
+                )}
+              </td>
+              <td class="px-3 py-2 text-center">
+                <span class={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${o.status === 'packing' ? 'bg-cyan-100 text-cyan-800' : 'bg-amber-100 text-amber-800'}`}>
+                  {o.status === 'packing' ? 'Packing' : 'Ready'}
+                </span>
+              </td>
+              <td class="px-3 py-2">
+                <a href={`/api/staff/orders/${o.id}/label`} target="_blank" rel="noopener"
+                  class="text-[10px] px-2 py-1 border border-line rounded no-underline hover:bg-surface-soft">🏷️ Print</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <div class="text-center text-muted text-sm py-12 border border-line rounded-lg border-dashed">
+      All clear — no orders waiting to be packed.
+    </div>
+  )}
 </StaffLayout>

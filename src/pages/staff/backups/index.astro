@@ -16,12 +16,35 @@ try {
 }
 ---
 <StaffLayout title="Backups" user={user}>
-  <PageHeader title="Backups" subtitle="Database and media backups — schedule, download, restore." />
-  <ComingSoon title="Backup management is planned" description="Owner-level controls to schedule, download, and restore D1 and R2 backups.">
+  <PageHeader title="Backups" subtitle="D1 and R2 backup management (owner-only)." />
+
+  <div class="bg-surface border border-line rounded-lg p-4 mb-5">
+    <h2 class="m-0 text-sm font-semibold mb-2">Current Backup Policy</h2>
+    <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+      <div class="bg-surface-soft rounded-md p-3">
+        <div class="text-muted uppercase tracking-wider text-[10px] mb-1">Weekly D1</div>
+        <div class="font-semibold">Sunday 04:00 UTC</div>
+        <div class="text-muted mt-0.5">→ R2 backups/d1/weekly/</div>
+      </div>
+      <div class="bg-surface-soft rounded-md p-3">
+        <div class="text-muted uppercase tracking-wider text-[10px] mb-1">Retention</div>
+        <div class="font-semibold">8 weekly backups</div>
+        <div class="text-muted mt-0.5">Minimum per Master Plan 3.32</div>
+      </div>
+      <div class="bg-surface-soft rounded-md p-3">
+        <div class="text-muted uppercase tracking-wider text-[10px] mb-1">Log Archive</div>
+        <div class="font-semibold">Monthly 1st 05:00 UTC</div>
+        <div class="text-muted mt-0.5">Old events → R2 archive</div>
+      </div>
+    </div>
+  </div>
+
+  <ComingSoon title="On-demand backup controls are planned" description="This console will allow manual triggers, download links, and guarded restore operations." status="planned">
     <ul class="list-disc pl-5 space-y-1">
-      <li>Scheduled daily D1 snapshots (cron-driven)</li>
-      <li>On-demand export and secure download</li>
-      <li>Guarded restore with critical-audit logging</li>
+      <li>Trigger immediate D1 backup to R2</li>
+      <li>Download backup JSON securely via signed URL</li>
+      <li>Restore to staging with confirmation gate</li>
+      <li>Verify backup integrity against audit chain hash</li>
     </ul>
   </ComingSoon>
 </StaffLayout>

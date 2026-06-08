@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
 
@@ -18,24 +19,23 @@ const inventory = await env.DB.prepare(
    JOIN product_variants pv ON pv.id = ii.variant_id
    JOIN products p ON p.id = pv.product_id
    WHERE pv.is_deleted = 0
-   ORDER BY ii.quantity ASC`
+   ORDER BY ii.quantity ASC
+   LIMIT 500`
 ).all<any>();
 
 const alerts = await env.DB.prepare(
-  `SELECT la.*, pv.sku, p.name as product_name
+  `SELECT la.id, la.variant_id, la.message, la.is_acknowledged, la.created_at, pv.sku, p.name as product_name
    FROM low_stock_alerts la
    JOIN product_variants pv ON pv.id = la.variant_id
    JOIN products p ON p.id = pv.product_id
    WHERE la.is_acknowledged = 0
-   ORDER BY la.created_at DESC`
+   ORDER BY la.created_at DESC
+   LIMIT 100`
 ).all<any>();
 ---
 
 <StaffLayout title="Inventory" user={user}>
-  <div class="flex justify-between items-center mb-6">
-    <h1 class="m-0 text-xl font-bold">Inventory</h1>
-    <span style="font-size:0.875rem;color:var(--muted);">{inventory.results?.length || 0} items</span>
-  </div>
+  <PageHeader title="Inventory" subtitle={`${inventory.results?.length || 0} items`} />
 
   {alerts.results?.length > 0 && (
     <div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:0.75rem 1rem;margin-bottom:1rem;">

@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { requireRecentStaffSession, CriticalAuthError } from "../../../lib/critical-auth";
 const user = await getCurrentStaffUser(Astro);
@@ -14,8 +15,7 @@ try {
 }
 ---
 <StaffLayout title="Site Settings" user={user}>
-  <h1 class="m-0 text-xl font-bold mb-1">Site Settings</h1>
-  <p class="text-muted mb-4">Platform configuration, shipping rates, payment gateways, and feature flags.</p>
+  <PageHeader title="Site Settings" subtitle="Platform configuration, shipping rates, payment gateways, and feature flags." />
   <div class="bg-surface border border-line rounded-lg p-4">
     <table class="w-full border-collapse text-sm" id="settings-table">
       <thead><tr class="border-b border-line text-left"><th class="py-2 px-3">Key</th><th class="py-2 px-3">Value</th><th class="py-2 px-3">Group</th></tr></thead>

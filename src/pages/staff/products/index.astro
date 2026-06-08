@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
 
@@ -16,15 +17,13 @@ const products = await env.DB.prepare(
           (SELECT COALESCE(SUM(quantity), 0) FROM inventory_items ii JOIN product_variants pv ON pv.id = ii.variant_id WHERE pv.product_id = p.id) as total_stock
    FROM products p
    LEFT JOIN categories c ON c.id = p.category_id
-   ORDER BY p.created_at DESC`
+   ORDER BY p.created_at DESC
+   LIMIT 200`
 ).all<any>();
 ---
 
 <StaffLayout title="Products" user={user}>
-  <div class="flex justify-between items-center mb-6">
-    <h1 class="m-0 text-xl font-bold">Products</h1>
-    <span style="font-size:0.875rem;color:var(--muted);">{products.results?.length || 0} products</span>
-  </div>
+  <PageHeader title="Products" subtitle={`${products.results?.length || 0} products`} />
 
   <div class="overflow-x-auto border border-line rounded-lg mb-6">
     <table class="w-full border-collapse text-sm">

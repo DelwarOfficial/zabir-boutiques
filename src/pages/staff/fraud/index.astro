@@ -1,6 +1,7 @@
 ---
 export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
 
@@ -15,15 +16,13 @@ const flagged = await env.DB.prepare(
    FROM orders o
    LEFT JOIN fraud_checks fc ON fc.order_id = o.id
    WHERE o.fraud_decision IN ('review', 'blocked')
-   ORDER BY o.created_at DESC`
+   ORDER BY o.created_at DESC
+   LIMIT 200`
 ).all<any>();
 ---
 
 <StaffLayout title="Fraud Review" user={user}>
-  <div class="flex justify-between items-center mb-6">
-    <h1 class="m-0 text-xl font-bold">Fraud Review</h1>
-    <span style="font-size:0.875rem;color:var(--muted);">{flagged.results?.length || 0} flagged orders</span>
-  </div>
+  <PageHeader title="Fraud Review" subtitle={`${flagged.results?.length || 0} flagged orders`} />
 
   <div class="overflow-x-auto border border-line rounded-lg">
     <table class="w-full border-collapse text-sm">
@@ -58,4 +57,80 @@ const flagged = await env.DB.prepare(
       </tbody>
     </table>
   </div>
+
+  {can(user.role, 'fraud.override') && (
+    <div class="mt-6 bg-surface border border-line rounded-lg p-4">
+      <h2 class="m-0 mb-3 text-base font-semibold">Manual Fraud Override</h2>
+      <p class="text-xs text-muted mt-0 mb-3">Owner-tier only. Requires a reason (12+ characters). Logged as critical audit event.</p>
+      <form id="override-form" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end">
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="ov-order">Order ID</label>
+          <input id="ov-order" name="order_id" type="text" required placeholder="paste order UUID"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border font-mono" />
+        </div>
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="ov-decision">New Decision</label>
+          <select id="ov-decision" name="decision" class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border">
+            <option value="approved">approved</option>
+            <option value="review">review</option>
+            <option value="blocked">blocked</option>
+          </select>
+        </div>
+        <div class="sm:col-span-2">
+          <label class="block text-xs text-ink-secondary mb-1" for="ov-reason">Reason (min 12 chars)</label>
+          <input id="ov-reason" name="reason" type="text" required minlength="12" maxlength="500" placeholder="Explain why this override is needed"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+        <div class="sm:col-span-4 flex items-center gap-3">
+          <button type="submit" id="ov-btn"
+            class="px-4 py-2 bg-red-600 text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50">Override Decision</button>
+          <span id="ov-msg" class="text-xs hidden"></span>
+        </div>
+      </form>
+    </div>
+  )}
+
+<script is:inline>
+  (function() {
+    const form = document.getElementById('override-form');
+    if (!form) return;
+    const btn = document.getElementById('ov-btn');
+    const msg = document.getElementById('ov-msg');
+    function getCsrf() {
+      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      return m ? decodeURIComponent(m[1]) : '';
+    }
+    function showMsg(text, ok) {
+      msg.textContent = text;
+      msg.className = 'text-xs ' + (ok ? 'text-green-700' : 'text-red-600');
+    }
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const order_id = form.querySelector('[name=order_id]').value.trim();
+      const decision = form.querySelector('[name=decision]').value;
+      const reason = form.querySelector('[name=reason]').value.trim();
+      if (!order_id || reason.length < 12) { showMsg('Order ID and reason (12+ chars) required.', false); return; }
+      btn.disabled = true; btn.textContent = 'Processing…';
+      try {
+        const res = await fetch('/api/staff/fraud/override', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+          body: JSON.stringify({ order_id, decision, reason })
+        });
+        const json = await res.json().catch(() => ({}));
+        if (res.ok && json.ok) {
+          showMsg(json.unchanged ? 'Already set to ' + decision : 'Override applied. Reloading…', true);
+          if (!json.unchanged) setTimeout(() => window.location.reload(), 800);
+          else { btn.disabled = false; btn.textContent = 'Override Decision'; }
+        } else {
+          showMsg(json.error || json.message || 'Override failed.', false);
+          btn.disabled = false; btn.textContent = 'Override Decision';
+        }
+      } catch {
+        showMsg('Network error.', false);
+        btn.disabled = false; btn.textContent = 'Override Decision';
+      }
+    });
+  })();
+</script>
 </StaffLayout>

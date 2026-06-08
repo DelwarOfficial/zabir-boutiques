@@ -40,7 +40,7 @@ const ALL: MenuItem[] = [
   { label: 'Coupon Management', href: '/staff/coupons', roles: ['owner-tier'] },
   { label: 'Staff Users', href: '/staff/users', roles: ['owner-tier'] },
   { label: 'Roles & Permissions', href: '/staff/roles', roles: ['owner-tier'] },
-  { label: 'API Code / Developer', href: '/staff/api-code', roles: ['owner-tier'] },
+  { label: 'API Code / Developer', href: '/staff/api-code', roles: ['owner-tier', 'developer'] },
   { label: 'Site Settings', href: '/staff/settings', roles: ['owner-tier'] },
   { label: 'Media / R2', href: '/staff/media-admin', roles: ['owner-tier'] },
   { label: 'Backups', href: '/staff/backups', roles: ['owner-tier'] },

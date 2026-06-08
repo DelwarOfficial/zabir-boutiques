@@ -31,6 +31,14 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   try {
+    // Budget gate: KV-based monthly cap per Master Plan 3.35
+    const budgetKey = 'AI_MONTHLY_USAGE_COUNT';
+    const AI_MONTHLY_CAP = 200; // max generations per month
+    const currentUsage = parseInt(await env.CACHE.get(budgetKey) ?? '0', 10);
+    if (currentUsage >= AI_MONTHLY_CAP) {
+      return Response.json({ ok: false, error: 'AI generation budget exhausted for this month.' }, { status: 429 });
+    }
+
     const content = await generateProductContent(
       {
         name,
@@ -55,6 +63,9 @@ export async function POST(context: APIContext): Promise<Response> {
       ipAddress: clientIp(context.request),
       userAgent: userAgent(context.request)
     });
+
+    // Increment budget counter (TTL: 35 days to cover the month + buffer)
+    await env.CACHE.put(budgetKey, String(currentUsage + 1), { expirationTtl: 35 * 24 * 60 * 60 });
 
     return Response.json({ ok: true, content });
   } catch (err) {

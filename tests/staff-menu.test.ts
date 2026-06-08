@@ -3,7 +3,7 @@ import { menuForRole } from '../src/lib/staff-menu';
 import type { StaffRole } from '../src/lib/rbac';
 
 const OWNER_ONLY_HREFS = [
-  '/staff/users', '/staff/roles', '/staff/api-code',
+  '/staff/users', '/staff/roles',
   '/staff/settings', '/staff/media-admin', '/staff/backups', '/staff/audit'
 ];
 
@@ -44,9 +44,15 @@ describe('Role-aware staff menu', () => {
     expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/reports']);
   });
 
-  it('developer sees only the Dashboard (no API-keys / owner-only links)', () => {
+  it('developer sees only the Dashboard and API Code (no owner-only key minting)', () => {
     const hrefs = menuForRole('developer').map(m => m.href);
-    expect(hrefs).toEqual(['/staff']);
-    for (const owned of OWNER_ONLY_HREFS) expect(hrefs).not.toContain(owned);
+    expect(hrefs).toContain('/staff');
+    expect(hrefs).toContain('/staff/api-code');
+    // Still no access to owner-exclusive admin pages
+    expect(hrefs).not.toContain('/staff/users');
+    expect(hrefs).not.toContain('/staff/roles');
+    expect(hrefs).not.toContain('/staff/settings');
+    expect(hrefs).not.toContain('/staff/backups');
+    expect(hrefs).not.toContain('/staff/media-admin');
   });
 });

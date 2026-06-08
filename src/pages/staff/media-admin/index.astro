@@ -2,9 +2,10 @@
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
-import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
@@ -14,14 +15,86 @@ try {
   if (err instanceof CriticalAuthError) return err.toResponse();
   throw err;
 }
+
+const env = getEnv(Astro);
+const { searchParams } = new URL(Astro.request.url);
+const typeFilter = searchParams.get('type') || '';
+const page = Math.max(1, parseInt(searchParams.get('page') || '1', 10));
+const limit = 50;
+
+let where = 'WHERE 1=1';
+const binds: unknown[] = [];
+if (typeFilter) { where += ' AND mo.owner_type = ?'; binds.push(typeFilter); }
+
+const countRow = await env.DB.prepare(
+  `SELECT COUNT(*) as total FROM media_objects mo ${where}`
+).bind(...binds).first<{ total: number }>();
+const total = countRow?.total ?? 0;
+const totalPages = Math.max(1, Math.ceil(total / limit));
+
+const media = await env.DB.prepare(
+  `SELECT mo.id, mo.r2_key, mo.bucket, mo.owner_type, mo.owner_id, mo.visibility,
+          mo.content_type, mo.created_at, s.full_name as uploader_name
+   FROM media_objects mo
+   LEFT JOIN staff_users s ON s.id = mo.uploaded_by_staff_id
+   ${where}
+   ORDER BY mo.created_at DESC
+   LIMIT ? OFFSET ?`
+).bind(...binds, limit, (page - 1) * limit).all<any>();
+const rows = media.results ?? [];
+
+const ownerTypes = ['product', 'staff_upload', 'integration', 'client_private', 'backup'];
 ---
 <StaffLayout title="Media / R2 Admin" user={user}>
-  <PageHeader title="Media / R2 Admin" subtitle="Full R2 bucket management — browse, delete, review." />
-  <ComingSoon title="R2 admin console is planned" description="Owner-level browsing and cleanup of stored media, authorized through D1 metadata.">
-    <ul class="list-disc pl-5 space-y-1">
-      <li>Browse media by owner type (product, order proof, support)</li>
-      <li>Permission-checked, audited deletes</li>
-      <li>Spot orphaned objects with no D1 record</li>
-    </ul>
-  </ComingSoon>
+  <PageHeader title="Media / R2 Admin" subtitle={`${total} objects · Page ${page}/${totalPages}`} />
+
+  <form method="get" class="flex flex-wrap gap-2 mb-4 items-end">
+    <div>
+      <label class="block text-xs text-ink-secondary mb-1">Owner type</label>
+      <select name="type" class="px-2.5 py-1.5 border border-line rounded-md bg-bg text-ink text-xs box-border w-36">
+        <option value="">All</option>
+        {ownerTypes.map(t => <option value={t} selected={t === typeFilter}>{t}</option>)}
+      </select>
+    </div>
+    <button type="submit" class="px-3 py-1.5 bg-brand text-white rounded-md text-xs font-semibold border-0 cursor-pointer">Filter</button>
+    {typeFilter && <a href="/staff/media-admin" class="text-xs text-muted no-underline hover:underline">Clear</a>}
+  </form>
+
+  {rows.length > 0 ? (
+    <div class="overflow-x-auto border border-line rounded-lg">
+      <table class="w-full border-collapse text-xs">
+        <thead>
+          <tr class="bg-surface-soft text-left">
+            <th class="px-2.5 py-2 font-semibold">R2 Key</th>
+            <th class="px-2.5 py-2 font-semibold">Bucket</th>
+            <th class="px-2.5 py-2 font-semibold">Owner</th>
+            <th class="px-2.5 py-2 font-semibold">Visibility</th>
+            <th class="px-2.5 py-2 font-semibold">Type</th>
+            <th class="px-2.5 py-2 font-semibold">Uploaded by</th>
+            <th class="px-2.5 py-2 font-semibold">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(m => (
+            <tr class="border-t border-line-soft">
+              <td class="px-2.5 py-1.5 font-mono truncate max-w-[200px]" title={m.r2_key}>{m.r2_key}</td>
+              <td class="px-2.5 py-1.5">{m.bucket}</td>
+              <td class="px-2.5 py-1.5"><span class="text-[10px] px-1.5 py-0.5 rounded bg-line-soft">{m.owner_type}</span><span class="text-muted ml-1">/{m.owner_id?.substring(0, 8)}</span></td>
+              <td class="px-2.5 py-1.5"><span class={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${m.visibility === 'public' ? 'bg-green-100 text-green-800' : m.visibility === 'owner_only' ? 'bg-amber-100 text-amber-800' : 'bg-line-soft text-ink-secondary'}`}>{m.visibility}</span></td>
+              <td class="px-2.5 py-1.5 text-muted">{m.content_type}</td>
+              <td class="px-2.5 py-1.5">{m.uploader_name || '—'}</td>
+              <td class="px-2.5 py-1.5 text-muted">{m.created_at?.split(' ')[0]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <div class="text-center text-muted text-sm py-8 border border-line rounded-lg">No media objects found.</div>
+  )}
+
+  <div class="mt-4 flex gap-2">
+    {page > 1 && <a href={`/staff/media-admin?type=${typeFilter}&page=${page - 1}`} class="px-3 py-1.5 border border-line rounded-md text-sm no-underline hover:bg-surface-soft">&larr; Prev</a>}
+    {page < totalPages && <a href={`/staff/media-admin?type=${typeFilter}&page=${page + 1}`} class="px-3 py-1.5 border border-line rounded-md text-sm no-underline hover:bg-surface-soft">Next &rarr;</a>}
+  </div>
 </StaffLayout>

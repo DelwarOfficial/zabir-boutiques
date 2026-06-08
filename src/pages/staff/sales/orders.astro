@@ -2,19 +2,63 @@
 export const prerender = false;
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
-import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.view')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+const orders = await env.DB.prepare(
+  `SELECT id, order_number, name, phone, total_paisa, payment_method, status, order_channel, created_at
+   FROM orders
+   WHERE created_by = ?
+   ORDER BY created_at DESC
+   LIMIT 100`
+).bind(user.id).all<any>();
+const rows = orders.results ?? [];
 ---
 <StaffLayout title="My Orders" user={user}>
-  <PageHeader title="My Orders" subtitle="Orders you created — track, follow up, and manage." />
-  <ComingSoon title="Your orders list is on the way" description="This view will list every order you created, with status, payment, and quick follow-up actions.">
-    <ul class="list-disc pl-5 space-y-1">
-      <li>Filter by status and date</li>
-      <li>Jump straight to order detail and packing status</li>
-      <li>One-tap re-contact for COD confirmation</li>
-    </ul>
-  </ComingSoon>
+  <PageHeader title="My Orders" subtitle={`${rows.length} orders you created.`}>
+    <Fragment slot="actions">
+      <a href="/staff/sales/new" class="px-3 py-1.5 bg-brand text-white rounded-md text-xs font-semibold no-underline">+ New Order</a>
+    </Fragment>
+  </PageHeader>
+
+  {rows.length > 0 ? (
+    <div class="overflow-x-auto border border-line rounded-lg">
+      <table class="w-full border-collapse text-sm">
+        <thead>
+          <tr class="bg-surface-soft text-left">
+            <th class="px-3 py-2.5 font-semibold">Order</th>
+            <th class="px-3 py-2.5 font-semibold">Customer</th>
+            <th class="px-3 py-2.5 font-semibold text-right">Total</th>
+            <th class="px-3 py-2.5 font-semibold">Channel</th>
+            <th class="px-3 py-2.5 font-semibold">Status</th>
+            <th class="px-3 py-2.5 font-semibold">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(o => (
+            <tr class="border-t border-line-soft">
+              <td class="px-3 py-2"><a href={`/staff/orders/${o.id}`} class="text-brand font-semibold no-underline">{o.order_number}</a></td>
+              <td class="px-3 py-2">
+                <div class="font-medium">{o.name}</div>
+                <div class="text-xs text-muted">{o.phone}</div>
+              </td>
+              <td class="px-3 py-2 text-right font-medium">৳{Math.floor(o.total_paisa / 100)}</td>
+              <td class="px-3 py-2"><span class="text-[10px] px-1.5 py-0.5 rounded bg-line-soft text-ink-secondary">{o.order_channel ?? 'web'}</span></td>
+              <td class="px-3 py-2"><span class="text-[10px] px-1.5 py-0.5 rounded bg-line-soft text-ink-secondary">{o.status.replace(/_/g, ' ')}</span></td>
+              <td class="px-3 py-2 text-xs text-muted">{o.created_at?.split(' ')[0]}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  ) : (
+    <div class="text-center text-muted text-sm py-12 border border-line rounded-lg border-dashed">
+      You haven't created any orders yet. Use <a href="/staff/sales/new" class="text-brand no-underline">Create Order</a> to get started.
+    </div>
+  )}
 </StaffLayout>
