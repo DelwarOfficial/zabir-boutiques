@@ -4,13 +4,17 @@ import react from "@astrojs/react";
 import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
+  site: "https://zabirboutiques.com",
   output: "static",
   integrations: [react()],
   adapter: cloudflare({
     imageService: { build: "compile", runtime: "passthrough" },
     platformProxy: { enabled: true },
   }),
-  prefetch: true,
+  prefetch: {
+    prefetchAll: false,
+    defaultStrategy: "hover",
+  },
   vite: {
     plugins: [tailwindcss()],
     build: { minify: true },

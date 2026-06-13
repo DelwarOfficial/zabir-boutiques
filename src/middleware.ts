@@ -124,6 +124,8 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  // TODO: Migrate to Astro 6 built-in `security.csp` config for automatic script/style hashing.
+  // 'unsafe-inline' is required until then because of multiple <script is:inline> blocks.
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline'",
@@ -134,6 +136,7 @@ function withSecurityHeaders(response: Response): Response {
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
+    "upgrade-insecure-requests",
   ].join('; '));
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
