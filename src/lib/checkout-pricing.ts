@@ -113,11 +113,19 @@ export function calculateAuthoritativeSubtotal(
 
 /**
  * Detect (and warn about) client-supplied money fields. These are NEVER used
- * to compute totals; they are display-only hints from the browser. We log a
- * warning so tampering attempts are observable, but we do not reject — the
- * server simply ignores them.
+ * to compute totals; they are display-only hints from the browser.
+ *
+ * P1-004 audit fix: in addition to logging, emit an Analytics Engine
+ * metric so repeated tampering from the same IP becomes observable
+ * in the dashboard. If `env` is provided and the same source sends > 10
+ * tamper attempts in 5 minutes, write a low_stock_alerts row so staff
+ * see the abuse on the dashboard.
  */
-export function assertNoClientMoneyTrust(body: Record<string, unknown>): void {
+export function assertNoClientMoneyTrust(
+  body: Record<string, unknown>,
+  env?: { DB?: D1Database; ANALYTICS?: AnalyticsEngineDataset; CACHE?: KVNamespace },
+  context?: { ip?: string | null; now?: string },
+): void {
   const clientMoneyFields = ['unit_price_paisa', 'subtotal_paisa', 'discount_paisa', 'delivery_paisa', 'total_paisa'];
   const present: string[] = [];
 
@@ -133,9 +141,64 @@ export function assertNoClientMoneyTrust(body: Record<string, unknown>): void {
     if (field !== 'unit_price_paisa' && field in body) present.push(field);
   }
 
-  if (present.length) {
-    console.warn('[checkout] Ignoring client-supplied money fields (server authoritative):', present.join(', '));
+  if (present.length === 0) return;
+
+  // Lazy import to avoid pulling the scrubber into every module.
+  void (async () => {
+    try {
+      const { safeLog } = await import('./pii-scrubber');
+      safeLog.warn('[checkout] Ignoring client-supplied money fields (server authoritative)', { fields: present.join(', ') });
+    } catch {
+      // If safeLog is unavailable, fall back to a best-effort non-PII log.
+      try { console.warn('[checkout] client money tampering detected (fields omitted)'); } catch {}
+    }
+  })();
+
+  if (!env) return;
+
+  // Metric for observability. Non-blocking — wrap in try/catch.
+  try {
+    if (env.ANALYTICS) {
+      env.ANALYTICS.writeDataPoint({
+        indexes: ['client_money_tampering', context?.ip ?? 'unknown'],
+        blobs: present,
+        doubles: [1],
+      });
+    }
+  } catch (err) {
+    console.warn('[checkout] analytics write failed (non-fatal):', err);
   }
+
+  // KV-bucketed tamper counter. After 10 attempts from the same IP in
+  // a 5-minute window, write a low_stock_alert. KV is eventually
+  // consistent, so two simultaneous requests can both pass the
+  // threshold — that's acceptable (the alert is duplicated, not
+  // bypassed).
+  if (!env.CACHE || !context?.ip) return;
+  const windowId = Math.floor(Date.now() / (5 * 60 * 1000));
+  const key = `tamper:${context.ip}:${windowId}`;
+  void (async () => {
+    try {
+      const current = Number((await env.CACHE!.get(key)) ?? '0');
+      const next = current + 1;
+      await env.CACHE!.put(key, String(next), { expirationTtl: 60 * 10 });
+      if (next === 10 && env.DB) {
+        await env.DB
+          .prepare(
+            `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+             VALUES (?1, 'system', ?2, ?3)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            `client_money_tampering_abuse ip=${context.ip} fields=${present.join(',')}`,
+            context.now ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
+          )
+          .run();
+      }
+    } catch (err) {
+      console.warn('[checkout] tamper counter write failed (non-fatal):', err);
+    }
+  })();
 }
 
 const DELIVERY_DEFAULTS = {

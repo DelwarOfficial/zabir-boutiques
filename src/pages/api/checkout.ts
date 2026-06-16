@@ -30,6 +30,7 @@ import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
 import { calculatePrepayment } from '../../lib/prepayment';
 import { verifyTurnstile } from '../../lib/turnstile';
 import { clientIp } from '../../lib/audit';
+import { safeLog } from '../../lib/pii-scrubber';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -48,7 +49,10 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Client money fields are display-only; warn but never trust them.
-  assertNoClientMoneyTrust(body ?? {});
+  assertNoClientMoneyTrust(body ?? {}, env, {
+    ip: clientIp(context.request),
+    now,
+  });
 
   // 0. Turnstile bot protection (Master_Prompt v7.0 §9.3)
   if (env.TURNSTILE_SECRET_KEY) {
@@ -151,7 +155,7 @@ export async function POST(context: APIContext): Promise<Response> {
     if (code.startsWith('INVALID_CART_SIZE')) {
       return Response.json({ ok: false, code: 'INVALID_CART', message: 'Cart is invalid.' }, { status: 400 });
     }
-    console.error('[checkout] Pricing error:', err);
+    safeLog.error('[checkout] Pricing error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price your cart. Please try again.' }, { status: 409 });
   }
 
@@ -288,7 +292,7 @@ export async function POST(context: APIContext): Promise<Response> {
       await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
     }
     await failIdempotency(env.DB, idempotencyKey);
-    console.error('[checkout] Error:', err);
+    safeLog.error('[checkout] Error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'CHECKOUT_FAILED', message: 'Internal checkout error.' }, { status: 500 });
   }
 }

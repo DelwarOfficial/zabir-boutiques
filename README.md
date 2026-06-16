@@ -2,7 +2,7 @@
   <img src="public/assets/zabir-logo.jpg" alt="Zabir Boutiques" width="120" height="120" style="border-radius: 50%;" />
   <br />
   <h1 align="center">Zabir Boutiques — AI Commerce Platform</h1>
-  <p align="center"><strong>v7.0 · Master Prompt Edition</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
+  <p align="center"><strong>Master Edition</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
 
   [![Astro](https://img.shields.io/badge/Astro-6.4.4-FF5D01?logo=astro)](https://astro.build)
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)

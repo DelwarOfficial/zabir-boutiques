@@ -22,6 +22,9 @@ export interface MetricEvent {
   blobs?: string[];
 }
 
+// safeLog is imported lazily inside the function to avoid pulling
+// pii-scrubber into every module that tracks metrics.
+
 export async function trackMetric(env: { ANALYTICS?: AnalyticsEngineDataset }, event: MetricEvent): Promise<void> {
   if (!env.ANALYTICS) return;
   try {
@@ -44,6 +47,12 @@ export async function trackMetric(env: { ANALYTICS?: AnalyticsEngineDataset }, e
     });
   } catch (err) {
     // Analytics is observability only; never break the request path.
-    console.warn("[analytics] writeDataPoint failed:", err);
+    try {
+      const { safeLog } = await import("./pii-scrubber");
+      safeLog.warn("[analytics] writeDataPoint failed", { error: err instanceof Error ? err.message : String(err) });
+    } catch {
+      // If even safeLog is broken, fall back silently — analytics must
+      // never break the request path.
+    }
   }
 }

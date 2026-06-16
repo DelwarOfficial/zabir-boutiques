@@ -24,6 +24,7 @@ import { VariantInventoryDO } from "./do/variant-inventory-do";
 import { IdempotencyDO } from "./do/idempotency-do";
 import { BudgetCounterDO } from "./do/budget-counter-do";
 import { WafRules } from "./do/waf-rules";
+import { safeLog } from "./lib/pii-scrubber";
 import type { Env } from "./env";
 
 // Required by Cloudflare: DO classes must be top-level exports.
@@ -47,7 +48,7 @@ async function routeQueue(batch: MessageBatch, env: Env): Promise<void> {
       await handleD1BackupBatch(batch as MessageBatch<D1BackupMessage>, env);
       break;
     default:
-      console.warn("[queue] Unknown queue:", batch.queue);
+      safeLog.warn("[queue] Unknown queue", { queue: batch.queue });
       for (const m of batch.messages) m.ack();
   }
 }
@@ -59,7 +60,7 @@ export default {
     return handler.call(astroHandler, request, env, ctx);
   },
   async scheduled(event, env, ctx) {
-    console.log(`[cron] Triggered: ${event.cron}`);
+    safeLog.info("[cron] Triggered", { cron: event.cron });
     ctx.waitUntil(dispatchCron(event.cron, env as unknown as Env));
   },
   async queue(batch, env) {

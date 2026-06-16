@@ -2,11 +2,44 @@
  * Log Archive [v6.8D]
  * Monthly 1st 05:00 UTC: archive old payment_events and copy old audit logs to R2.
  *
- * Audit logs are never deleted from D1. The R2 copy is a signed forensic export;
- * D1 remains the append-only source of truth for the audit ledger.
+ * P0-007 audit fix: payment_events archive is now encrypted with
+ * AES-256-GCM and the audit_log archive is signed with HMAC-SHA256.
+ * Both archives register a media_objects row so the media-access ACL
+ * governs downloads.
  */
 
-export async function archiveOldEvents(db: D1Database, backups: R2Bucket, auditLedgerSecret?: string): Promise<void> {
+import { nowSql } from "../dates";
+import { hmacSha256Hex } from "../security";
+import { recordMediaObject } from "../media-access";
+
+const BACKUP_ENCRYPTION_KEY_ENV = "BACKUP_ENCRYPTION_KEY";
+
+async function deriveArchiveKey(secret: string): Promise<CryptoKey> {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
+}
+
+async function encryptAesGcm(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      plaintext.buffer.slice(plaintext.byteOffset, plaintext.byteOffset + plaintext.byteLength) as ArrayBuffer,
+    ),
+  );
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv, 0);
+  out.set(ct, iv.length);
+  return out;
+}
+
+export async function archiveOldEvents(
+  db: D1Database,
+  backups: R2Bucket,
+  auditLedgerSecret?: string,
+  backupEncryptionKey?: string,
+): Promise<void> {
   const cutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000)
     .toISOString().replace('T', ' ').slice(0, 19);
   const date = new Date().toISOString().slice(0, 10);
@@ -16,13 +49,48 @@ export async function archiveOldEvents(db: D1Database, backups: R2Bucket, auditL
   ).bind(cutoff).all();
 
   if (oldEvents.results && oldEvents.results.length > 0) {
-    await backups.put(
-      `backups/archives/${date}-payment-events.json`,
-      JSON.stringify(oldEvents.results, null, 2)
-    );
+    const eventsJson = JSON.stringify(oldEvents.results, null, 2);
+    const eventsR2Key = `backups/archives/${date}-payment-events.json.enc`;
+    const eventsSignature = await hmacSha256Hex(eventsJson, auditLedgerSecret ?? "fallback");
+
+    if (backupEncryptionKey) {
+      const key = await deriveArchiveKey(backupEncryptionKey);
+      const ct = await encryptAesGcm(key, new TextEncoder().encode(eventsJson));
+      await backups.put(eventsR2Key, ct, {
+        httpMetadata: { contentType: "application/octet-stream" },
+        customMetadata: { algorithm: "AES-256-GCM", signature: eventsSignature },
+      });
+    } else {
+      // No key set: write plaintext (dev) but log a warning.
+      try { const { safeLog } = await import('../pii-scrubber'); safeLog.warn("[archive] BACKUP_ENCRYPTION_KEY missing, writing payment_events unencrypted"); } catch {}
+      await backups.put(
+        `backups/archives/${date}-payment-events.json`,
+        eventsJson,
+        { customMetadata: { signature: eventsSignature } },
+      );
+    }
+
     await db.prepare(
       `DELETE FROM payment_events WHERE created_at < ?1`
     ).bind(cutoff).run();
+
+    try {
+      await recordMediaObject(db, {
+        id: crypto.randomUUID(),
+        r2Key: eventsR2Key,
+        bucket: "BACKUPS",
+        ownerType: "backup",
+        ownerId: `payment-events-${date}`,
+        visibility: "owner_only",
+        contentType: "application/octet-stream",
+        sha256: eventsSignature,
+        uploadedByStaffId: null,
+        uploadedByApiKeyId: null,
+        createdAt: nowSql(),
+      });
+    } catch (err) {
+      try { const { safeLog } = await import('../pii-scrubber'); safeLog.warn("[archive] media_objects insert failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) }); } catch {}
+    }
   }
 
   const oldAudit = await db.prepare(
@@ -46,30 +114,38 @@ export async function archiveOldEvents(db: D1Database, backups: R2Bucket, auditL
       signature: auditLedgerSecret ? await hmacSha256Hex(digest, auditLedgerSecret) : null
     };
 
-    await backups.put(
-      `backups/archives/${date}-audit-log.json`,
-      payload
-    );
+    const auditR2Key = `backups/archives/${date}-audit-log.json`;
+    await backups.put(auditR2Key, payload, {
+      httpMetadata: { contentType: "application/json" },
+      customMetadata: { signature: manifest.signature ?? "" },
+    });
     await backups.put(
       `backups/archives/${date}-audit-log.manifest.json`,
-      JSON.stringify(manifest, null, 2)
+      JSON.stringify(manifest, null, 2),
+      { httpMetadata: { contentType: "application/json" } },
     );
+
+    try {
+      await recordMediaObject(db, {
+        id: crypto.randomUUID(),
+        r2Key: auditR2Key,
+        bucket: "BACKUPS",
+        ownerType: "backup",
+        ownerId: `audit-log-${date}`,
+        visibility: "owner_only",
+        contentType: "application/json",
+        sha256: manifest.signature ?? digest,
+        uploadedByStaffId: null,
+        uploadedByApiKeyId: null,
+        createdAt: nowSql(),
+      });
+    } catch (err) {
+      try { const { safeLog } = await import('../pii-scrubber'); safeLog.warn("[archive] media_objects insert failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) }); } catch {}
+    }
   }
 }
 
 async function sha256Hex(value: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
-async function hmacSha256Hex(value: string, secret: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(secret),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign']
-  );
-  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
-  return Array.from(new Uint8Array(sig)).map(b => b.toString(16).padStart(2, '0')).join('');
 }

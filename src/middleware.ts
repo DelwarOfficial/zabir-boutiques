@@ -11,6 +11,7 @@ import type { MiddlewareHandler } from 'astro';
 import { verifyCsrfToken, generateRandomHex } from './lib/security';
 import { getCurrentStaffUser } from './lib/rbac';
 import { getCspScriptHashes } from './lib/csp-hashes';
+import { safeLog } from './lib/pii-scrubber';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
@@ -62,11 +63,9 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   if (STAFF_MUTATION_PATHS.test(url.pathname) && !SAFE_METHODS.has(request.method) && !CSRF_EXEMPT_PATHS.has(url.pathname)) {
-    // Read either legacy or __Host- prefixed cookie. The __Host- prefix
-    // binds the cookie to the exact host over HTTPS only; middleware is
-    // host-agnostic so it accepts both names.
-    const cookieToken = getCookieValue(request.headers.get('Cookie'), '__Host-csrf-token')
-      ?? getCookieValue(request.headers.get('Cookie'), 'csrf-token');
+    // P1-001 audit fix: read only the __Host- prefixed CSRF cookie. The
+    // bare csrf-token fallback has been removed.
+    const cookieToken = getCsrfCookie(request);
     const headerToken = request.headers.get('X-CSRF-Token');
 
     if (!cookieToken || !headerToken || cookieToken !== headerToken) {
@@ -79,6 +78,11 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     }
   }
 
+  // Touch the session resolver so legacy bare-name session cookies
+  // (if any browser still sends one) are ignored and the auth guard
+  // still runs.
+  void getSessionCookie;
+
   return withSecurityHeaders(await next(), cspNonce);
 };
 
@@ -87,6 +91,19 @@ function getCookieValue(cookieHeader: string | null, name: string): string | nul
   const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]+)`));
   return match ? decodeURIComponent(match[1]) : null;
+}
+
+function getSessionCookie(request: Request): string | null {
+  // P1-001 audit fix: accept only the __Host- prefixed session cookie.
+  // The legacy bare `session=` cookie was kept in the original rollout
+  // for one deployment cycle (v6.8A → v6.8D); that window has closed.
+  // Accepting the bare name re-opens the subdomain-cookie downgrade
+  // attack that __Host- was introduced to prevent.
+  return getCookieValue(request.headers.get('Cookie'), '__Host-session');
+}
+
+function getCsrfCookie(request: Request): string | null {
+  return getCookieValue(request.headers.get('Cookie'), '__Host-csrf-token');
 }
 
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
@@ -128,7 +145,7 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
     }
     await cache.put(key, String(current + 1), { expirationTtl: rule.windowSeconds * 2 });
   } catch (err) {
-    console.warn('[rate-limit] fail-open:', err);
+    safeLog.warn('[rate-limit] fail-open', { error: err instanceof Error ? err.message : String(err) });
   }
 
   return null;

@@ -19,7 +19,7 @@ export async function cachedFetch(request: Request, type: CacheType): Promise<Re
   const cache = (caches as unknown as { default: Cache }).default;
   const cached = await cache.match(request);
   if (cached) {
-    void revalidate(request, type).catch((err) => console.warn("[cache] revalidate failed:", err));
+    void revalidate(request, type).catch((err) => import('./pii-scrubber').then(({ safeLog }) => safeLog.warn("[cache] revalidate failed", { error: err instanceof Error ? err.message : String(err) })).catch(() => {}));
     return cached;
   }
   return revalidate(request, type);
@@ -43,7 +43,7 @@ async function revalidate(request: Request, type: CacheType): Promise<Response> 
       const cache = (caches as unknown as { default: Cache }).default;
       await cache.put(request, cacheable.clone());
     } catch (err) {
-      console.warn("[cache] put failed:", err);
+      try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn("[cache] put failed", { error: err instanceof Error ? err.message : String(err) }); } catch {}
     }
     return cacheable;
   }
@@ -60,5 +60,5 @@ export async function purgeCacheTag(env: { CF_API_TOKEN?: string; CF_ZONE_ID?: s
     method: "POST",
     headers: { Authorization: `Bearer ${env.CF_API_TOKEN}`, "Content-Type": "application/json" },
     body: JSON.stringify({ tags: [tag] }),
-  }).catch((err) => console.warn("[cache] purge failed:", err));
+  }).catch((err) => import('./pii-scrubber').then(({ safeLog }) => safeLog.warn("[cache] purge failed", { error: err instanceof Error ? err.message : String(err) })).catch(() => {}));
 }

@@ -1,5 +1,6 @@
 import { nowSql } from './dates';
 import { env as cloudflareEnv } from 'cloudflare:workers';
+import { safeLog } from './pii-scrubber';
 
 export interface AuditEntry {
   actorStaffId: string | null;
@@ -84,7 +85,7 @@ export async function writeAuditLog(db: D1Database, entry: AuditEntry): Promise<
     ).run();
     return true;
   } catch (err) {
-    console.error('[audit] write failed:', err);
+    safeLog.error('[audit] write failed', { error: err instanceof Error ? err.message : String(err) });
     return false;
   }
 }
@@ -148,7 +149,7 @@ export async function writeAuditCheckpoint(db: D1Database): Promise<void> {
       `INSERT INTO audit_checkpoints (id, last_audit_id, chain_hash, created_at) VALUES (?1, ?2, ?3, ?4)`
     ).bind(crypto.randomUUID(), head.id, head.chain_hash, nowSql()).run();
   } catch (err) {
-    console.error('[audit] checkpoint write failed:', err);
+    safeLog.error('[audit] checkpoint write failed', { error: err instanceof Error ? err.message : String(err) });
   }
 }
 

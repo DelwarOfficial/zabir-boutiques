@@ -38,6 +38,15 @@ export async function sweepStalePartialPrepayOrders(db: D1Database): Promise<{ c
   let releasedReservations = 0;
 
   for (const order of rows) {
+    // P0-004 audit fix: read the order's actual current status so the
+    // history row's from_status matches the state machine, not the
+    // payment status.
+    const orderRow = await db
+      .prepare(`SELECT status FROM orders WHERE id = ?1`)
+      .bind(order.id)
+      .first<{ status: string }>();
+    const fromStatus = orderRow?.status ?? 'pending_review';
+
     const reservations = await db.prepare(
       `SELECT id, variant_id, quantity FROM stock_reservations
        WHERE order_id = ?1 AND status = 'active'`
@@ -61,14 +70,22 @@ export async function sweepStalePartialPrepayOrders(db: D1Database): Promise<{ c
       releasedReservations += resRows.length;
     }
 
-    await db.prepare(
-      `UPDATE orders SET status = 'cancelled', updated_at = ?2 WHERE id = ?1`
-    ).bind(order.id, now).run();
-
-    await db.prepare(
-      `INSERT INTO order_status_history (id, order_id, from_status, to_status, note, created_at)
-       VALUES (?1, ?2, 'partially_paid', 'cancelled', 'auto-cancelled: partial_prepay not confirmed within 24h', ?3)`
-    ).bind(crypto.randomUUID(), order.id, now).run();
+    // Atomic order status flip + history row so the audit chain is
+    // consistent. Guard the UPDATE so a concurrent confirm/cancel cannot
+    // race us into a phantom cancelled state.
+    await db.batch(
+      [
+        db.prepare(
+          `UPDATE orders SET status = 'cancelled', updated_at = ?2
+           WHERE id = ?1 AND status = ?3`,
+        ).bind(order.id, now, fromStatus),
+        db.prepare(
+          `INSERT INTO order_status_history (id, order_id, from_status, to_status, note, created_at)
+           VALUES (?1, ?2, ?3, 'cancelled', 'auto-cancelled: partial_prepay not confirmed within 24h', ?4)`,
+        ).bind(crypto.randomUUID(), order.id, fromStatus, now),
+      ],
+      { atomic: true },
+    );
 
     const firstVariant = resRows[0]?.variant_id;
     if (firstVariant) {

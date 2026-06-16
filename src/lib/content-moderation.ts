@@ -95,7 +95,7 @@ export async function moderate(env: { AI?: Ai }, input: ModerationInput): Promis
       // Fail-open with a soft flag if the AI call errors. The store
       // is the source of truth and the failure is recorded.
       reasons.push("ai_error");
-      console.warn("[moderation] ai error:", err);
+      try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn("[moderation] ai error", { error: err instanceof Error ? err.message : String(err) }); } catch {}
     }
   }
   const high = Object.entries(scores).filter(([, v]) => v > 0.5);

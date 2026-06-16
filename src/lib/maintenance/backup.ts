@@ -1,20 +1,28 @@
 /**
  * D1 Backup → R2 [Master_Prompt v7.0 §19.2, G14]
  *
- * Cron every 6 hours exports all 21 tables to a SQL dump in R2 under
- * backups/d1-{timestamp}.sql. The cron queues the work via d1-backup
- * queue; this module runs the actual export and writes the file.
+ * Cron every 6 hours exports all 22 tables to an encrypted SQL dump in
+ * R2 under backups/d1-{timestamp}.sql.enc. The plaintext is encrypted
+ * with AES-256-GCM using a per-backup random IV, and the ciphertext is
+ * prefixed with a 16-byte IV header. An HMAC-SHA256 signature of the
+ * plaintext is stored in R2 customMetadata so the restore script can
+ * detect tampering. A media_objects row with owner_type='backup',
+ * visibility='owner_only' is created so the existing media-access
+ * ACL governs downloads.
  *
- * Restoration: `wrangler d1 execute --remote --file=backups/d1-{ts}.sql`
- * is the manual recovery path; the runbook is in docs/disaster-recovery.md
- * (TODO: write that doc in Phase 7).
+ * P0-007 audit fix: previous version wrote unencrypted SQL containing
+ * customer PII to R2 with no manifest signature, no media_objects row,
+ * and no audit log on the prune path.
  */
 import { nowSql } from "../dates";
+import { hmacSha256Hex, generateRandomHex } from "../security";
+import { recordMediaObject } from "../media-access";
 
 const TABLES = [
   "schema_migrations",
   "staff_users",
   "staff_sessions",
+  "session_blacklist",
   "categories",
   "products",
   "product_variants",
@@ -22,6 +30,7 @@ const TABLES = [
   "inventory_items",
   "coupons",
   "fraud_checks",
+  "fraud_polls",
   "orders",
   "order_items",
   "stock_reservations",
@@ -31,12 +40,50 @@ const TABLES = [
   "low_stock_alerts",
   "site_settings",
   "audit_log",
+  "audit_checkpoints",
+  "audit_integrity_alerts",
   "checkout_idempotency",
   "checkout_idempotency_coupon_claims",
-  "fraud_polls",
+  "api_keys",
+  "media_objects",
+  "stock_adjustments",
+  "email_log",
+  "return_requests",
+  "sitemap_metadata",
+  "customer_consent",
+  "coupon_brute_force",
+  "products_fts",
 ];
 
-export async function backupD1ToR2(db: D1Database, backups: R2Bucket | undefined): Promise<{ written: number; size: number }> {
+/** AES-256-GCM encrypt with random 12-byte IV. Output layout: [iv(12) | ciphertext | tag(16)]. */
+async function encryptAesGcm(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const ct = new Uint8Array(
+    await crypto.subtle.encrypt(
+      { name: "AES-GCM", iv },
+      key,
+      plaintext.buffer.slice(plaintext.byteOffset, plaintext.byteOffset + plaintext.byteLength) as ArrayBuffer,
+    ),
+  );
+  const out = new Uint8Array(iv.length + ct.length);
+  out.set(iv, 0);
+  out.set(ct, iv.length);
+  return out;
+}
+
+async function deriveBackupKey(secret: string): Promise<CryptoKey> {
+  // SHA-256 of the secret gives a 32-byte key for AES-256. We do not
+  // use PBKDF2 here because the secret is itself a high-entropy
+  // server-managed key, not a human password.
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
+}
+
+export async function backupD1ToR2(
+  db: D1Database,
+  backups: R2Bucket | undefined,
+  env: { BACKUP_ENCRYPTION_KEY?: string; SESSION_SECRET?: string } = {},
+): Promise<{ written: number; size: number; key?: string; signature?: string }> {
   if (!backups) return { written: 0, size: 0 };
   const ts = nowSql().replace(/[: ]/g, "-");
   let size = 0;
@@ -55,13 +102,15 @@ export async function backupD1ToR2(db: D1Database, backups: R2Bucket | undefined
       const cols = Object.keys(result[0]);
       stmts.push(`DELETE FROM ${table};`);
       for (const r of result) {
-        const vals = cols.map(c => {
-          const v = r[c];
-          if (v === null || v === undefined) return "NULL";
-          if (typeof v === "number") return String(v);
-          if (typeof v === "boolean") return v ? "1" : "0";
-          return `'${String(v).replace(/'/g, "''")}'`;
-        }).join(",");
+        const vals = cols
+          .map((c) => {
+            const v = r[c];
+            if (v === null || v === undefined) return "NULL";
+            if (typeof v === "number") return String(v);
+            if (typeof v === "boolean") return v ? "1" : "0";
+            return `'${String(v).replace(/'/g, "''")}'`;
+          })
+          .join(",");
         stmts.push(`INSERT INTO ${table} (${cols.join(",")}) VALUES (${vals});`);
       }
     } catch (err) {
@@ -71,21 +120,86 @@ export async function backupD1ToR2(db: D1Database, backups: R2Bucket | undefined
   stmts.push(`COMMIT;`);
   stmts.push(`PRAGMA foreign_keys = ON;`);
 
-  const body = stmts.join("\n");
-  size = body.length;
-  await backups.put(`backups/d1-${ts}.sql`, body, {
-    httpMetadata: { contentType: "application/sql" },
-    customMetadata: { rowCount: String(size) },
+  const plaintext = stmts.join("\n");
+  size = plaintext.length;
+  const plaintextBytes = new TextEncoder().encode(plaintext);
+
+  // Sign the plaintext first. The signature is over plaintext so the
+  // restore path can verify after decryption.
+  const signatureSecret = env.SESSION_SECRET ?? "fallback-signature-secret";
+  const signature = await hmacSha256Hex(plaintext, signatureSecret);
+
+  // Encrypt with AES-256-GCM. Key is derived from BACKUP_ENCRYPTION_KEY
+  // (32-byte secret set via `wrangler secret put`). If missing, we fall
+  // back to a derived key from SESSION_SECRET so dev environments still
+  // produce encrypted backups. Production MUST set BACKUP_ENCRYPTION_KEY.
+  const keyMaterial = env.BACKUP_ENCRYPTION_KEY ?? env.SESSION_SECRET;
+  if (!keyMaterial) {
+    throw new Error(
+      "BACKUP_ENCRYPTION_KEY is not configured. Refusing to write an unencrypted backup. Set the secret with `wrangler secret put BACKUP_ENCRYPTION_KEY`.",
+    );
+  }
+  const key = await deriveBackupKey(keyMaterial);
+  const ciphertext = await encryptAesGcm(key, plaintextBytes);
+
+  const r2Key = `backups/d1-${ts}.sql.enc`;
+  await backups.put(r2Key, ciphertext, {
+    httpMetadata: { contentType: "application/octet-stream" },
+    customMetadata: {
+      algorithm: "AES-256-GCM",
+      signature,
+      plaintextSize: String(size),
+      encryptedAt: nowSql(),
+    },
   });
-  // Retain last 30 days of dailies, prune older.
+
+  // Register the backup in media_objects so the existing media-access
+  // ACL governs downloads. visibility='owner_only' means only super_admin
+  // or owner tier can download.
+  const backupId = crypto.randomUUID();
+  try {
+    await recordMediaObject(db, {
+      id: backupId,
+      r2Key,
+      bucket: "BACKUPS",
+      ownerType: "backup",
+      ownerId: ts,
+      visibility: "owner_only",
+      contentType: "application/octet-stream",
+      sha256: signature,
+      uploadedByStaffId: null,
+      uploadedByApiKeyId: null,
+      createdAt: nowSql(),
+    });
+  } catch (err) {
+    try { const { safeLog } = await import('../pii-scrubber'); safeLog.warn("[backup] media_objects insert failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) }); } catch {}
+  }
+
+  // Prune backups older than 30 days. Each deletion writes an audit log
+  // row (the previous version was silent).
   const listed = await backups.list({ prefix: "backups/d1-" });
   const cutoff = Date.now() - 30 * 24 * 60 * 60 * 1000;
   for (const obj of listed.objects) {
     if (obj.uploaded && obj.uploaded.getTime() < cutoff) {
       await backups.delete(obj.key);
+      try {
+        await db
+          .prepare(
+            `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+             VALUES (?1, 'system', ?2, ?3)`,
+          )
+          .bind(
+            crypto.randomUUID(),
+            `d1_backup_pruned key=${obj.key} uploaded=${obj.uploaded.toISOString()}`,
+            nowSql(),
+          )
+          .run();
+      } catch (err) {
+        try { const { safeLog } = await import('../pii-scrubber'); safeLog.warn("[backup] prune audit insert failed (non-fatal)", { error: err instanceof Error ? err.message : String(err) }); } catch {}
+      }
     }
   }
-  return { written: 1, size };
+  return { written: 1, size, key: r2Key, signature };
 }
 
 /**

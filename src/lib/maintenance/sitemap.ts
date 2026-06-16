@@ -7,6 +7,10 @@
  *
  * Sitemap index splits at 50,000 URLs per file (per spec). We don't
  * anticipate that scale; a single file is enough for now.
+ *
+ * P0-008 audit fix: previous version built the XML and then never
+ * wrote it to R2 — only to the sitemap_metadata D1 table. The R2
+ * path is now actually executed.
  */
 import { nowSql } from "../dates";
 
@@ -26,8 +30,8 @@ function escapeXml(s: string): string {
 
 export async function generateSitemap(
   db: D1Database,
-  _media: R2Bucket | undefined,
-): Promise<{ urls: number }> {
+  media: R2Bucket | undefined,
+): Promise<{ urls: number; r2Key?: string }> {
   const products = await db
     .prepare("SELECT slug, updated_at FROM products WHERE status = 'published'")
     .all<{ slug: string; updated_at: string }>();
@@ -50,7 +54,18 @@ ${urls.join("\n")}
 </urlset>
 `;
 
-  // Also expose via D1 for the static /sitemap.xml endpoint.
+  // P0-008: actually write to R2. The MEDIA binding is the storefront's
+  // R2 bucket, so writing to it makes sitemap.xml directly servable.
+  let r2Key: string | undefined;
+  if (media) {
+    r2Key = "sitemap.xml";
+    await media.put(r2Key, xml, {
+      httpMetadata: { contentType: "application/xml" },
+      customMetadata: { urlCount: String(urls.length), generatedAt: nowSql() },
+    });
+  }
+
+  // Mirror to D1 for the /sitemap.xml fallback endpoint.
   await db
     .prepare(
       `INSERT OR REPLACE INTO sitemap_metadata (id, url, last_modified, priority, change_frequency)
@@ -58,5 +73,5 @@ ${urls.join("\n")}
     )
     .bind(xml, nowSql())
     .run();
-  return { urls: urls.length };
+  return { urls: urls.length, r2Key };
 }

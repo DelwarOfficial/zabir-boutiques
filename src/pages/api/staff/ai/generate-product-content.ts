@@ -5,6 +5,7 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission, RbacError } from '../../../../lib/rbac';
 import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateProductContent } from '../../../../lib/ai-content';
+import { safeLog } from '../../../../lib/pii-scrubber';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -70,7 +71,7 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: true, content });
   } catch (err) {
     const message = err instanceof Error ? err.message : 'AI generation failed';
-    console.error('[ai/generate-product-content]', err);
+    safeLog.error('[ai/generate-product-content] failed', { error: message });
     return Response.json({ ok: false, error: message }, { status: 502 });
   }
 }

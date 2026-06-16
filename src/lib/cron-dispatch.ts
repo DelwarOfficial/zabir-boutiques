@@ -79,14 +79,16 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
   // Monthly 1st 05:00 UTC — archive old events to R2.
   "0 5 1 * *": async (env) => {
     const { archiveOldEvents } = await import('./maintenance/archive');
-    await archiveOldEvents(env.DB, (env as unknown as { BACKUPS: R2Bucket; AUDIT_LEDGER_SECRET: string }).BACKUPS, (env as unknown as { AUDIT_LEDGER_SECRET: string }).AUDIT_LEDGER_SECRET);
+    const e = env as unknown as { BACKUPS: R2Bucket; AUDIT_LEDGER_SECRET?: string; BACKUP_ENCRYPTION_KEY?: string };
+    await archiveOldEvents(env.DB, e.BACKUPS, e.AUDIT_LEDGER_SECRET, e.BACKUP_ENCRYPTION_KEY);
   },
 };
 
 export async function dispatchCron(cron: string, env: Env): Promise<void> {
   const handler = CRON_HANDLERS[cron];
   if (!handler) {
-    console.error(`[cron] No handler registered for expression: ${cron}`);
+    const { safeLog } = await import('./pii-scrubber');
+    safeLog.error(`[cron] No handler registered for expression`, { cron });
     return;
   }
   await handler(env);

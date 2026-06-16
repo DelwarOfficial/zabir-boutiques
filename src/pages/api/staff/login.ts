@@ -8,6 +8,7 @@ import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
 import { verifyTurnstile } from '../../../lib/turnstile';
+import { safeLog } from '../../../lib/pii-scrubber';
 
 export const prerender = false;
 
@@ -87,9 +88,25 @@ export async function POST(context: APIContext): Promise<Response> {
     if (staff.password_hash !== legacyHash) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
     const newSalt = generateRandomHex(16);
     const newHash = await hashPassword(password, newSalt, env.PASSWORD_PEPPER);
-    await env.DB.prepare(
-      `UPDATE staff_users SET password_hash = ?2, password_salt = ?3 WHERE id = ?1`
-    ).bind(staff.id, newHash, newSalt).run();
+    // Conditional upgrade: only update if the row still has the legacy
+    // hash AND salt is null. A concurrent login that won the race will
+    // have set password_salt; the second login's UPDATE matches 0 rows
+    // and we proceed without throwing.
+    const upgradeResult = await env.DB.prepare(
+      `UPDATE staff_users SET password_hash = ?2, password_salt = ?3
+       WHERE id = ?1 AND password_hash = ?4 AND password_salt IS NULL`
+    ).bind(staff.id, newHash, newSalt, legacyHash).run();
+    if (upgradeResult.meta.changes === 1) {
+      await writeAuditLog(env.DB, {
+        actorStaffId: staff.id,
+        actorRole: staff.role,
+        action: 'staff.password.upgraded',
+        entityType: 'staff_user',
+        entityId: staff.id,
+        ipAddress: clientIp(context.request),
+        userAgent: userAgent(context.request),
+      });
+    }
   }
 
   const sessionToken = generateSessionToken();
@@ -99,14 +116,27 @@ export async function POST(context: APIContext): Promise<Response> {
   const expiresAt = nowSql(new Date(Date.now() + 30 * 60 * 1000));
   const absoluteExpiresAt = nowSql(new Date(Date.now() + 8 * 60 * 60 * 1000));
 
-  await env.DB.prepare(
-    `INSERT INTO staff_sessions (id, staff_user_id, token_hash, is_revoked, expires_at, absolute_expires_at, last_active_at, created_at)
-     VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?6)`
-  ).bind(sessionId, staff.id, tokenHash, expiresAt, absoluteExpiresAt, now).run();
-
-  await env.DB.prepare(
-    `UPDATE staff_users SET last_login_at = ?2 WHERE id = ?1`
-  ).bind(staff.id, now).run();
+  // Atomic session creation. If any statement fails, the batch rolls
+  // back the session row and the user does not get a half-created
+  // session. The audit log is also part of the batch so the two writes
+  // succeed together (or both fail).
+  try {
+    await env.DB.batch(
+      [
+        env.DB.prepare(
+          `INSERT INTO staff_sessions (id, staff_user_id, token_hash, is_revoked, expires_at, absolute_expires_at, last_active_at, created_at)
+           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?6)`,
+        ).bind(sessionId, staff.id, tokenHash, expiresAt, absoluteExpiresAt, now),
+        env.DB.prepare(
+          `UPDATE staff_users SET last_login_at = ?2 WHERE id = ?1`,
+        ).bind(staff.id, now),
+      ],
+      { atomic: true },
+    );
+  } catch (err) {
+    safeLog.error('[staff/login] session insert failed', { error: err instanceof Error ? err.message : String(err) });
+    return Response.json({ error: 'Login service unavailable. Please try again.' }, { status: 503 });
+  }
 
   await writeAuditLog(env.DB, {
     actorStaffId: staff.id,

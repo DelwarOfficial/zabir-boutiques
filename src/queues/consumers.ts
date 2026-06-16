@@ -12,11 +12,11 @@
  * degradation identical to the rest of the platform.
  */
 
-import { verifyUddoktaPayment } from "../lib/payments";
+import { applyPaymentVerified, verifyUddoktaPayment } from "../lib/payments";
 import { nowSql } from "../lib/dates";
 import { writeAuditLog } from "../lib/audit";
 import { trackMetric } from "../lib/analytics";
-import { confirmReservedVariants } from "../lib/inventory";
+import { safeLog } from "../lib/pii-scrubber";
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
@@ -29,7 +29,7 @@ export async function enqueuePaymentWebhook(env: { PAYMENT_WEBHOOKS?: Queue }, i
 
 export async function handlePaymentWebhookBatch(
   batch: MessageBatch<PaymentWebhookMessage>,
-  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset },
+  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY?: DurableObjectNamespace },
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {
@@ -39,57 +39,32 @@ export async function handlePaymentWebhookBatch(
         msg.ack();
         continue;
       }
-      const payment = await env.DB
-        .prepare("SELECT id, order_id, amount_paisa, status FROM payments WHERE invoice_id = ?1")
-        .bind(invoiceId)
-        .first<{ id: string; order_id: string; amount_paisa: number; status: string }>();
-      if (!payment) {
-        msg.ack();
-        continue;
-      }
-      // Idempotency via payment_events UNIQUE(invoice_id, event_type, status).
-      const eventResult = await env.DB
-        .prepare(
-          `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
-           VALUES (?1, ?2, ?3, 'webhook', 'paid', ?4, ?5)`,
-        )
-        .bind(crypto.randomUUID(), payment.id, invoiceId, verified.rawResponse ?? "", nowSql())
-        .run();
-      if (eventResult.meta.changes === 0) {
-        msg.ack();
-        continue;
-      }
-      await env.DB
-        .prepare("UPDATE payments SET status = 'paid', verified_at = ?2, updated_at = ?2 WHERE id = ?1")
-        .bind(payment.id, nowSql())
-        .run();
+      // Single source-of-truth for "payment verified" — same function the
+      // inline webhook path uses. Idempotency, deduct, and state
+      // transitions all happen here.
+      const result = await applyPaymentVerified(
+        env,
+        invoiceId,
+        { amountPaisa: verified.amountPaisa, metadata: verified.metadata, rawResponse: verified.rawResponse ?? "" },
+        nowSql(),
+      );
 
-      // Deduct stock and mark reservations confirmed.
-      const reservations = await env.DB
-        .prepare("SELECT id, variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'")
-        .bind(payment.order_id)
-        .all<{ id: string; variant_id: string; quantity: number }>();
-      const items = (reservations.results ?? []).map(r => ({ variantId: r.variant_id, qty: r.quantity }));
-      if (items.length > 0) {
-        await confirmReservedVariants({ DB: env.DB }, items, nowSql());
-        await env.DB
-          .prepare("UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE order_id = ?1 AND status = 'active'")
-          .bind(payment.order_id, nowSql())
-          .run();
+      if (result.ok && !result.alreadyProcessed) {
+        const payment = await env.DB
+          .prepare("SELECT amount_paisa FROM payments WHERE invoice_id = ?1")
+          .bind(invoiceId)
+          .first<{ amount_paisa: number }>();
+        if (payment) {
+          await trackMetric(env, {
+            name: "orders_created",
+            doubles: { revenue_paisa: payment.amount_paisa },
+            indexes: ["channel:queue"],
+          });
+        }
       }
-      await env.DB
-        .prepare("UPDATE orders SET payment_status = 'paid', status = 'payment_verified', updated_at = ?2 WHERE id = ?1")
-        .bind(payment.order_id, nowSql())
-        .run();
-
-      await trackMetric(env, {
-        name: "orders_created",
-        doubles: { revenue_paisa: payment.amount_paisa },
-        indexes: ["channel:queue"],
-      });
       msg.ack();
     } catch (err) {
-      console.error("[payment-webhook-consumer]", err);
+      safeLog.error("[payment-webhook-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
       msg.retry({ delaySeconds: 5 });
     }
   }
@@ -122,7 +97,7 @@ export async function handleOrderEmailBatch(
         .run();
       msg.ack();
     } catch (err) {
-      console.error("[order-email-consumer]", err);
+      safeLog.error("[order-email-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
       msg.retry({ delaySeconds: 10 });
     }
   }
@@ -148,7 +123,7 @@ export async function handleImageProcessingBatch(
       // ack on success and let the cron retry tinify on failure.
       msg.ack();
     } catch (err) {
-      console.error("[image-processing-consumer]", err);
+      safeLog.error("[image-processing-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
       msg.retry({ delaySeconds: 30 });
     }
   }
@@ -178,7 +153,7 @@ export async function handleFraudScoringBatch(
         .run();
       msg.ack();
     } catch (err) {
-      console.error("[fraud-scoring-consumer]", err);
+      safeLog.error("[fraud-scoring-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
       // Per spec: 2x retry then auto-approve with review flag.
       msg.retry({ delaySeconds: 10 });
     }
@@ -196,12 +171,12 @@ export async function enqueueD1Backup(env: { D1_BACKUP?: Queue }, triggeredAt: s
 
 export async function handleD1BackupBatch(
   batch: MessageBatch<D1BackupMessage>,
-  env: { DB: D1Database; BACKUPS?: R2Bucket; ANALYTICS?: AnalyticsEngineDataset },
+  env: { DB: D1Database; BACKUPS?: R2Bucket; ANALYTICS?: AnalyticsEngineDataset; BACKUP_ENCRYPTION_KEY?: string; SESSION_SECRET?: string },
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {
       const { backupD1ToR2 } = await import("../lib/maintenance/backup");
-      await backupD1ToR2(env.DB, env.BACKUPS);
+      await backupD1ToR2(env.DB, env.BACKUPS, env);
       await writeAuditLog(env.DB, {
         actorStaffId: null,
         actorRole: null,
@@ -217,7 +192,7 @@ export async function handleD1BackupBatch(
       });
       msg.ack();
     } catch (err) {
-      console.error("[d1-backup-consumer]", err);
+      safeLog.error("[d1-backup-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
       msg.retry({ delaySeconds: 60 });
     }
   }

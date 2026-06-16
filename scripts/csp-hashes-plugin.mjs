@@ -1,19 +1,27 @@
 /**
- * Vite plugin: post-build, walk dist/client/_astro and compute
- * SHA-256 hashes of every emitted JS file. Embed the hash list
- * into a TypeScript module under src/generated/csp-hashes.ts so
- * the Worker can include them in Content-Security-Policy
- * script-src at runtime (Master_Prompt v7.0 §9.5).
+ * Vite plugin: post-build, compute SHA-256 hashes of:
+ *   1. Every emitted JS file under dist/client/_astro (Astro build output).
+ *   2. Every inline script block (script tag with is:inline) in the
+ *      src/pages, src/components, src/layouts, and src/islands trees.
+ *      P1-005 audit fix: the previous version only hashed the build
+ *      output, which meant inline scripts emitted directly in page
+ *      source were not in the hash list and were blocked by the
+ *      per-request CSP.
  *
- * The runtime can NOT use node:fs (Workers runtime), so the
- * hash list is compiled into the Worker bundle. The middleware
- * reads `import.meta.env` and the generated module.
+ * Embed the combined hash list into a TypeScript module under
+ * src/generated/csp-hashes.ts so the Worker can include them in the
+ * Content-Security-Policy script-src at runtime.
+ *
+ * The runtime cannot use node:fs (Workers runtime), so the hash list
+ * is compiled into the Worker bundle. Middleware reads the generated
+ * module directly.
  */
 import { createHash } from "node:crypto";
 import { readFileSync, readdirSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
 import { join, extname } from "node:path";
 
 const ASTRO_DIR = "dist/client/_astro";
+const SOURCE_DIRS = ["src/pages", "src/components", "src/layouts", "src/islands"];
 const OUTPUT_TS = "src/generated/csp-hashes.ts";
 
 function sha256Base64(buf) {
@@ -31,13 +39,45 @@ function collectScripts(root) {
   return out;
 }
 
+const SCRIPT_BLOCK_RE = /<script\b(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi;
+
+function collectInlineScriptHashes(root) {
+  if (!existsSync(root)) return [];
+  const hashes = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const p = join(root, entry.name);
+    if (entry.isDirectory()) {
+      hashes.push(...collectInlineScriptHashes(p));
+    } else if (extname(entry.name) === ".astro") {
+      const source = readFileSync(p, "utf8");
+      // Reset regex state for each file
+      SCRIPT_BLOCK_RE.lastIndex = 0;
+      let match;
+      while ((match = SCRIPT_BLOCK_RE.exec(source)) !== null) {
+        const body = match[1].trim();
+        if (!body) continue;
+        // Hash the raw inner content. Browsers hash the *executed* script
+        // text, which for a <script>block is the inner HTML — the same
+        // bytes that appear in the served page.
+        hashes.push(sha256Base64(Buffer.from(body, "utf8")));
+      }
+    }
+  }
+  return hashes;
+}
+
 function buildHashMap() {
-  const map = new Map();
+  const hashes = new Set();
   for (const file of collectScripts(ASTRO_DIR)) {
     const content = readFileSync(file);
-    map.set("/_astro/" + file.split(/[\\/]/).pop(), sha256Base64(content));
+    hashes.add(sha256Base64(content));
   }
-  return map;
+  for (const dir of SOURCE_DIRS) {
+    for (const h of collectInlineScriptHashes(dir)) {
+      hashes.add(h);
+    }
+  }
+  return Array.from(hashes);
 }
 
 export default function cspHashes() {
@@ -46,8 +86,7 @@ export default function cspHashes() {
     apply: "build",
     closeBundle() {
       try {
-        const map = buildHashMap();
-        const hashes = Array.from(map.values());
+        const hashes = buildHashMap();
         const version = new Date().toISOString();
         mkdirSync("src/generated", { recursive: true });
         writeFileSync(
@@ -64,4 +103,3 @@ export default function cspHashes() {
     },
   };
 }
-

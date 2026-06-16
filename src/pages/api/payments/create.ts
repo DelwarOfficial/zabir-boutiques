@@ -3,6 +3,7 @@ export const prerender = false;
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { nowSql } from '../../../lib/dates';
+import { safeLog } from '../../../lib/pii-scrubber';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -70,7 +71,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const checkoutData = await checkoutRes.json().catch(() => ({})) as any;
   if (!checkoutRes.ok || !checkoutData?.payment_url) {
-    console.error('[payments/create] provider error:', checkoutRes.status, JSON.stringify(checkoutData));
+    safeLog.error('[payments/create] provider error', { status: checkoutRes.status, body: JSON.stringify(checkoutData) });
     return Response.json({ error: 'Payment provider error' }, { status: 502 });
   }
 

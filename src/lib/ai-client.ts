@@ -75,7 +75,12 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
     await chargeBudget(env, scope, out.costUsdCents, `actual:${task}:workers-ai`);
     return out;
   } catch (err) {
-    console.warn(`[ai] workers-ai failed (${task}):`, err);
+    void (async () => {
+      try {
+        const { safeLog } = await import('./pii-scrubber');
+        safeLog.warn(`[ai] workers-ai failed (${task})`, { error: err instanceof Error ? err.message : String(err) });
+      } catch {}
+    })();
   }
 
   // 4) Fallback: DeepSeek.
@@ -85,7 +90,12 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
       await chargeBudget(env, scope, out.costUsdCents, `actual:${task}:deepseek`);
       return out;
     } catch (err) {
-      console.error(`[ai] deepseek fallback failed (${task}):`, err);
+      void (async () => {
+        try {
+          const { safeLog } = await import('./pii-scrubber');
+          safeLog.error(`[ai] deepseek fallback failed (${task})`, { error: err instanceof Error ? err.message : String(err) });
+        } catch {}
+      })();
     }
   }
 

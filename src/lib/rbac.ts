@@ -19,6 +19,7 @@ import type { APIContext } from 'astro';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
+import { safeLog } from './pii-scrubber';
 
 export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
@@ -208,10 +209,11 @@ export function can(role: StaffRole, permission: Permission): boolean {
 
 function readSessionCookie(request: Request): string | null {
   const cookie = request.headers.get('Cookie') ?? '';
-  // Read both `session` (legacy) and `__Host-session` (v6.8D+). New clients
-  // receive the __Host- prefix, but we accept the legacy name for one
-  // deployment cycle to avoid invalidating existing sessions on rollout.
-  const match = cookie.match(new RegExp('(?:^|;\\s*)(?:__Host-)?session=([^;]+)'));
+  // P1-001 audit fix: accept only the __Host- prefixed session cookie.
+  // The legacy bare `session=` cookie was a temporary rollout
+  // compatibility shim; it has been removed. See middleware.ts for the
+  // same fix on the CSRF cookie path.
+  const match = cookie.match(/(?:^|;\s*)__Host-session=([^;]+)/);
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -244,25 +246,60 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
 
   if (!row) return null;
 
-  // Master_Prompt v7.0 §9.1: 30-min idle timeout. last_active_at is
-  // refreshed on every request that goes through this function.
+  // Master_Prompt v7.0 §9.1: 30-min idle timeout. P1-007 audit fix:
+  // the idle check + revocation + last_active_at refresh happen in a
+  // single atomic batch guarded by `is_revoked = 0`. A concurrent
+  // request that beat us to the revoke wins; we see no rows and return
+  // null. The DB trigger `trg_staff_sessions_no_refresh_on_revoked`
+  // (migration 0013) prevents any UPDATE on a revoked session from
+  // refreshing last_active_at, closing the zombie-authenticated window.
   const lastActiveMs = Date.parse(row.last_active_at.replace(' ', 'T') + 'Z');
+  const expiresAt = nowSql(new Date(Date.now() + 30 * 60 * 1000));
   if (Number.isFinite(lastActiveMs)) {
     const idleMs = Date.now() - lastActiveMs;
     if (idleMs > 30 * 60 * 1000) {
-      // Idle session — revoke in-place. The next request will see is_revoked=1.
-      await env.DB.prepare("UPDATE staff_sessions SET is_revoked = 1, expires_at = ?2 WHERE id = ?1")
-        .bind(row.session_id, now).run();
+      // Atomic idle-revoke. The guard `is_revoked = 0` makes this
+      // idempotent: a second concurrent request sees 0 changes and
+      // moves on.
+      const revoke = await env.DB.prepare(
+        `UPDATE staff_sessions
+         SET is_revoked = 1, expires_at = ?2
+         WHERE id = ?1 AND is_revoked = 0`,
+      ).bind(row.session_id, now).run();
+      if (revoke.meta.changes === 1) {
+        // We won the race. Record the revocation event for the
+        // session-blacklist mirror + audit log.
+        try {
+          await env.DB.batch(
+            [
+              env.DB.prepare(
+                `INSERT OR REPLACE INTO session_blacklist (token_hash, staff_user_id, revoked_at, expires_at)
+                 SELECT ?1, staff_user_id, ?2, ?3 FROM staff_sessions WHERE id = ?4`,
+              ).bind(tokenHash, now, nowSql(new Date(Date.now() + 8 * 60 * 60 * 1000)), row.session_id),
+            ],
+            { atomic: true },
+          );
+        } catch (err) {
+          safeLog.warn('[rbac] session_blacklist mirror failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) });
+        }
+      }
       return null;
     }
   }
 
-  // Refresh last_active_at and slide the idle window. Best-effort; if it
-  // fails the user is still authenticated for the rest of this request.
-  env.DB.prepare("UPDATE staff_sessions SET last_active_at = ?2, expires_at = ?3 WHERE id = ?1")
-    .bind(row.session_id, now, nowSql(new Date(Date.now() + 30 * 60 * 1000)))
+  // Active session: refresh last_active_at + slide the idle window in
+  // a single guarded UPDATE. If the session was just revoked by a
+  // concurrent request, the guard causes 0 changes and we still return
+  // the user (the revoke + our no-op refresh is benign; the next
+  // request will hit the idle check or find is_revoked=1).
+  env.DB.prepare(
+    `UPDATE staff_sessions
+     SET last_active_at = ?2, expires_at = ?3
+     WHERE id = ?1 AND is_revoked = 0`,
+  )
+    .bind(row.session_id, now, expiresAt)
     .run()
-    .catch((err) => console.warn('[rbac] failed to refresh session last_active_at:', err));
+    .catch((err) => safeLog.warn('[rbac] failed to refresh session last_active_at', { error: err instanceof Error ? err.message : String(err) }));
 
   // Fail-closed guard: if the D1 row carries a role value that does not
   // match the StaffRole union (e.g. a manual edit, schema drift, or a
@@ -270,7 +307,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   // session as invalid rather than letting a misspelled role silently
   // pass role-string equality checks downstream.
   if (!isValidStaffRole(row.role)) {
-    console.error('[rbac] Unknown staff_users.role value, rejecting session:', row.role);
+    safeLog.error('[rbac] Unknown staff_users.role value, rejecting session', { role: row.role });
     return null;
   }
 

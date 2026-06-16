@@ -22,6 +22,7 @@ import { checkFraudBD, decideFraudRisk } from '../../../../lib/fraud';
 import { calculatePrepayment } from '../../../../lib/prepayment';
 import { nowSql } from '../../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
+import { safeLog } from '../../../../lib/pii-scrubber';
 
 type OrderChannel = 'in_store' | 'phone' | 'messenger' | 'whatsapp';
 const VALID_CHANNELS: OrderChannel[] = ['in_store', 'phone', 'messenger', 'whatsapp'];
@@ -105,7 +106,7 @@ export async function POST(context: APIContext): Promise<Response> {
     subtotalPaisa = calculateAuthoritativeSubtotal(items, snapshots);
     deliveryPaisa = isInStore ? 0 : await calculateDeliveryPaisa(env.DB, body.shipping_zone, subtotalPaisa);
   } catch (err) {
-    console.error('[staff/orders/create] Pricing error:', err);
+    safeLog.error('[staff/orders/create] Pricing error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price the cart.' }, { status: 409 });
   }
 
@@ -236,7 +237,7 @@ export async function POST(context: APIContext): Promise<Response> {
   } catch (err) {
     await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
     if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
-    console.error('[staff/orders/create] Error:', err);
+    safeLog.error('[staff/orders/create] Error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'ORDER_FAILED', message: 'Internal error creating order.' }, { status: 500 });
   }
 }
