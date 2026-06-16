@@ -53,7 +53,11 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   if (STAFF_MUTATION_PATHS.test(url.pathname) && !SAFE_METHODS.has(request.method) && !CSRF_EXEMPT_PATHS.has(url.pathname)) {
-    const cookieToken = getCookieValue(request.headers.get('Cookie'), 'csrf-token');
+    // Read either legacy or __Host- prefixed cookie. The __Host- prefix
+    // binds the cookie to the exact host over HTTPS only; middleware is
+    // host-agnostic so it accepts both names.
+    const cookieToken = getCookieValue(request.headers.get('Cookie'), '__Host-csrf-token')
+      ?? getCookieValue(request.headers.get('Cookie'), 'csrf-token');
     const headerToken = request.headers.get('X-CSRF-Token');
 
     if (!cookieToken || !headerToken || cookieToken !== headerToken) {
@@ -124,8 +128,13 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
 function withSecurityHeaders(response: Response): Response {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-  // TODO: Migrate to Astro 6 built-in `security.csp` config for automatic script/style hashing.
-  // 'unsafe-inline' is required until then because of multiple <script is:inline> blocks.
+  // TODO (v6.8E): Migrate to Astro 6 built-in `security.csp` config so the
+  // framework emits a per-request nonce and Astro inlines the nonce on
+  // is:inline scripts. Until then 'unsafe-inline' is required because
+  // multiple <script is:inline> blocks exist across the staff pages.
+  // Risk: an XSS on a staff subpath can read the non-HttpOnly csrf-token
+  // cookie. Mitigated by the session-independent nonce.HMAC(nonce) CSRF
+  // design and the __Host- cookie prefix (login.ts).
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
     "script-src 'self' 'unsafe-inline'",

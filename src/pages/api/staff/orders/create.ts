@@ -17,7 +17,7 @@ import { normalizeBangladeshPhone } from '../../../../lib/phone';
 import { reserveVariants, releaseReservedVariants } from '../../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../../lib/orders';
 import { loadVariantSnapshots, calculateAuthoritativeSubtotal, calculateDeliveryPaisa, type CheckoutCartItem } from '../../../../lib/checkout-pricing';
-import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic } from '../../../../lib/money';
+import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../../../lib/money';
 import { checkFraudBD, decideFraudRisk } from '../../../../lib/fraud';
 import { calculatePrepayment } from '../../../../lib/prepayment';
 import { nowSql } from '../../../../lib/dates';
@@ -29,6 +29,11 @@ const VALID_CHANNELS: OrderChannel[] = ['in_store', 'phone', 'messenger', 'whats
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();
+  // Per-request idempotency key for coupon-claim lifecycle. The staff order
+  // create endpoint does not have a client-supplied idempotency key, so we
+  // mint a fresh one for this request to keep the coupon release idempotent
+  // even if the worker retries mid-failure.
+  const orderIdempotencyKey = `staff-orders-create:${crypto.randomUUID()}`;
 
   let user;
   try {
@@ -88,7 +93,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let subtotalPaisa: number;
   let deliveryPaisa: number;
   let discountPaisa = 0;
-  let claimedCouponCode = '';
+  let couponClaim: CouponClaim | null = null;
   let snapshots: Awaited<ReturnType<typeof loadVariantSnapshots>>;
 
   try {
@@ -118,7 +123,8 @@ export async function POST(context: APIContext): Promise<Response> {
     if (!couponResult.ok) {
       return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
     }
-    claimedCouponCode = couponCode;
+    couponClaim = couponResult.claim;
+    await recordCouponClaim(env.DB, orderIdempotencyKey, couponClaim);
     discountPaisa = assertPaisa(Math.min(couponResult.discountPaisa, subtotalPaisa + deliveryPaisa), 'discount_paisa');
   }
 
@@ -138,7 +144,7 @@ export async function POST(context: APIContext): Promise<Response> {
     const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
     fraudDecision = decideFraudRisk(score);
     if (fraudDecision === 'blocked') {
-      if (claimedCouponCode) await releaseCouponUsageAtomic(env.DB, claimedCouponCode);
+      if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
       return Response.json({ ok: false, code: 'FRAUD_BLOCKED', message: 'This order has been flagged.' }, { status: 403 });
     }
   }
@@ -146,8 +152,9 @@ export async function POST(context: APIContext): Promise<Response> {
   // Reserve stock
   const reserveResult = await reserveVariants(env.DB, items, now);
   if (!reserveResult.ok) {
-    if (claimedCouponCode) await releaseCouponUsageAtomic(env.DB, claimedCouponCode);
-    return Response.json({ ok: false, code: 'OUT_OF_STOCK', message: 'One item is out of stock.', failed_variant_id: reserveResult.failedVariantId }, { status: 409 });
+    if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
+    const failedIndex = items.findIndex(i => i.variantId === reserveResult.failedVariantId);
+    return Response.json({ ok: false, code: 'OUT_OF_STOCK', message: 'One item is out of stock.', failed_cart_index: failedIndex >= 0 ? failedIndex : -1 }, { status: 409 });
   }
 
   try {
@@ -196,8 +203,15 @@ export async function POST(context: APIContext): Promise<Response> {
         const confirmStmts = reservations.results.map(r =>
           env.DB.prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`).bind(r.id, now)
         );
-        await env.DB.batch([...deductStmts, ...confirmStmts]);
+        await env.DB.batch([...deductStmts, ...confirmStmts], { atomic: true });
       }
+
+      // In-store orders are paid at the counter; mark payment_status='paid'
+      // and record the verification timestamp so the order doesn't appear
+      // as awaiting payment in the staff dashboard.
+      await env.DB.prepare(
+        `UPDATE orders SET payment_status = 'paid', updated_at = ?2 WHERE id = ?1`
+      ).bind(orderId, now).run();
     }
 
     // Audit log
@@ -221,7 +235,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }, { status: 201 });
   } catch (err) {
     await releaseReservedVariants(env.DB, items, now);
-    if (claimedCouponCode) await releaseCouponUsageAtomic(env.DB, claimedCouponCode);
+    if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
     console.error('[staff/orders/create] Error:', err);
     return Response.json({ ok: false, code: 'ORDER_FAILED', message: 'Internal error creating order.' }, { status: 500 });
   }

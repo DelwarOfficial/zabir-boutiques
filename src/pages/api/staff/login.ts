@@ -8,6 +8,7 @@ import { hashPassword, verifyPassword, legacyHashPassword } from '../../../lib/p
 import { generateRandomHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
+import { normalizeBangladeshPhone } from '../../../lib/phone';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -32,11 +33,25 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Email/phone and password required' }, { status: 400 });
   }
 
+  // Build a list of candidate identifier strings to try: the raw input
+  // plus its Bangladesh-phone canonical form (e.g. 017... → +88017...).
+  // This keeps existing logins working regardless of how the phone was
+  // originally stored on the staff_users row.
+  const candidates: string[] = [identifier];
+  const phoneNormalized = normalizeBangladeshPhone(identifier);
+  if (phoneNormalized.ok) {
+    if (!candidates.includes(phoneNormalized.local)) candidates.push(phoneNormalized.local);
+    if (!candidates.includes(phoneNormalized.phone)) candidates.push(phoneNormalized.phone);
+  }
+
   const staff = await env.DB.prepare(
     `SELECT id, email, phone, password_hash, password_salt, full_name, role, is_active
      FROM staff_users
-     WHERE (email = ?1 OR phone = ?1) AND is_active = 1`
-  ).bind(identifier).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number }>();
+     WHERE (email IN (${candidates.map((_, i) => `?${i + 1}`).join(',')})
+        OR phone IN (${candidates.map((_, i) => `?${candidates.length + i + 1}`).join(',')}))
+       AND is_active = 1
+     LIMIT 1`
+  ).bind(...candidates, ...candidates).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number }>();
 
   if (!staff) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
 
@@ -85,8 +100,13 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const maxAge = 24 * 60 * 60;
-  headers.append('Set-Cookie', `session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
-  headers.append('Set-Cookie', `csrf-token=${csrfToken}; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
+  // __Host- prefix requires Path=/; Secure; no Domain attribute. This
+  // guarantees the cookie is bound to the exact host (no subdomain leaks)
+  // and that it is only ever sent over HTTPS. Works in tandem with the
+  // session-independent nonce.HMAC(nonce) CSRF token to prevent XSS-driven
+  // session hijack via the CSRF cookie.
+  headers.append('Set-Cookie', `__Host-session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
+  headers.append('Set-Cookie', `__Host-csrf-token=${csrfToken}; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
 
   return new Response(JSON.stringify({ ok: true, staff: { id: staff.id, name: staff.full_name, role: staff.role } }), {
     status: 200,

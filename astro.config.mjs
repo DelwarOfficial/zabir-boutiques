@@ -5,7 +5,7 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   site: "https://zabirboutiques.com",
-  output: "static",
+  output: "server",
   integrations: [react()],
   adapter: cloudflare({
     imageService: { build: "compile", runtime: "passthrough" },

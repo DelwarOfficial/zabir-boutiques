@@ -69,7 +69,7 @@ export async function POST(context: APIContext): Promise<Response> {
           `UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`
         ).bind(r.id, now)
       );
-      await env.DB.batch([...deductStmts, ...confirmStmts]);
+      await env.DB.batch([...deductStmts, ...confirmStmts], { atomic: true });
     }
 
     await env.DB.prepare(

@@ -4,71 +4,116 @@ import ProductCard from "@/components/product/ProductCard.astro";
 import { CATALOG_CATEGORIES, CATALOG_PRODUCTS } from "@/data/catalog";
 
 export const prerender = true;
+const featured = CATALOG_PRODUCTS.slice(0, 8);
+const hot = CATALOG_PRODUCTS.filter(p => p.availableQuantity > 0).slice(0, 4);
+const trust = [
+  { icon: "truck", title: "Bangladesh-wide", subtitle: "Inside Dhaka ৳70 · Outside ৳130" },
+  { icon: "shield", title: "Server-reserved stock", subtitle: "No overselling, ever." },
+  { icon: "star", title: "4.9 on Facebook", subtitle: "Local boutique since 2024." },
+];
 ---
 
 <RootLayout title="Zabir Boutiques | Wari Boutique Fashion">
-  <section class="grid gap-8 md:grid-cols-[1fr_1.1fr] md:gap-12 md:items-center py-6 md:py-10">
+  <!-- Hero -->
+  <section class="relative grid gap-8 md:grid-cols-[1fr_1.1fr] md:gap-12 md:items-center py-4 md:py-10 fade-up">
     <div>
-      <p class="text-xs font-semibold uppercase tracking-[0.15em] text-[var(--brand)]">COD-first boutique shopping</p>
-      <h1 class="font-heading mt-3 text-4xl font-bold leading-[1.1] tracking-tight sm:text-5xl lg:text-6xl">
-        Premium fashion from <span class="text-[var(--brand)]">Wari</span>,<br />delivered across Bangladesh.
+      <span class="chip chip-brand pop">
+        <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2l2.39 6.95H22l-5.7 4.15L18.39 22 12 17.27 5.61 22l2.09-8.9L2 8.95h7.61z"/></svg>
+        New Pakistani · Indian · ZB Stitch
+      </span>
+      <h1 class="font-heading mt-3 text-4xl sm:text-5xl lg:text-6xl font-extrabold leading-[1.05] tracking-tight">
+        Premium fashion from <span class="text-[var(--brand)]">Wari</span>,<br class="hidden sm:block" />
+        delivered across Bangladesh.
       </h1>
-      <p class="mt-4 max-w-md text-sm leading-relaxed text-[var(--muted)]">
+      <p class="mt-4 max-w-md text-sm sm:text-base leading-relaxed text-[var(--muted)]">
         Browse static-fast collections, add to your offline cart, and place a guest order with name, phone, and address only. No account needed.
       </p>
       <div class="mt-6 flex flex-wrap gap-3">
         <a
           href="/categories/pakistani-collection"
-          class="inline-flex items-center gap-2 rounded-full bg-[var(--ink)] px-6 py-3 text-sm font-semibold text-[var(--bg)] transition hover:opacity-90 active:scale-[0.97]"
+          class="press tap-44 inline-flex items-center gap-2 rounded-full bg-[var(--ink)] px-6 h-12 text-sm font-bold text-[var(--bg)] hover:opacity-90"
         >
           Shop collections
-          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
-            <path d="M17 8l4 4m0 0l-4 4m4-4H3" />
-          </svg>
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 8l4 4m0 0l-4 4m4-4H3" /></svg>
         </a>
         <a
           href="https://wa.me/8801985516000"
-          class="inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-6 py-3 text-sm font-semibold text-[var(--ink)] transition hover:border-[var(--brand)] hover:text-[var(--brand)] active:scale-[0.97]"
+          class="press tap-44 inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-6 h-12 text-sm font-bold text-[var(--ink)] hover:border-[var(--brand)] hover:text-[var(--brand)]"
         >
-          <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-            <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-          </svg>
+          <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
           WhatsApp
         </a>
       </div>
+
+      <!-- Trust strip -->
+      <ul class="mt-7 grid grid-cols-1 sm:grid-cols-3 gap-2 sm:gap-3 stagger">
+        {trust.map(({ icon, title, subtitle }) => (
+          <li class="flex items-start gap-2 rounded-xl border border-[var(--line)] bg-[var(--surface)] p-3 shine-card">
+            <span class="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[var(--brand-light)] text-[var(--brand)]">
+              {icon === "truck" && <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>}
+              {icon === "shield" && <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2l8 4v6c0 5-3.5 9.4-8 10-4.5-.6-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg>}
+              {icon === "star" && <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l2.39 6.95H22l-5.7 4.15L18.39 22 12 17.27 5.61 22l2.09-8.9L2 8.95h7.61z"/></svg>}
+            </span>
+            <div class="min-w-0">
+              <p class="text-[12px] font-extrabold leading-tight">{title}</p>
+              <p class="text-[11px] text-[var(--muted)] leading-snug">{subtitle}</p>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
+
     <div class="relative overflow-hidden">
-      <div class="aspect-[4/3] overflow-hidden rounded-2xl bg-[var(--surface-soft)] shadow-lg">
+      <div class="aspect-[4/3] overflow-hidden rounded-3xl bg-[var(--surface-soft)] shadow-lg shine-card">
         <img src="/assets/zb-hero.svg" alt="Zabir Boutiques collection display" width="1200" height="900" class="h-full w-full object-cover" fetchpriority="high" />
       </div>
-      <div class="absolute -bottom-3 -right-3 h-24 w-24 rounded-2xl bg-[var(--brand)]/10 ring-8 ring-[var(--bg)] md:-bottom-4 md:-right-4 md:h-32 md:w-32 lg:h-40 lg:w-40"></div>
+      <div class="absolute -bottom-3 -right-3 h-24 w-24 rounded-2xl bg-[var(--brand)]/10 ring-8 ring-[var(--bg)] md:-bottom-4 md:-right-4 md:h-32 md:w-32 lg:h-40 lg:w-40" aria-hidden="true"></div>
+      <!-- Hot-pick floating card -->
+      {hot[0] && (
+        <a href={`/products/${hot[0].slug}`} class="absolute -left-3 -bottom-4 sm:-left-6 sm:-bottom-6 max-w-[220px] rounded-2xl bg-[var(--surface)] border border-[var(--line)] shadow-lg p-3 flex items-center gap-3 press fade-up">
+          <span class="grid h-12 w-12 shrink-0 place-items-center rounded-xl overflow-hidden bg-[var(--surface-soft)]">
+            <img src={hot[0].imageUrl} alt="" width="48" height="48" loading="lazy" class="h-full w-full object-cover" />
+          </span>
+          <div class="min-w-0">
+            <p class="text-[10px] font-extrabold uppercase tracking-wider text-[var(--brand)] flex items-center gap-1">
+              <span class="h-1.5 w-1.5 rounded-full bg-[var(--brand)] pulse-ring" aria-hidden="true"></span> Hot pick
+            </p>
+            <p class="line-clamp-1 text-xs font-bold">{hot[0].title}</p>
+            <p class="text-xs font-extrabold tabular">৳{Math.floor(hot[0].pricePaisa / 100)}</p>
+          </div>
+        </a>
+      )}
     </div>
   </section>
 
-  <section class="py-10 md:py-16">
-    <div class="mb-6 flex items-end justify-between gap-4">
+  <!-- Featured -->
+  <section class="py-8 md:py-12">
+    <div class="mb-5 flex items-end justify-between gap-3">
       <div>
-        <h2 class="font-heading text-2xl font-bold tracking-tight md:text-3xl">Featured pieces</h2>
-        <p class="mt-1 text-sm text-[var(--muted)]">Curated selections from our latest collections.</p>
+        <p class="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[var(--brand)]">Featured</p>
+        <h2 class="font-heading mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">Hand-picked this week</h2>
       </div>
-      <a href="/categories/pakistani-collection" class="shrink-0 text-sm font-semibold text-[var(--brand)] transition hover:text-[var(--brand-strong)]">View all</a>
+      <a href="/categories/pakistani-collection" class="shrink-0 press text-sm font-bold text-[var(--brand)] hover:text-[var(--brand-strong)]">View all →</a>
     </div>
-    <div class="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 gap-y-6">
-      {CATALOG_PRODUCTS.slice(0, 8).map((product) => <ProductCard product={product} />)}
+    <div class="stagger grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4 sm:gap-4">
+      {featured.map((product) => <ProductCard product={product} />)}
     </div>
   </section>
 
-  <section class="py-10 md:py-16">
-    <h2 class="font-heading text-2xl font-bold tracking-tight md:text-3xl">Collections</h2>
-    <p class="mt-1 text-sm text-[var(--muted)]">Explore our carefully curated categories.</p>
-    <div class="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+  <!-- Categories -->
+  <section class="py-8 md:py-12">
+    <div class="mb-5">
+      <p class="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[var(--brand)]">Explore</p>
+      <h2 class="font-heading mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">Collections</h2>
+    </div>
+    <div class="stagger grid gap-3 sm:gap-4 sm:grid-cols-2 lg:grid-cols-3">
       {CATALOG_CATEGORIES.slice(0, 3).map((category) => (
         <a
           href={`/categories/${category.slug}`}
-          class="group relative overflow-hidden rounded-xl bg-[var(--surface-soft)] p-6 ring-1 ring-[var(--line)] transition-all duration-300 hover:shadow-md hover:-translate-y-0.5"
+          class="group relative overflow-hidden rounded-2xl bg-[var(--surface-soft)] p-5 sm:p-6 ring-1 ring-[var(--line)] transition-all duration-300 hover:shadow-md hover:-translate-y-0.5 press"
         >
           <div class="relative z-10">
-            <h3 class="font-heading text-lg font-bold text-[var(--ink)]">{category.name}</h3>
+            <h3 class="font-heading text-lg sm:text-xl font-extrabold">{category.name}</h3>
             <p class="mt-2 text-sm leading-relaxed text-[var(--muted)]">
               {category.subcategories.map((item, i) => (
                 <span>
@@ -77,41 +122,36 @@ export const prerender = true;
                 </span>
               ))}
             </p>
+            <span class="mt-4 inline-flex items-center gap-1 text-sm font-bold text-[var(--brand)]">Shop now <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M17 8l4 4m0 0l-4 4m4-4H3"/></svg></span>
           </div>
-          <div class="absolute bottom-0 right-0 h-24 w-24 translate-x-4 translate-y-4 rounded-full bg-[var(--brand)]/5 transition duration-300 group-hover:scale-150"></div>
+          <div class="absolute bottom-0 right-0 h-32 w-32 sm:h-40 sm:w-40 translate-x-8 translate-y-8 rounded-full bg-[var(--brand)]/10 transition duration-500 group-hover:scale-150" aria-hidden="true"></div>
         </a>
       ))}
     </div>
   </section>
 
-  <section class="py-10 md:py-16">
-    <div class="overflow-hidden rounded-2xl bg-[var(--surface)] ring-1 ring-[var(--line)]">
-      <div class="grid gap-6 p-6 md:grid-cols-[auto_1fr] md:gap-8 md:p-8 lg:p-10">
+  <!-- Visit -->
+  <section class="py-8 md:py-12">
+    <div class="overflow-hidden rounded-3xl bg-[var(--surface)] ring-1 ring-[var(--line)]">
+      <div class="grid gap-6 p-5 sm:p-8 md:grid-cols-[auto_1fr] md:gap-8 md:p-8 lg:p-10">
         <div class="mx-auto h-20 w-20 shrink-0 overflow-hidden rounded-full bg-[var(--ink)] ring-4 ring-[var(--surface-soft)] md:mx-0">
           <img src="/assets/zabir-logo.jpg" alt="Zabir Boutiques logo" width="640" height="640" loading="lazy" decoding="async" class="h-full w-full object-cover" />
         </div>
         <div>
-          <h2 class="font-heading text-xl font-bold tracking-tight md:text-2xl">Trusted local presence</h2>
+          <p class="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[var(--brand)]">Visit us</p>
+          <h2 class="font-heading mt-1 text-xl sm:text-2xl font-extrabold tracking-tight">Trusted local presence</h2>
           <p class="mt-2 max-w-lg text-sm leading-relaxed text-[var(--muted)]">
-            Visit us at 10 (Ground Floor), A.K Famous Tower, Rankin Street, Wari, Dhaka, Bangladesh, near Aarong Building.
+            10 (Ground Floor), A.K Famous Tower, Rankin Street, Wari, Dhaka — near Aarong Building.
             Call or WhatsApp +880 1985-516000 before pickup or urgent delivery.
           </p>
-          <div class="mt-4 flex flex-wrap gap-3">
-            <a
-              href="https://www.facebook.com/zabirboutiques"
-              class="inline-flex items-center gap-2 rounded-full border border-[var(--line)] px-4 py-2 text-xs font-semibold text-[var(--brand)] transition hover:border-[var(--brand)] hover:bg-[var(--brand-light)]"
-            >
-              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" /></svg>
-              Facebook Page
+          <div class="mt-4 flex flex-wrap gap-2">
+            <a href="https://www.facebook.com/zabirboutiques" class="press tap-44 inline-flex items-center gap-2 rounded-full border border-[var(--line)] px-4 h-10 text-xs font-bold text-[var(--brand)] hover:border-[var(--brand)] hover:bg-[var(--brand-light)]">
+              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z"/></svg>
+              Facebook
             </a>
-            <a
-              href="https://wa.me/8801985516000"
-              class="inline-flex items-center gap-2 rounded-full border border-[var(--line)] px-4 py-2 text-xs font-semibold text-[var(--brand)] transition hover:border-[var(--brand)] hover:bg-[var(--brand-light)]"
-            >
-              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z" />
-              </svg>
-              WhatsApp Now
+            <a href="https://wa.me/8801985516000" class="press tap-44 inline-flex items-center gap-2 rounded-full border border-[var(--line)] px-4 h-10 text-xs font-bold text-[var(--brand)] hover:border-[var(--brand)] hover:bg-[var(--brand-light)]">
+              <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
+              WhatsApp
             </a>
           </div>
         </div>

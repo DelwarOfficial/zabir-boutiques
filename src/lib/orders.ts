@@ -65,46 +65,20 @@ async function loadVariantSnapshots(db: D1Database, variantIds: string[]): Promi
   if (uniqueIds.length === 0) return new Map();
 
   const placeholders = uniqueIds.map((_, index) => `?${index + 1}`).join(', ');
+  // Same filtering contract as checkout-pricing.loadVariantSnapshots:
+  //   variant must not be soft-deleted AND product must be published.
+  // This guarantees a guest-priced cart cannot be persisted with reference
+  // to a draft/archived product or a deleted variant.
   const rows = await db.prepare(
     `SELECT v.id AS variant_id, p.name AS product_name, v.size, v.color, v.sku
      FROM product_variants v
      JOIN products p ON p.id = v.product_id
-     WHERE v.id IN (${placeholders}) AND v.is_deleted = 0`
+     WHERE v.id IN (${placeholders})
+       AND v.is_deleted = 0
+       AND p.status = 'published'`
   ).bind(...uniqueIds).all<VariantSnapshot>();
 
   return new Map((rows.results ?? []).map(row => [row.variant_id, row]));
-}
-
-export async function insertOrderWithRetry(
-  db: D1Database,
-  orderData: OrderInsertData,
-  now: string,
-  maxAttempts = 3
-): Promise<{ orderId: string; orderNumber: string }> {
-  assertValidPaymentMethod(orderData.payment_method);
-  for (let attempt = 0; attempt < maxAttempts; attempt++) {
-    const orderId = crypto.randomUUID();
-    const orderNumber = generateOrderNumber();
-    try {
-      await db.prepare(
-        `INSERT INTO orders (
-          id, order_number, phone, name, address, note,
-          subtotal_paisa, delivery_paisa, discount_paisa, total_paisa,
-          payment_method, fraud_decision, status, created_at, updated_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?14)`
-      ).bind(
-        orderId, orderNumber, orderData.phone, orderData.name, orderData.address,
-        orderData.note ?? null, orderData.subtotal_paisa, orderData.delivery_paisa,
-        orderData.discount_paisa, orderData.total_paisa, orderData.payment_method,
-        orderData.fraud_decision, orderData.status ?? 'pending_review', now
-      ).run();
-      return { orderId, orderNumber };
-    } catch (err) {
-      const collision = err instanceof Error && err.message.includes('UNIQUE constraint failed: orders.order_number');
-      if (!collision || attempt === maxAttempts - 1) throw err;
-    }
-  }
-  throw new Error('Failed to generate unique order number after max attempts');
 }
 
 export async function insertReservedOrderWithRetry(
@@ -161,7 +135,10 @@ export async function insertReservedOrderWithRetry(
     );
 
     try {
-      await db.batch([orderStmt, ...orderItemStmts, ...reservationStmts]);
+      // atomic:true so an order row, its order_items, and its stock_reservations
+      // are committed as a single D1 transaction. If any statement fails, the
+      // whole batch rolls back — no half-created orders.
+      await db.batch([orderStmt, ...orderItemStmts, ...reservationStmts], { atomic: true });
       return { orderId, orderNumber };
     } catch (err) {
       const collision = err instanceof Error && err.message.includes('UNIQUE constraint failed: orders.order_number');

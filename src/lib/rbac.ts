@@ -22,6 +22,14 @@ import { nowSql } from './dates';
 
 export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
+const VALID_STAFF_ROLES: ReadonlySet<string> = new Set<StaffRole>([
+  'super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'
+]);
+
+export function isValidStaffRole(value: unknown): value is StaffRole {
+  return typeof value === 'string' && VALID_STAFF_ROLES.has(value);
+}
+
 export type Permission =
   // Legacy business permissions (preserved for backward compatibility)
   | 'owner.full_access'
@@ -85,8 +93,15 @@ export interface StaffUser {
 const SUPER_ADMIN_ONLY: ReadonlySet<StaffRole> = new Set(['super_admin']);
 const BUSINESS_OWNER_TIER: ReadonlySet<StaffRole> = new Set(['super_admin', 'owner']);
 
-// Platform-control permissions — super_admin ONLY
-const PLATFORM_PERMS: ReadonlySet<Permission> = new Set([
+/**
+ * Platform-control permissions — super_admin ONLY.
+ * `can()` short-circuits on `super_admin` via `isSuperAdmin`, so this set
+ * is the authoritative boundary for documentation and any future code
+ * that needs to enumerate which permissions are platform-control. It is
+ * exported so other modules (e.g. a future platform admin UI) can rely
+ * on the same source of truth.
+ */
+export const PLATFORM_PERMS: ReadonlySet<Permission> = new Set([
   'platform.full_access',
   'integrations.read', 'integrations.test', 'integrations.logs.read',
   'api_keys.read', 'api_keys.create', 'api_keys.revoke', 'api_keys.delete',
@@ -193,7 +208,10 @@ export function can(role: StaffRole, permission: Permission): boolean {
 
 function readSessionCookie(request: Request): string | null {
   const cookie = request.headers.get('Cookie') ?? '';
-  const match = cookie.match(new RegExp('(?:^|;\\s*)session=([^;]+)'));
+  // Read both `session` (legacy) and `__Host-session` (v6.8D+). New clients
+  // receive the __Host- prefix, but we accept the legacy name for one
+  // deployment cycle to avoid invalidating existing sessions on rollout.
+  const match = cookie.match(new RegExp('(?:^|;\\s*)(?:__Host-)?session=([^;]+)'));
   return match ? decodeURIComponent(match[1]) : null;
 }
 
@@ -226,9 +244,19 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
 
   if (!row) return null;
 
+  // Fail-closed guard: if the D1 row carries a role value that does not
+  // match the StaffRole union (e.g. a manual edit, schema drift, or a
+  // future migration that did not update the CHECK constraint), treat the
+  // session as invalid rather than letting a misspelled role silently
+  // pass role-string equality checks downstream.
+  if (!isValidStaffRole(row.role)) {
+    console.error('[rbac] Unknown staff_users.role value, rejecting session:', row.role);
+    return null;
+  }
+
   return {
     id: row.staff_user_id,
-    role: row.role as StaffRole,
+    role: row.role,
     fullName: row.full_name,
     sessionId: row.session_id
   };

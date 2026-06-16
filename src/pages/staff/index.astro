@@ -18,7 +18,10 @@ const roleLabel: Record<string, string> = {
   developer: "Developer", auditor: "Auditor",
 };
 
-let stats = { pendingReview: 0, packingQueue: 0, lowStockAlerts: 0, todayOrders: 0 };
+const hour = new Date().getHours();
+const greeting = hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
+
+let stats = { pendingReview: 0, packingQueue: 0, lowStockAlerts: 0, todayOrders: 0, todayRevenue: 0 };
 let recentOrders: any[] = [];
 let flagged: any[] = [];
 let dbError = "";
@@ -30,8 +33,8 @@ try {
   if (pq) stats.packingQueue = pq.c;
   const ls = await env.DB.prepare(`SELECT COUNT(*) as c FROM low_stock_alerts WHERE is_acknowledged = 0`).first<{c:number}>();
   if (ls) stats.lowStockAlerts = ls.c;
-  const td = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE created_at >= ?`).bind(today + " 00:00:00").first<{c:number}>();
-  if (td) stats.todayOrders = td.c;
+  const td = await env.DB.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(total_paisa),0) as rev FROM orders WHERE created_at >= ?`).bind(today + " 00:00:00").first<{c:number, rev:number}>();
+  if (td) { stats.todayOrders = td.c; stats.todayRevenue = td.rev ?? 0; }
 
   const ro = await env.DB.prepare(`SELECT id, order_number, name, total_paisa, status, created_at FROM orders ORDER BY created_at DESC LIMIT 6`).all<any>();
   if (ro?.results) recentOrders = ro.results;
@@ -49,82 +52,114 @@ const perms = {
   sales: ["salesman", "manager", "owner", "super_admin"].includes(user.role),
   packing: user.role === "packing" || can(user.role, "orders.pack"),
 };
+
+const statCards: Array<{ label: string; value: number | string; tone: "brand" | "warn" | "info" | "danger"; suffix?: string }> = [
+  { label: "Today's orders", value: stats.todayOrders, tone: "brand", suffix: "placed" },
+  { label: "Pending review", value: stats.pendingReview, tone: stats.pendingReview > 0 ? "warn" : "info" },
+  { label: "Packing queue", value: stats.packingQueue, tone: "info" },
+  { label: "Low-stock alerts", value: stats.lowStockAlerts, tone: stats.lowStockAlerts > 0 ? "danger" : "info" },
+];
+
+const toneClass: Record<string, string> = {
+  brand: "text-[var(--brand)]",
+  warn: "text-amber-600",
+  info: "text-cyan-600",
+  danger: "text-[var(--danger)]",
+};
 ---
 
 <StaffLayout title="Dashboard" user={user}>
-  <div class="flex items-center justify-between mb-5">
+  <div class="flex items-end justify-between flex-wrap gap-3 mb-5 fade-up">
     <div>
-      <h1 class="m-0 text-2xl font-bold">Dashboard</h1>
-      <p class="mt-1 text-muted">Welcome back, {user.fullName} · {roleLabel[user.role] ?? user.role}</p>
+      <p class="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[var(--brand)]">{greeting}</p>
+      <h1 class="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">{user.fullName}</h1>
+      <p class="text-sm text-[var(--muted)]">{roleLabel[user.role] ?? user.role} · {today}</p>
     </div>
-    <div class="text-xs text-muted text-right">{today}</div>
   </div>
 
   {dbError && <div class="bg-red-100 text-red-800 px-4 py-2 rounded-md text-sm mb-4">{dbError}</div>}
 
-  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
-    <div class="bg-surface border border-line rounded-lg p-4">
-      <div class="text-[10px] uppercase tracking-wider text-muted">Today's Orders</div>
-      <div class="text-3xl font-semibold mt-0.5">{stats.todayOrders}</div>
-    </div>
-    <div class="bg-surface border border-line rounded-lg p-4">
-      <div class="text-[10px] uppercase tracking-wider text-muted">Pending Review</div>
-      <div class="text-3xl font-semibold mt-0.5 text-amber-600">{stats.pendingReview}</div>
-    </div>
-    <div class="bg-surface border border-line rounded-lg p-4">
-      <div class="text-[10px] uppercase tracking-wider text-muted">Packing Queue</div>
-      <div class="text-3xl font-semibold mt-0.5 text-cyan-600">{stats.packingQueue}</div>
-    </div>
-    <div class="bg-surface border border-line rounded-lg p-4">
-      <div class="text-[10px] uppercase tracking-wider text-muted">Low Stock Alerts</div>
-      <div class="text-3xl font-semibold mt-0.5 text-red-600">{stats.lowStockAlerts}</div>
-    </div>
+  <div class="stagger grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+    {statCards.map((s) => (
+      <div class="shell-card p-4 shine-card press">
+        <div class="flex items-start justify-between">
+          <p class="text-[10px] font-extrabold uppercase tracking-wider text-[var(--muted)]">{s.label}</p>
+          <span class="h-1.5 w-1.5 rounded-full bg-current opacity-60" aria-hidden="true"></span>
+        </div>
+        <p class={`tabular mt-1 text-3xl font-extrabold ${toneClass[s.tone]}`}>{s.value}{s.suffix ? <span class="ml-1 text-xs font-semibold text-[var(--muted)]">{s.suffix}</span> : null}</p>
+        {s.label === "Today's orders" && (
+          <p class="mt-1 text-[11px] text-[var(--muted)] tabular">৳{(stats.todayRevenue / 100).toFixed(0)} revenue</p>
+        )}
+      </div>
+    ))}
   </div>
 
   <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-6">
-    <div class="lg:col-span-3 bg-surface border border-line rounded-lg p-4">
-      <div class="flex justify-between items-center mb-2">
-        <h2 class="m-0 text-base font-semibold">Recent Orders</h2>
-        {perms.orders && <a href="/staff/orders" class="text-sm text-brand no-underline hover:underline">View all →</a>}
+    <div class="lg:col-span-3 shell-card p-4 sm:p-5 fade-up">
+      <div class="flex justify-between items-center mb-3">
+        <h2 class="m-0 text-base font-extrabold">Recent orders</h2>
+        {perms.orders && <a href="/staff/orders" class="press text-sm font-bold text-[var(--brand)] hover:text-[var(--brand-strong)]">View all →</a>}
       </div>
       {recentOrders.length > 0 ? (
-        <div class="overflow-x-auto">
-          <table class="w-full text-sm border-collapse">
-            <tbody>
-              {recentOrders.map(o => (
-                <tr class="border-t border-line-soft">
-                  <td class="py-1.5"><a href={`/staff/orders/${o.id}`} class="text-brand font-medium no-underline">{o.order_number}</a></td>
-                  <td class="py-1.5 text-muted">{o.name}</td>
-                  <td class="py-1.5 text-right font-medium">৳{(o.total_paisa/100).toFixed(0)}</td>
-                  <td class="py-1.5 pl-2 text-xs text-muted">{o.created_at?.split(" ")[0]}</td>
-                  <td class="py-1.5"><span class="text-[10px] px-1.5 py-px rounded bg-line-soft text-ink-secondary">{o.status.replace(/_/g," ")}</span></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      ) : <p class="text-muted text-sm my-2">No orders yet.</p>}
+        <>
+          <!-- Cards on mobile, table on desktop -->
+          <ul class="grid sm:hidden gap-2 stagger">
+            {recentOrders.map(o => (
+              <li>
+                <a href={`/staff/orders/${o.id}`} class="press flex items-center justify-between gap-3 rounded-xl border border-[var(--line)] p-3 no-underline">
+                  <div class="min-w-0">
+                    <p class="font-bold text-sm tabular text-[var(--brand)]">{o.order_number}</p>
+                    <p class="text-xs text-[var(--muted)] truncate">{o.name}</p>
+                  </div>
+                  <div class="text-right shrink-0">
+                    <p class="font-extrabold tabular">৳{(o.total_paisa/100).toFixed(0)}</p>
+                    <p class="text-[10px] text-[var(--muted)] uppercase tracking-wider">{String(o.status).replace(/_/g, " ")}</p>
+                  </div>
+                </a>
+              </li>
+            ))}
+          </ul>
+          <div class="hidden sm:block overflow-x-auto">
+            <table class="w-full text-sm border-collapse">
+              <tbody>
+                {recentOrders.map(o => (
+                  <tr class="border-t border-[var(--line-soft)] hover:bg-[var(--surface-soft)] transition-colors">
+                    <td class="py-2"><a href={`/staff/orders/${o.id}`} class="text-[var(--brand)] font-bold no-underline">{o.order_number}</a></td>
+                    <td class="py-2 text-[var(--muted)]">{o.name}</td>
+                    <td class="py-2 text-right font-bold tabular">৳{(o.total_paisa/100).toFixed(0)}</td>
+                    <td class="py-2 pl-2 text-xs text-[var(--muted)]">{o.created_at?.split(" ")[0]}</td>
+                    <td class="py-2"><span class="text-[10px] px-2 py-0.5 rounded-full bg-[var(--line-soft)] text-[var(--ink-secondary)] font-bold uppercase tracking-wider">{o.status.replace(/_/g," ")}</span></td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      ) : <p class="text-[var(--muted)] text-sm my-2">No orders yet.</p>}
     </div>
 
-    <div class="lg:col-span-2 bg-surface border border-line rounded-lg p-4">
-      <h2 class="m-0 mb-2 text-base font-semibold">Attention Needed</h2>
+    <div class="lg:col-span-2 shell-card p-4 sm:p-5 fade-up">
+      <h2 class="m-0 mb-3 text-base font-extrabold">Attention needed</h2>
       {flagged.length > 0 && perms.fraud
-        ? <ul class="text-sm pl-4 m-0">{flagged.map(f => <li class="mb-1"><a href={`/staff/orders/${f.id}`} class="text-brand">{f.order_number}</a> — {f.name} <span class="text-amber-700 text-xs">({f.fraud_decision})</span></li>)}</ul>
-        : <p class="text-muted text-sm m-0">No fraud flags.</p>}
+        ? <ul class="text-sm pl-0 m-0 space-y-1.5 stagger">{flagged.map(f => <li class="flex items-center gap-2"><a href={`/staff/orders/${f.id}`} class="text-[var(--brand)] font-bold no-underline">{f.order_number}</a><span class="text-[var(--muted)] truncate">{f.name}</span><span class={`chip ml-auto ${f.fraud_decision === "blocked" ? "chip-danger" : "chip-brand"}`}>{f.fraud_decision}</span></li>)}</ul>
+        : <p class="text-[var(--muted)] text-sm m-0">No fraud flags.</p>}
 
-      <div class="mt-3 pt-3 border-t border-line">
-        <div class="text-xs text-muted mb-1.5">Quick Actions</div>
+      <div class="mt-4 pt-4 border-t border-[var(--line)]">
+        <p class="text-xs font-extrabold uppercase tracking-wider text-[var(--muted)] mb-2">Quick actions</p>
         <div class="flex flex-wrap gap-2 text-sm">
-          {perms.sales && <a href="/staff/sales/new" class="px-2.5 py-1 bg-brand text-white rounded text-xs no-underline font-medium">+ New Order</a>}
-          {perms.sales && <a href="/staff/sales/instore" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">In-Store Sale</a>}
-          {perms.packing && <a href="/staff/packing" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">Packing Queue</a>}
-          {perms.products && <a href="/staff/products" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">Products</a>}
-          {perms.orders && <a href="/staff/orders" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">All Orders</a>}
-          <a href="/staff/support" class="px-2.5 py-1 bg-surface border border-line rounded text-xs no-underline">Support</a>
+          {perms.sales && <a href="/staff/sales/new" class="press tap-44 inline-flex items-center gap-1 rounded-full bg-[var(--brand)] text-white px-3 h-9 text-xs font-bold no-underline">+ New order</a>}
+          {perms.sales && <a href="/staff/sales/instore" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">In-store</a>}
+          {perms.packing && <a href="/staff/packing" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Packing</a>}
+          {perms.products && <a href="/staff/products" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Products</a>}
+          {perms.orders && <a href="/staff/orders" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">All orders</a>}
+          <a href="/staff/support" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Support</a>
         </div>
       </div>
     </div>
   </div>
 
-  <p class="text-muted text-xs mt-4">All staff actions are audited. Use the left navigation for your full toolset.</p>
+  <p class="text-[var(--muted)] text-xs mt-4 flex items-center gap-1.5">
+    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9.4-8 10-4.5-.6-8-5-8-10V6z"/></svg>
+    All staff actions are audited. Use the left navigation for your full toolset.
+  </p>
 </StaffLayout>

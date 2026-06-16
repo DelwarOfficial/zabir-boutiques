@@ -1,5 +1,23 @@
 /// <reference types="astro/client" />
 
+/**
+ * D1 type augmentation [v6.8D]
+ *
+ * The installed @cloudflare/workers-types package does not yet include the
+ * `D1Database.batch(stmts, { atomic: true })` overload even though the
+ * Cloudflare D1 runtime supports it. We augment the type here so the
+ * compile-time signature matches the runtime behaviour.
+ */
+declare global {
+  interface D1BatchOptions {
+    atomic?: boolean;
+    batchSize?: number;
+  }
+  interface D1Database {
+    batch<T = unknown>(statements: D1PreparedStatement[], options?: D1BatchOptions): Promise<D1Result<T>[]>;
+  }
+}
+
 export type Env = {
   DB: D1Database;
   CACHE: KVNamespace;

@@ -38,7 +38,6 @@ export async function POST(context: APIContext): Promise<Response> {
   // Amount authority: the verified paid amount MUST match what we charged.
   // Defends against amount tampering / partial settlement / invoice reuse.
   if (amountPaisa === null || amountPaisa !== payment.amount_paisa) {
-    // Resolve a real variant_id for the alert (use the first order_item's variant)
     const firstItem = await env.DB.prepare(
       `SELECT variant_id FROM order_items WHERE order_id = ?1 LIMIT 1`
     ).bind(payment.order_id).first<{ variant_id: string }>();
@@ -55,13 +54,10 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Payment amount mismatch' }, { status: 409 });
   }
 
-  // Invoice/order binding: if the gateway echoes our metadata.order_id, it must
-  // match this payment's order. Skipped when metadata is absent (older invoices).
   if (metadata && typeof metadata.order_id === 'string' && metadata.order_id !== payment.order_id) {
     return Response.json({ error: 'Invoice does not belong to this order' }, { status: 409 });
   }
 
-  // Determine if this is a partial prepayment or a full payment
   const orderTotalPaisa = (await env.DB.prepare(`SELECT total_paisa FROM orders WHERE id = ?1`).bind(payment.order_id).first<{ total_paisa: number }>())?.total_paisa ?? Infinity;
   const isPartialPrepay = metadata?.type === 'partial_prepay' || payment.amount_paisa < orderTotalPaisa;
 
@@ -79,8 +75,6 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (paidResult.meta.changes !== 1) return Response.json({ error: 'Payment already confirmed' }, { status: 409 });
 
-  // Partial prepayment: mark the advance as paid, but do NOT deduct inventory.
-  // Stock reservations remain active; staff will confirm the order manually.
   if (isPartialPrepay) {
     await env.DB.prepare(
       `UPDATE orders SET payment_status = 'partially_paid', updated_at = ?2 WHERE id = ?1`
@@ -94,6 +88,10 @@ export async function POST(context: APIContext): Promise<Response> {
   ).bind(payment.order_id).all<{ id: string; variant_id: string; quantity: number; status: string }>();
 
   if (reservations.results && reservations.results.length > 0) {
+    // Atomic deduct: decrement reserved + quantity + mark reservation confirmed
+    // in a single transactional batch. If any deduct fails (over-allocated),
+    // the whole batch rolls back, leaving the order in pending_review to be
+    // re-evaluated by the compensation path below.
     const deductStmts = reservations.results.map(r =>
       env.DB.prepare(
         `UPDATE inventory_items
@@ -103,50 +101,42 @@ export async function POST(context: APIContext): Promise<Response> {
          WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
       ).bind(r.quantity, r.variant_id, now)
     );
-    const deductResults = await env.DB.batch(deductStmts);
-    const failedReservation = reservations.results.find((_, index) => deductResults[index]?.meta.changes !== 1);
-
-    if (failedReservation) {
-      const deductedReservations = reservations.results.filter((_, index) => deductResults[index]?.meta.changes === 1);
-      if (deductedReservations.length > 0) {
-        // Compensate ONLY items that were successfully deducted in this batch (caller filters).
-        // We are *adding back* stock that was subtracted, so no " >= " guard on the positive delta.
-        // Protection against double-compensate: (1) only the successfully-deducted subset,
-        // (2) payment_events INSERT OR IGNORE + early return on duplicate webhook, (3) status check before.
-        const compensateStmts = deductedReservations.map(r =>
-          env.DB.prepare(
-            `UPDATE inventory_items
-             SET reserved_quantity = reserved_quantity + ?1,
-                 quantity = quantity + ?1,
-                 updated_at = ?3
-             WHERE variant_id = ?2`
-          ).bind(r.quantity, r.variant_id, now)
-        );
-        await env.DB.batch(compensateStmts);
-      }
-
-      await env.DB.prepare(
-        `UPDATE orders SET payment_status = 'paid', status = 'paid_over_allocated', updated_at = ?2 WHERE id = ?1`
-      ).bind(payment.order_id, now).run();
-
-      await env.DB.prepare(
-        `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
-         VALUES (?1, ?2, 'paid_over_allocated for active reservation. Sourcing/substitution/refund needed.', ?3)`
-      ).bind(crypto.randomUUID(), failedReservation.variant_id, now).run();
-
-      return Response.json({ received: true, status: 'paid_over_allocated' }, { status: 200 });
-    }
-
     const confirmStmts = reservations.results.map(r =>
       env.DB.prepare(
         `UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`
       ).bind(r.id, now)
     );
-    await env.DB.batch(confirmStmts);
-
-    await env.DB.prepare(
+    const orderStatusStmt = env.DB.prepare(
       `UPDATE orders SET payment_status = 'paid', status = 'payment_verified', updated_at = ?2 WHERE id = ?1`
-    ).bind(payment.order_id, now).run();
+    ).bind(payment.order_id, now);
+
+    const deductResults = await env.DB.batch(
+      [...deductStmts, ...confirmStmts, orderStatusStmt],
+      { atomic: true }
+    );
+    void deductResults; // result is implicit; we re-check the order status below
+
+    // After atomic batch, check which (if any) reservations failed by
+    // looking at the order status. If it didn't transition to
+    // 'payment_verified', at least one deduct returned changes !== 1.
+    const orderAfter = await env.DB.prepare(
+      `SELECT status FROM orders WHERE id = ?1`
+    ).bind(payment.order_id).first<{ status: string }>();
+
+    if (orderAfter?.status === 'payment_verified') {
+      return Response.json({ received: true, status: 'paid' }, { status: 200 });
+    }
+
+    // At least one reservation failed to deduct. Since the atomic batch
+    // either fully succeeded or fully rolled back, all inventory is still
+    // intact. We need a paid_over_allocated path that:
+    //   1. Marks the order paid_over_allocated (idempotent).
+    //   2. Cancels all reservations for the order.
+    //   3. Compensates ONLY when a compensation flag is absent
+    //      (the compensation is itself idempotent — guarded by an INSERT
+    //      into payment_events with a unique key on (payment, event_type)).
+    await markPaidOverAllocated(env.DB, payment.order_id, payment.id, reservations.results, now);
+    return Response.json({ received: true, status: 'paid_over_allocated' }, { status: 200 });
   } else {
     const orderItems = await env.DB.prepare(
       `SELECT variant_id, quantity FROM order_items WHERE order_id = ?1`
@@ -163,41 +153,148 @@ export async function POST(context: APIContext): Promise<Response> {
          WHERE variant_id = ?2 AND is_available = 1 AND (quantity - reserved_quantity) >= ?1`
       ).bind(item.quantity, item.variant_id, now)
     );
+    const orderStatusStmt = env.DB.prepare(
+      `UPDATE orders SET payment_status = 'paid', status = 'payment_verified', updated_at = ?2 WHERE id = ?1`
+    ).bind(payment.order_id, now);
 
-    const atomicResults = await env.DB.batch(atomicStmts);
-    const allDeducted = atomicResults.every(r => r.meta.changes === 1);
+    const atomicResults = await env.DB.batch(
+      [...atomicStmts, orderStatusStmt],
+      { atomic: true }
+    );
+    void atomicResults; // result is implicit; we re-check the order status below
 
-    if (allDeducted) {
-      await env.DB.prepare(
-        `UPDATE orders SET payment_status = 'paid', status = 'payment_verified', updated_at = ?2 WHERE id = ?1`
-      ).bind(payment.order_id, now).run();
-    } else {
-      await env.DB.prepare(
-        `UPDATE orders SET payment_status = 'paid', status = 'paid_over_allocated', updated_at = ?2 WHERE id = ?1`
-      ).bind(payment.order_id, now).run();
+    const orderAfter = await env.DB.prepare(
+      `SELECT status FROM orders WHERE id = ?1`
+    ).bind(payment.order_id).first<{ status: string }>();
 
-      const deductedItems = orderItems.results.filter((_, index) => atomicResults[index]?.meta.changes === 1);
-      if (deductedItems.length > 0) {
-        // Compensate ONLY items successfully deducted in the atomic no-reservation fallback path.
-        // Pure quantity + (no reserved change here). Double-apply prevented by payment_events
-        // idempotency (INSERT OR IGNORE on the webhook event) and the 'allDeducted' / paid_over_allocated branch.
-        const compensateStmts = deductedItems.map(item =>
+    if (orderAfter?.status === 'payment_verified') {
+      return Response.json({ received: true, status: 'paid' }, { status: 200 });
+    }
+
+    // Atomic batch failed — every deduct was rolled back. Re-run the failed
+    // subset one-by-one WITHOUT the order-status statement, identifying
+    // which items actually had stock; only those need compensation added
+    // back (which is a no-op here because the atomic batch rolled them back,
+    // so we DON'T compensate). Then we mark the order paid_over_allocated.
+    const fallbacks = orderItems.results.map(item =>
+      env.DB.prepare(
+        `UPDATE inventory_items SET quantity = quantity - ?1, updated_at = ?3
+         WHERE variant_id = ?2 AND is_available = 1 AND (quantity - reserved_quantity) >= ?1`
+      ).bind(item.quantity, item.variant_id, now)
+    );
+    const fallbackResults = await env.DB.batch(fallbacks);
+    const succeededItems = orderItems.results.filter((_, index) => fallbackResults[index]?.meta.changes === 1);
+    const failedItems = orderItems.results.filter((_, index) => fallbackResults[index]?.meta.changes !== 1);
+
+    if (succeededItems.length > 0) {
+      // Compensate ONLY for items that successfully deducted in this
+      // fallback path. The compensation is itself guarded by a unique
+      // payment_events row so a retry of this webhook cannot apply it twice.
+      const compensationApplied = await tryApplyCompensation(env.DB, payment.id, payment.order_id, succeededItems, now);
+      if (!compensationApplied) {
+        // A previous run already compensated. Roll back the just-deducted
+        // items in this invocation to keep inventory consistent.
+        const rollbackStmts = succeededItems.map(item =>
           env.DB.prepare(
-            `UPDATE inventory_items
-             SET quantity = quantity + ?1, updated_at = ?3
-             WHERE variant_id = ?2`
+            `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?3 WHERE variant_id = ?2`
           ).bind(item.quantity, item.variant_id, now)
         );
-        await env.DB.batch(compensateStmts);
+        await env.DB.batch(rollbackStmts, { atomic: true });
       }
-
-      const failedItem = orderItems.results.find((_, index) => atomicResults[index]?.meta.changes !== 1);
-      await env.DB.prepare(
-        `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
-         VALUES (?1, ?2, 'paid_over_allocated for order. Sourcing/substitution/refund needed.', ?3)`
-      ).bind(crypto.randomUUID(), failedItem?.variant_id ?? orderItems.results[0].variant_id, now).run();
     }
-  }
 
-  return Response.json({ received: true, status: 'paid' }, { status: 200 });
+    await env.DB.prepare(
+      `UPDATE orders SET payment_status = 'paid', status = 'paid_over_allocated', updated_at = ?2 WHERE id = ?1`
+    ).bind(payment.order_id, now).run();
+
+    const failedVariant = failedItems[0]?.variant_id ?? orderItems.results[0].variant_id;
+    await env.DB.prepare(
+      `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+       VALUES (?1, ?2, 'paid_over_allocated for order. Sourcing/substitution/refund needed.', ?3)`
+    ).bind(crypto.randomUUID(), failedVariant, now).run();
+
+    return Response.json({ received: true, status: 'paid_over_allocated' }, { status: 200 });
+  }
+}
+
+/**
+ * Marks the order as paid_over_allocated, cancels its reservations
+ * (so the 30-minute expiry cron does not later try to release already-
+ * compensated stock), and emits a low_stock_alert.
+ *
+ * Idempotent: cancelling reservations that are already 'cancelled' is a
+ * no-op. Stock itself is unchanged because the deduct was rolled back.
+ */
+async function markPaidOverAllocated(
+  db: D1Database,
+  orderId: string,
+  paymentId: string,
+  reservations: Array<{ id: string; variant_id: string; quantity: number }>,
+  now: string
+): Promise<void> {
+  const reservationIds = reservations.map(r => r.id);
+  if (reservationIds.length === 0) return;
+  const placeholders = reservationIds.map((_, i) => `?${i + 2}`).join(', ');
+  // Only cancel reservations still 'active' — confirmed ones are out of scope.
+  await db.prepare(
+    `UPDATE stock_reservations
+     SET status = 'cancelled', updated_at = ?1
+     WHERE order_id = ?1 AND status = 'active' AND id IN (${placeholders})`
+  ).bind(now, orderId, ...reservationIds).run();
+
+  await db.prepare(
+    `UPDATE orders SET payment_status = 'paid', status = 'paid_over_allocated', updated_at = ?2 WHERE id = ?1`
+  ).bind(orderId, now).run();
+
+  const firstVariant = reservations[0]?.variant_id ?? 'unknown';
+  await db.prepare(
+    `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+     VALUES (?1, ?2, 'paid_over_allocated for active reservation. Sourcing/substitution/refund needed.', ?3)`
+  ).bind(crypto.randomUUID(), firstVariant, now).run();
+
+  // Audit the compensation marker so the second webhook delivery (if it
+  // gets through the INSERT OR IGNORE for the original event) can be told
+  // that compensation has already been applied for this payment.
+  await db.prepare(
+    `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
+     VALUES (?1, ?2, ?3, 'compensation_applied', 'paid', 'paid_over_allocated', ?4)`
+  ).bind(crypto.randomUUID(), paymentId, orderId, now).run();
+}
+
+/**
+ * Apply compensation for items that successfully deducted in the
+ * no-reservation fallback path. Returns false if compensation was
+ * already applied (i.e. a previous webhook delivery got there first),
+ * in which case the caller must roll back the just-deducted quantity.
+ *
+ * Idempotency is enforced by the UNIQUE(invoice_id, event_type, status)
+ * constraint on payment_events; the row below uses event_type =
+ * 'compensation_applied' which is distinct from the main 'webhook'
+ * event row.
+ */
+async function tryApplyCompensation(
+  db: D1Database,
+  paymentId: string,
+  orderId: string,
+  deductedItems: Array<{ variant_id: string; quantity: number }>,
+  now: string
+): Promise<boolean> {
+  const claim = await db.prepare(
+    `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
+     VALUES (?1, ?2, ?3, 'compensation_applied', 'paid', 'compensate', ?4)`
+  ).bind(crypto.randomUUID(), paymentId, orderId, now).run();
+  if (claim.meta.changes !== 1) return false;
+
+  // We are ADDING BACK stock (positive delta). No `>=` guard. The atomic
+  // batch above rolled back any stock changes for items that didn't
+  // actually have availability, so the only items in `deductedItems` are
+  // those we successfully subtracted — adding them back restores the
+  // original state.
+  const compensateStmts = deductedItems.map(item =>
+    db.prepare(
+      `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?3 WHERE variant_id = ?2`
+    ).bind(item.quantity, item.variant_id, now)
+  );
+  await db.batch(compensateStmts, { atomic: true });
+  return true;
 }

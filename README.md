@@ -8,7 +8,7 @@
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
   [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?logo=typescript)](https://www.typescriptlang.org)
-  [![Vitest](https://img.shields.io/badge/Tests-122%20passing-6E9F18?logo=vitest)](https://vitest.dev)
+  [![Vitest](https://img.shields.io/badge/Tests-150%2B%20passing-6E9F18?logo=vitest)](https://vitest.dev)
   [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
 </div>
 
@@ -242,7 +242,7 @@ zabir-boutiques/
 ├── scripts/
 │   ├── build-static-snapshots.ts  # D1 REST API snapshot generator
 │   └── seed.ts                    # Sample data seeder
-├── tests/                         # 122 Vitest tests across 14 files
+├── tests/                         # 150+ Vitest tests across 18 files
 │   ├── checkout.test.ts
 │   ├── security.test.ts
 │   ├── csrf.test.ts
@@ -443,7 +443,7 @@ GitHub Actions (`.github/workflows/`) handles all CI/CD:
 
 ## Testing
 
-**122 tests across 14 files** covering:
+**150+ tests across 18 files** covering:
 
 - Phone normalization (Bangladesh formats)
 - Inventory reservation atomicity and race conditions

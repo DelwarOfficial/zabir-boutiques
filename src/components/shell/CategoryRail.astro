@@ -4,20 +4,29 @@ import { FLAT_CATEGORY_FILTERS } from "@/data/category-taxonomy";
 const activeSlug = Astro.props.activeSlug ?? "";
 ---
 
-<nav class="sticky top-16 z-30 border-b border-[var(--line)] glass px-4 md:px-8 lg:px-16 py-3" aria-label="Product categories">
-  <div class="mx-auto flex max-w-7xl items-center gap-2 overflow-x-auto scrollbar-none [-webkit-overflow-scrolling:touch] [scroll-snap-type:x_mandatory]">
-    {FLAT_CATEGORY_FILTERS.map((item) => (
-      <a
-        href={item.parent ? `/categories/${item.parent}?filter=${item.slug}` : `/categories/${item.slug}`}
-        class:list={[
-          "shrink-0 rounded-full px-4 py-2 text-xs font-semibold transition-all duration-200 scroll-snap-align-start",
-          activeSlug === item.slug
-            ? "bg-[var(--brand)] text-white shadow-sm"
-            : "bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-soft)] border border-[var(--line)]",
-        ]}
-      >
-        {item.name}
-      </a>
-    ))}
+<nav class="sticky top-16 z-30 glass-nav" aria-label="Product categories">
+  <div class="mx-auto max-w-7xl px-4 md:px-8 lg:px-16 py-2.5">
+    <div class="scroll-x-snap flex items-center gap-2 overflow-x-auto">
+      {FLAT_CATEGORY_FILTERS.map((item) => {
+        const active = activeSlug === item.slug;
+        return (
+          <a
+            href={item.parent ? `/categories/${item.parent}?filter=${item.slug}` : `/categories/${item.slug}`}
+            class:list={[
+              "press tap-44 relative inline-flex shrink-0 items-center gap-1.5 rounded-full px-4 py-2 text-xs font-semibold transition-all duration-200",
+              active
+                ? "bg-[var(--brand)] text-white shadow-[0_4px_12px_rgba(161,98,7,0.25)]"
+                : "bg-[var(--surface)] text-[var(--muted)] hover:text-[var(--ink)] hover:bg-[var(--surface-soft)] border border-[var(--line)]",
+            ]}
+            aria-current={active ? "page" : undefined}
+          >
+            {active && (
+              <span class="h-1.5 w-1.5 rounded-full bg-white/80" aria-hidden="true"></span>
+            )}
+            {item.name}
+          </a>
+        );
+      })}
+    </div>
   </div>
 </nav>

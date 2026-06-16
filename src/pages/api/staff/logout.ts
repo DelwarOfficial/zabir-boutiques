@@ -9,7 +9,7 @@ export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
 
   const cookie = context.request.headers.get('Cookie') ?? '';
-  const match = cookie.match(new RegExp('(?:^|;\\s*)session=([^;]+)'));
+  const match = cookie.match(new RegExp('(?:^|;\\s*)(?:__Host-)?session=([^;]+)'));
   const sessionToken = match ? decodeURIComponent(match[1]) : null;
 
   if (sessionToken) {
@@ -38,7 +38,11 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
+  // Clear both legacy and v6.8D+ cookie names on logout so a downgrade
+  // attack cannot leave a stale session in the browser.
+  headers.append('Set-Cookie', '__Host-session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
   headers.append('Set-Cookie', 'session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
+  headers.append('Set-Cookie', '__Host-csrf-token=; Secure; SameSite=Strict; Path=/; Max-Age=0');
   headers.append('Set-Cookie', 'csrf-token=; Secure; SameSite=Strict; Path=/; Max-Age=0');
 
   return new Response(JSON.stringify({ ok: true }), {

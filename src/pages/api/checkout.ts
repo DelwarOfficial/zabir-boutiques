@@ -17,8 +17,8 @@ import { normalizeBangladeshPhone } from '../../lib/phone';
 import { releaseReservedVariants, reserveVariants } from '../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../lib/orders';
 import { nowSql } from '../../lib/dates';
-import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency } from '../../lib/idempotency';
-import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic } from '../../lib/money';
+import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency, recordOrderInProgress } from '../../lib/idempotency';
+import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../lib/money';
 import {
   assertNoClientMoneyTrust,
   loadVariantSnapshots,
@@ -36,7 +36,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let body: any;
   let stockReserved = false;
   let couponClaimed = false;
-  let claimedCouponCode = '';
+  let couponClaim: CouponClaim | null = null;
   let items: CheckoutCartItem[] = [];
 
   try {
@@ -58,6 +58,29 @@ export async function POST(context: APIContext): Promise<Response> {
   if (existing.exists) {
     if (existing.status === 'complete') {
       return Response.json(JSON.parse(existing.responseBody ?? '{}'), { status: 200 });
+    }
+    if (existing.status === 'processing' && existing.orderId) {
+      // Worker crash recovery: the order was created in a previous invocation.
+      // Re-fetch its public-facing fields so the client can proceed without a
+      // duplicate order. Inventory has already been reserved.
+      const order = await env.DB.prepare(
+        `SELECT id AS order_id, order_number, status, advance_paisa, balance_paisa
+         FROM orders WHERE id = ?1`
+      ).bind(existing.orderId).first<{
+        order_id: string; order_number: string; status: string;
+        advance_paisa: number; balance_paisa: number;
+      }>();
+      if (order) {
+        return Response.json({
+          ok: true,
+          order_id: order.order_id,
+          order_number: order.order_number,
+          status: order.status,
+          advance_paisa: order.advance_paisa,
+          balance_paisa: order.balance_paisa,
+          recovered: true
+        }, { status: 200 });
+      }
     }
     return Response.json({ ok: false, code: 'CHECKOUT_PROCESSING', message: 'Request is already processing.' }, { status: 409 });
   }
@@ -135,7 +158,9 @@ export async function POST(context: APIContext): Promise<Response> {
         return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
       }
       discountPaisa = assertPaisa(couponResult.discountPaisa, 'discount_paisa');
-      claimedCouponCode = couponCode;
+      couponClaim = couponResult.claim;
+      // Persist the claim token so the release path is idempotent across retries.
+      await recordCouponClaim(env.DB, idempotencyKey, couponClaim);
       couponClaimed = true;
     }
 
@@ -143,20 +168,16 @@ export async function POST(context: APIContext): Promise<Response> {
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
 
     // 6b. Prepayment rule: >2 distinct items with COD requires 50% advance.
-    const paymentMethod = body.payment_method ?? 'cod';
-    const prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
-
-    // If prepayment is required, reject pure COD — client must use 'partial_prepay'
+    // The business rule is server-enforced: if a client submits `cod` for
+    // a >2-item cart, the server silently upgrades to `partial_prepay` so
+    // the order can be placed. A 402 was a UX trap that forced the client
+    // to retry; the server already has all the data it needs to do the
+    // upgrade.
+    let paymentMethod = (body.payment_method ?? 'cod') as 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store';
+    let prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
     if (prepayment.required && paymentMethod === 'cod') {
-      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
-      await failIdempotency(env.DB, idempotencyKey);
-      return Response.json({
-        ok: false,
-        code: 'PREPAYMENT_REQUIRED',
-        message: prepayment.message,
-        advance_paisa: prepayment.advancePaisa,
-        balance_paisa: prepayment.balancePaisa
-      }, { status: 402 });
+      paymentMethod = 'partial_prepay';
+      prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
     }
 
     // Determine advance/balance tracking values
@@ -175,7 +196,10 @@ export async function POST(context: APIContext): Promise<Response> {
     const fraudDecision = decideFraudRisk(score);
 
     if (fraudDecision === 'blocked') {
-      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
+      if (couponClaimed && couponClaim) {
+        await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
+        couponClaimed = false;
+      }
       await failIdempotency(env.DB, idempotencyKey);
       return Response.json({
         ok: false, code: 'FRAUD_BLOCKED',
@@ -186,13 +210,19 @@ export async function POST(context: APIContext): Promise<Response> {
     // 8. Reserve stock (only inventory reservation path).
     const reserveResult = await reserveVariants(env.DB, items, now);
     if (!reserveResult.ok) {
-      if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
+      if (couponClaimed && couponClaim) {
+        await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
+        couponClaimed = false;
+      }
       await failIdempotency(env.DB, idempotencyKey);
+      // Use a cart index rather than echoing the raw variant_id back to the
+      // client (defense against variant-id enumeration probing).
+      const failedIndex = items.findIndex(i => i.variantId === reserveResult.failedVariantId);
       return Response.json({
         ok: false,
         code: 'OUT_OF_STOCK',
         message: 'One item just went out of stock. Your cart has been updated.',
-        failed_variant_id: reserveResult.failedVariantId,
+        failed_cart_index: failedIndex >= 0 ? failedIndex : -1,
         available_quantity: 0
       }, { status: 409 });
     }
@@ -219,6 +249,11 @@ export async function POST(context: APIContext): Promise<Response> {
       fraud_decision: fraudDecision
     }, orderItems, now);
 
+    // Persist order_id into the processing idempotency row immediately so a
+    // crash between this point and the 200 response can still be recovered
+    // by the next retry.
+    await recordOrderInProgress(env.DB, idempotencyKey, orderId);
+
     // Store advance/balance tracking
     await env.DB.prepare(
       `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`
@@ -232,7 +267,10 @@ export async function POST(context: APIContext): Promise<Response> {
 
     return Response.json(response, { status: 201 });
   } catch (err) {
-    if (couponClaimed) { await releaseCouponUsageAtomic(env.DB, claimedCouponCode); couponClaimed = false; }
+    if (couponClaimed && couponClaim) {
+      await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
+      couponClaimed = false;
+    }
     if (stockReserved) {
       await releaseReservedVariants(env.DB, items, now);
     }

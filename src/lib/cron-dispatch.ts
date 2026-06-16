@@ -18,9 +18,11 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
   '*/10 * * * *': async (env) => {
     const { cleanExpiredReservations } = await import('./inventory');
     const { pollPendingFraudChecks, sweepTimedOutFraudPolls } = await import('./fraud');
+    const { sweepStalePartialPrepayOrders } = await import('./maintenance/partial-prepay');
     await cleanExpiredReservations(env.DB);
     await pollPendingFraudChecks(env.DB, env.FRAUDBD_API_KEY);
     await sweepTimedOutFraudPolls(env.DB);
+    await sweepStalePartialPrepayOrders(env.DB);
   },
   '0 3 * * *': async (env) => {
     const { cleanExpiredSessions } = await import('./sessions');
