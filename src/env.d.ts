@@ -54,6 +54,12 @@ export type Env = {
   // Master_Prompt v7.0 §2.10 Email
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
+  // POS invoice compliance (Bangladesh NBR SRO 198/Law/2015).
+  // Operator-supplied. Production deploy MUST set these via
+  // `wrangler secret put`; without them the printed receipt is missing
+  // the legal footer.
+  POS_BIN?: string; // 15-digit Business Identification Number
+  POS_TIN?: string; // 12-digit Taxpayer Identification Number
 };
 
 declare global {

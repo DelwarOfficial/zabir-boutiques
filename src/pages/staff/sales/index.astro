@@ -16,8 +16,12 @@ if (!can(user.role, 'orders.view')) return new Response('Forbidden', { status: 4
       <div class="text-xs opacity-80 mt-1">Phone / Messenger / WhatsApp</div>
     </a>
     <a href="/staff/sales/instore" class="bg-surface border border-line rounded-lg p-4 no-underline hover:bg-surface-soft transition-colors">
-      <div class="font-semibold text-sm text-ink">In-Store Sale</div>
-      <div class="text-xs text-muted mt-1">Walk-in POS — auto-confirmed</div>
+      <div class="font-semibold text-sm text-ink">In-Store Order</div>
+      <div class="text-xs text-muted mt-1">Walk-in online-order creation</div>
+    </a>
+    <a href="/staff/sales/pos" class="bg-brand text-white rounded-lg p-4 no-underline hover:opacity-90 transition-opacity">
+      <div class="font-semibold text-sm">POS Invoice</div>
+      <div class="text-xs opacity-80 mt-1">Thermal receipt · Stock deducted</div>
     </a>
     <a href="/staff/sales/orders" class="bg-surface border border-line rounded-lg p-4 no-underline hover:bg-surface-soft transition-colors">
       <div class="font-semibold text-sm text-ink">My Orders</div>
