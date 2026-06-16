@@ -28,6 +28,8 @@ import {
 } from '../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
 import { calculatePrepayment } from '../../lib/prepayment';
+import { verifyTurnstile } from '../../lib/turnstile';
+import { clientIp } from '../../lib/audit';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -47,6 +49,17 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Client money fields are display-only; warn but never trust them.
   assertNoClientMoneyTrust(body ?? {});
+
+  // 0. Turnstile bot protection (Master_Prompt v7.0 §9.3)
+  if (env.TURNSTILE_SECRET_KEY) {
+    const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
+    if (token) {
+      const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+      if (!r.ok) {
+        return Response.json({ ok: false, code: "TURNSTILE_FAILED", message: "Bot check failed." }, { status: 403 });
+      }
+    }
+  }
 
   // 1. Validate idempotency key
   const idempotencyKey = context.request.headers.get('Idempotency-Key') || body.idempotency_key;
@@ -208,7 +221,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     // 8. Reserve stock (only inventory reservation path).
-    const reserveResult = await reserveVariants(env.DB, items, now);
+    const reserveResult = await reserveVariants(env as unknown as Parameters<typeof reserveVariants>[0], items, now);
     if (!reserveResult.ok) {
       if (couponClaimed && couponClaim) {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
@@ -272,7 +285,7 @@ export async function POST(context: APIContext): Promise<Response> {
       couponClaimed = false;
     }
     if (stockReserved) {
-      await releaseReservedVariants(env.DB, items, now);
+      await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
     }
     await failIdempotency(env.DB, idempotencyKey);
     console.error('[checkout] Error:', err);

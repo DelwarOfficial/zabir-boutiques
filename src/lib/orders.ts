@@ -51,7 +51,8 @@ function reservationExpiresAt(now: string): string {
   const iso = `${now.replace(' ', 'T')}Z`;
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) throw new Error('Invalid SQL timestamp for reservation expiry');
-  date.setMinutes(date.getMinutes() + 30);
+  // Master_Prompt v7.0 §6.3: 10-minute reservation TTL (was 30 min in v6.8D).
+  date.setMinutes(date.getMinutes() + 10);
   return date.toISOString().replace('T', ' ').slice(0, 19);
 }
 

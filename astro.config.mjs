@@ -8,6 +8,9 @@ export default defineConfig({
   output: "server",
   integrations: [react()],
   adapter: cloudflare({
+    // Master_Prompt §2.1: use the advanced runtime so we can host
+    // Durable Objects and Queue consumers alongside SSR.
+    runtime: { mode: "advanced" },
     imageService: { build: "compile", runtime: "passthrough" },
     platformProxy: { enabled: true },
   }),

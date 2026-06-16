@@ -3,6 +3,7 @@ import RootLayout from "@/layouts/RootLayout.astro";
 import { AddToCartButton } from "@/islands/AddToCartButton";
 import { CATALOG_PRODUCTS } from "@/data/catalog";
 import { formatPaisa } from "@/lib/money";
+import { imageSrcset } from "@/lib/image-resizing";
 
 export const prerender = true;
 
@@ -13,13 +14,54 @@ export function getStaticPaths() {
 const { product } = Astro.props;
 const lowStock = product.availableQuantity > 0 && product.availableQuantity <= 3;
 const outOfStock = product.availableQuantity <= 0;
+const SITE = Astro.site?.origin ?? "https://zabirboutiques.com";
+const ogImage = `${SITE}${product.imageUrl}`;
+const productJsonLd = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "Product",
+  "name": product.title,
+  "image": [ogImage],
+  "description": product.title,
+  "sku": product.variantId,
+  "brand": { "@type": "Brand", "name": "Zabir Boutiques" },
+  "offers": {
+    "@type": "Offer",
+    "price": (product.pricePaisa / 100).toFixed(2),
+    "priceCurrency": "BDT",
+    "availability": outOfStock ? "https://schema.org/OutOfStock" : "https://schema.org/InStock",
+    "url": `${SITE}/products/${product.slug}`,
+    "seller": { "@type": "Organization", "name": "Zabir Boutiques" },
+  },
+});
+const breadcrumbJsonLd = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": `${SITE}/` },
+    { "@type": "ListItem", "position": 2, "name": product.categorySlug, "item": `${SITE}/categories/${product.categorySlug}` },
+    { "@type": "ListItem", "position": 3, "name": product.title, "item": `${SITE}/products/${product.slug}` },
+  ],
+});
 ---
 
-<RootLayout title={`${product.title} | Zabir Boutiques`} activeCategory={product.categorySlug}>
+<RootLayout title={`${product.title} | Zabir Boutiques`} activeCategory={product.categorySlug} ogImage={ogImage} description={product.title}>
+  <script type="application/ld+json" set:html={productJsonLd} />
+  <script type="application/ld+json" set:html={breadcrumbJsonLd} />
   <article class="grid gap-5 md:grid-cols-[0.9fr_1fr] fade-up">
     <div class="md:sticky md:top-32 self-start">
       <div class="relative aspect-[4/5] overflow-hidden rounded-3xl bg-[var(--surface-soft)] shadow-md shine-card">
-        <img src={product.imageUrl} alt={product.title} width="512" height="640" class="h-full w-full object-cover" fetchpriority="high" />
+        <img
+          src={product.imageUrl}
+          srcset={imageSrcset(SITE, product.imageUrl.replace(/^\//, ""), "webp")}
+          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 800px"
+          alt={product.title}
+          width="800"
+          height="1000"
+          loading="eager"
+          decoding="async"
+          class="h-full w-full object-cover"
+          fetchpriority="high"
+        />
         {lowStock && (
           <span class="absolute left-3 top-3 chip chip-danger pop">
             <span class="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" aria-hidden="true"></span>
@@ -33,7 +75,7 @@ const outOfStock = product.availableQuantity <= 0;
     </div>
 
     <div class="md:py-2">
-      <nav class="text-[11px] uppercase tracking-[0.18em] font-bold text-[var(--muted)]">
+      <nav class="text-[11px] uppercase tracking-[0.18em] font-bold text-[var(--muted)]" aria-label="Breadcrumb">
         <a href="/" class="hover:text-[var(--brand)]">Home</a> <span class="mx-1">/</span>
         <a href={`/categories/${product.categorySlug}`} class="hover:text-[var(--brand)]">{product.categorySlug.replace(/-/g, " ")}</a>
       </nav>
@@ -76,7 +118,6 @@ const outOfStock = product.availableQuantity <= 0;
     </div>
   </article>
 
-  <!-- Sticky mobile CTA bar (only on small screens, doesn't fight desktop layout) -->
   <div class="sticky-cta md:hidden">
     <div class="flex items-center gap-3">
       <div class="min-w-0 flex-1">

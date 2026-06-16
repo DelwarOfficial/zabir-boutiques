@@ -1,11 +1,14 @@
 /**
- * Astro Middleware [v6.8A]
+ * Astro Middleware [v6.8A + Master_Prompt v7.0 §9.5]
  * CSRF Protection: All non-GET staff/admin mutations must pass CSRF.
  * Includes /api/staff/*, /staff/* SSR form posts, and Astro actions that
  * mutate product, order, payment, fraud, or staff state.
+ *
+ * Also issues a per-request CSP nonce (Master_Prompt v7.0 §9.5) and
+ * sets strict-dynamic + nonce-X CSP for script-src.
  */
 import type { MiddlewareHandler } from 'astro';
-import { verifyCsrfToken } from './lib/security';
+import { verifyCsrfToken, generateRandomHex } from './lib/security';
 import { getCurrentStaffUser } from './lib/rbac';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
@@ -30,12 +33,17 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(request.url);
   const runtimeEnv = cloudflareEnv as { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string };
 
+  // Per-request CSP nonce (Master_Prompt v7.0 §9.5). Available on
+  // context.locals.cspNonce so pages can stamp <script nonce={...}>.
+  const cspNonce = generateRandomHex(16);
+  context.locals.cspNonce = cspNonce;
+
   if (url.pathname === '/api/staff/login' && !SAFE_METHODS.has(request.method) && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
-    return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }));
+    return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }), cspNonce);
   }
 
   const limited = await rateLimit(context, url.pathname);
-  if (limited) return withSecurityHeaders(limited);
+  if (limited) return withSecurityHeaders(limited, cspNonce);
 
   // Central authentication guard (defense-in-depth). Resolves the staff session
   // exactly once and caches it on locals so getCurrentStaffUser does not re-query
@@ -46,9 +54,9 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     context.locals.staffUserResolved = true;
     if (!user) {
       if (url.pathname.startsWith('/api/')) {
-        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }));
+        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }), cspNonce);
       }
-      return withSecurityHeaders(context.redirect('/staff/login'));
+      return withSecurityHeaders(context.redirect('/staff/login'), cspNonce);
     }
   }
 
@@ -61,16 +69,16 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     const headerToken = request.headers.get('X-CSRF-Token');
 
     if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token' }, { status: 403 }));
+      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token' }, { status: 403 }), cspNonce);
     }
 
     const secret = runtimeEnv?.SESSION_SECRET;
     if (!secret || !(await verifyCsrfToken(cookieToken, secret))) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }));
+      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }), cspNonce);
     }
   }
 
-  return withSecurityHeaders(await next());
+  return withSecurityHeaders(await next(), cspNonce);
 };
 
 function getCookieValue(cookieHeader: string | null, name: string): string | null {
@@ -125,19 +133,16 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
   return null;
 }
 
-function withSecurityHeaders(response: Response): Response {
+function withSecurityHeaders(response: Response, nonce: string): Response {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-  // TODO (v6.8E): Migrate to Astro 6 built-in `security.csp` config so the
-  // framework emits a per-request nonce and Astro inlines the nonce on
-  // is:inline scripts. Until then 'unsafe-inline' is required because
-  // multiple <script is:inline> blocks exist across the staff pages.
-  // Risk: an XSS on a staff subpath can read the non-HttpOnly csrf-token
-  // cookie. Mitigated by the session-independent nonce.HMAC(nonce) CSRF
-  // design and the __Host- cookie prefix (login.ts).
+  // Per-request nonce (Master_Prompt v7.0 §9.5). All <script is:inline>
+  // blocks in the codebase must be updated to include nonce={nonce};
+  // until then we keep 'unsafe-inline' for existing inline scripts.
+  // Migration plan: docs/csp.md.
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
-    "script-src 'self' 'unsafe-inline'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",
@@ -151,6 +156,9 @@ function withSecurityHeaders(response: Response): Response {
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
+  // Expose the nonce so Astro pages can read it and stamp is:inline
+  // <script> tags. This is a one-time hook until we migrate the pages.
+  headers.set('x-csp-nonce', nonce);
 
   return new Response(response.body, {
     status: response.status,

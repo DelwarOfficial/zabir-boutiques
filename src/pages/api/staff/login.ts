@@ -1,5 +1,3 @@
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
@@ -9,6 +7,9 @@ import { generateRandomHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
+import { verifyTurnstile } from '../../../lib/turnstile';
+
+export const prerender = false;
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -31,6 +32,26 @@ export async function POST(context: APIContext): Promise<Response> {
   const password = body.password ?? '';
   if (!identifier || !password) {
     return Response.json({ error: 'Email/phone and password required' }, { status: 400 });
+  }
+
+  // Turnstile bot protection on staff login (Master_Prompt v7.0 §9.3)
+  if (env.TURNSTILE_SECRET_KEY) {
+    const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
+    if (token) {
+      const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+      if (!r.ok) {
+        await writeAuditLog(env.DB, {
+          actorStaffId: null,
+          actorRole: null,
+          action: "staff.login.turnstile_failed",
+          entityType: "staff_session",
+          entityId: identifier,
+          ipAddress: clientIp(context.request),
+          userAgent: userAgent(context.request),
+        });
+        return Response.json({ error: "Bot check failed." }, { status: 403 });
+      }
+    }
   }
 
   // Build a list of candidate identifier strings to try: the raw input
@@ -74,8 +95,9 @@ export async function POST(context: APIContext): Promise<Response> {
   const sessionToken = generateSessionToken();
   const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
   const sessionId = crypto.randomUUID();
-  const expiresAt = nowSql(new Date(Date.now() + 24 * 60 * 60 * 1000));
-  const absoluteExpiresAt = nowSql(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000));
+  // Master_Prompt v7.0 §9.1: 30-min idle + 8-hour absolute timeout.
+  const expiresAt = nowSql(new Date(Date.now() + 30 * 60 * 1000));
+  const absoluteExpiresAt = nowSql(new Date(Date.now() + 8 * 60 * 60 * 1000));
 
   await env.DB.prepare(
     `INSERT INTO staff_sessions (id, staff_user_id, token_hash, is_revoked, expires_at, absolute_expires_at, last_active_at, created_at)

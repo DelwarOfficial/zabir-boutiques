@@ -43,7 +43,83 @@
     "PUBLIC_SITE_URL": "https://zabirboutiques.com",
     "PUBLIC_SITE_NAME": "Zabir Boutiques"
   },
+  "durable_objects": {
+    "bindings": [
+      { "name": "VARIANT_INVENTORY", "class_name": "VariantInventoryDO" },
+      { "name": "IDEMPOTENCY", "class_name": "IdempotencyDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] }
+  ],
+  "queues": {
+    "producers": [
+      { "queue": "payment-webhooks", "binding": "PAYMENT_WEBHOOKS" },
+      { "queue": "order-emails", "binding": "ORDER_EMAILS" },
+      { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
+      { "queue": "fraud-scoring", "binding": "FRAUD_SCORING" },
+      { "queue": "d1-backup", "binding": "D1_BACKUP" }
+    ],
+    "consumers": [
+      { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
+      { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
+      { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
+      { "queue": "fraud-scoring", "max_batch_size": 10, "max_retries": 2 },
+      { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 }
+    ]
+  },
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
+  ],
+  "env": {
+    "staging": {
+      "name": "zabir-boutiques-staging",
+      "d1_databases": [
+        { "binding": "DB", "database_name": "zabir-db-staging", "database_id": "REPLACE_WITH_D1_STAGING_ID" }
+      ],
+      "kv_namespaces": [
+        { "binding": "CACHE", "id": "REPLACE_WITH_CACHE_STAGING_ID" },
+        { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_STAGING_ID" }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "zabir-media-staging" },
+        { "binding": "BACKUPS", "bucket_name": "zabir-backups-staging" }
+      ],
+      "vars": {
+        "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
+        "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)"
+      }
+    },
+    "dev": {
+      "name": "zabir-boutiques-dev",
+      "d1_databases": [
+        { "binding": "DB", "database_name": "zabir-db-dev", "database_id": "REPLACE_WITH_D1_DEV_ID" }
+      ],
+      "kv_namespaces": [
+        { "binding": "CACHE", "id": "REPLACE_WITH_CACHE_DEV_ID" },
+        { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_DEV_ID" }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "zabir-media-dev" },
+        { "binding": "BACKUPS", "bucket_name": "zabir-backups-dev" }
+      ],
+      "vars": {
+        "PUBLIC_SITE_URL": "http://localhost:4321",
+        "PUBLIC_SITE_NAME": "Zabir Boutiques (dev)"
+      }
+    }
+  },
   "triggers": {
-    "crons": ["*/10 * * * *", "0 3 * * *", "0 4 * * 0", "0 5 1 * *"]
+    "crons": [
+      "*/5 * * * *",
+      "*/15 * * * *",
+      "0 * * * *",
+      "0 0 * * *",
+      "0 2 * * *",
+      "0 3 * * *",
+      "0 */6 * * *",
+      "0 9 * * 0",
+      "0 5 1 * *"
+    ]
   }
 }

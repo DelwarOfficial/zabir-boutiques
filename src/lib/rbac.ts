@@ -232,7 +232,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const now = nowSql();
 
   const row = await env.DB.prepare(
-    `SELECT s.id AS session_id, s.staff_user_id, u.role, u.full_name
+    `SELECT s.id AS session_id, s.staff_user_id, u.role, u.full_name, s.last_active_at
      FROM staff_sessions s
      JOIN staff_users u ON u.id = s.staff_user_id
      WHERE s.token_hash = ?1
@@ -240,9 +240,29 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
        AND s.expires_at > ?2
        AND s.absolute_expires_at > ?2
        AND u.is_active = 1`
-  ).bind(tokenHash, now).first<{ session_id: string; staff_user_id: string; role: string; full_name: string }>();
+  ).bind(tokenHash, now).first<{ session_id: string; staff_user_id: string; role: string; full_name: string; last_active_at: string }>();
 
   if (!row) return null;
+
+  // Master_Prompt v7.0 §9.1: 30-min idle timeout. last_active_at is
+  // refreshed on every request that goes through this function.
+  const lastActiveMs = Date.parse(row.last_active_at.replace(' ', 'T') + 'Z');
+  if (Number.isFinite(lastActiveMs)) {
+    const idleMs = Date.now() - lastActiveMs;
+    if (idleMs > 30 * 60 * 1000) {
+      // Idle session — revoke in-place. The next request will see is_revoked=1.
+      await env.DB.prepare("UPDATE staff_sessions SET is_revoked = 1, expires_at = ?2 WHERE id = ?1")
+        .bind(row.session_id, now).run();
+      return null;
+    }
+  }
+
+  // Refresh last_active_at and slide the idle window. Best-effort; if it
+  // fails the user is still authenticated for the rest of this request.
+  env.DB.prepare("UPDATE staff_sessions SET last_active_at = ?2, expires_at = ?3 WHERE id = ?1")
+    .bind(row.session_id, now, nowSql(new Date(Date.now() + 30 * 60 * 1000)))
+    .run()
+    .catch((err) => console.warn('[rbac] failed to refresh session last_active_at:', err));
 
   // Fail-closed guard: if the D1 row carries a role value that does not
   // match the StaffRole union (e.g. a manual edit, schema drift, or a

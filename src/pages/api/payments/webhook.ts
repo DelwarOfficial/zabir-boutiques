@@ -5,6 +5,7 @@ import { getEnv } from '../../../lib/env';
 import { verifyUddoktaPayment } from '../../../lib/payments';
 import { timingSafeEqualHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
+import { enqueuePaymentWebhook } from '../../../queues/consumers';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -28,6 +29,14 @@ export async function POST(context: APIContext): Promise<Response> {
   const { status, amountPaisa, metadata, rawResponse } = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
 
   if (status !== 'paid') return Response.json({ received: true, status }, { status: 200 });
+
+  // Master_Prompt v7.0 §2.4: enqueue for the payment-webhooks queue
+  // consumer. If the binding is missing (local dev), the inline path
+  // below runs synchronously.
+  if (env.PAYMENT_WEBHOOKS) {
+    await enqueuePaymentWebhook(env, invoiceId);
+    return Response.json({ received: true, status: 'queued' }, { status: 200 });
+  }
 
   const payment = await env.DB.prepare(
     `SELECT id, order_id, amount_paisa, status FROM payments WHERE invoice_id = ?1`

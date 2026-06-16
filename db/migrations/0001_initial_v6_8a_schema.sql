@@ -160,7 +160,7 @@ CREATE TABLE IF NOT EXISTS orders (
   fraud_decision TEXT NOT NULL DEFAULT 'review'
     CHECK (fraud_decision IN ('approved','review','blocked')),
   status TEXT NOT NULL DEFAULT 'pending_review'
-    CHECK (status IN ('pending_review','pending_payment','payment_verified','paid_over_allocated','staff_confirmed','packing','shipped','delivered','cancelled','refunded')),
+    CHECK (status IN ('pending_review','pending_payment','payment_verified','paid_over_allocated','staff_confirmed','packing','shipped','delivered','returned','cancelled','refunded')),
   created_by TEXT REFERENCES staff_users(id),
   order_channel TEXT DEFAULT 'web'
     CHECK (order_channel IN ('web','in_store','phone','messenger','whatsapp')),

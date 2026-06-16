@@ -150,7 +150,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Reserve stock
-  const reserveResult = await reserveVariants(env.DB, items, now);
+  const reserveResult = await reserveVariants(env as unknown as Parameters<typeof reserveVariants>[0], items, now);
   if (!reserveResult.ok) {
     if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
     const failedIndex = items.findIndex(i => i.variantId === reserveResult.failedVariantId);
@@ -234,7 +234,7 @@ export async function POST(context: APIContext): Promise<Response> {
       prepayment: prepayment.required ? { advance_paisa: prepayment.advancePaisa, balance_paisa: prepayment.balancePaisa, message: prepayment.message } : null
     }, { status: 201 });
   } catch (err) {
-    await releaseReservedVariants(env.DB, items, now);
+    await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
     if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
     console.error('[staff/orders/create] Error:', err);
     return Response.json({ ok: false, code: 'ORDER_FAILED', message: 'Internal error creating order.' }, { status: 500 });
