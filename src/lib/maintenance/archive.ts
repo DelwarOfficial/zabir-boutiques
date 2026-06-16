@@ -16,7 +16,7 @@ const BACKUP_ENCRYPTION_KEY_ENV = "BACKUP_ENCRYPTION_KEY";
 
 async function deriveArchiveKey(secret: string): Promise<CryptoKey> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
-  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt"]);
+  return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);
 }
 
 async function encryptAesGcm(key: CryptoKey, plaintext: Uint8Array): Promise<Uint8Array> {

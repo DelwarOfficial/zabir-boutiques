@@ -37,7 +37,17 @@ function listMigrations(): MigrationFile[] {
     .sort()
     .map(f => {
       const version = f.split("_")[0];
-      const rollbackPath = existsSync(`${ROLLBACK_DIR}/${f}`) ? `${ROLLBACK_DIR}/${f}` : undefined;
+      // The rollback file is conventionally named
+      //   <version>_rollback_<rest>.sql
+      // in db/migrations/rollback/. Older conventions named the rollback
+      // file identically to the migration; we support both for
+      // backwards compatibility.
+      const baseName = f.split("_").slice(1).join("_");
+      const rollbackCandidates = [
+        `${ROLLBACK_DIR}/${version}_rollback_${baseName}`,
+        `${ROLLBACK_DIR}/${f}`,
+      ];
+      const rollbackPath = rollbackCandidates.find(p => existsSync(p));
       return { version, path: `${MIGRATIONS_DIR}/${f}`, rollbackPath };
     });
 }

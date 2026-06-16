@@ -166,7 +166,9 @@ export function assertNoClientMoneyTrust(
       });
     }
   } catch (err) {
-    console.warn('[checkout] analytics write failed (non-fatal):', err);
+    // If even safeLog is unavailable, fall back to a best-effort
+    // non-PII log. The data here is structured so no PII leaks.
+    try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn('[checkout] analytics write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) }); } catch {}
   }
 
   // KV-bucketed tamper counter. After 10 attempts from the same IP in
@@ -196,7 +198,7 @@ export function assertNoClientMoneyTrust(
           .run();
       }
     } catch (err) {
-      console.warn('[checkout] tamper counter write failed (non-fatal):', err);
+      try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn('[checkout] tamper counter write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) }); } catch {}
     }
   })();
 }
@@ -231,7 +233,7 @@ export async function calculateDeliveryPaisa(
       if (Number.isSafeInteger(parsed) && parsed >= 0) rate = parsed;
     }
   } catch (err) {
-    console.warn('[checkout] site_settings delivery lookup failed, using default:', err);
+    try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn('[checkout] site_settings delivery lookup failed, using default', { error: err instanceof Error ? err.message : String(err) }); } catch {}
   }
 
   return assertPaisa(rate, 'delivery_paisa');

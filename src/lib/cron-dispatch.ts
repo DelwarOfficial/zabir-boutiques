@@ -64,17 +64,18 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
     await cleanExpiredIdempotencyKeys(env.DB);
     await recordAuditIntegrityCheck(env.DB);
     await writeAuditCheckpoint(env.DB);
-    await reconcileInventory(env.DB);
+    await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
   },
   // Every 6 hours — D1 backup via queue.
   "0 */6 * * *": async (env) => {
     const { enqueueD1Backup } = await import('./queue-publisher');
     await enqueueD1Backup(env as unknown as { D1_BACKUP?: Queue }, nowSql());
   },
-  // Weekly Sun 09:00 UTC — backup verification.
+  // Weekly Sun 09:00 UTC — backup verification + restore drill.
   "0 9 * * 0": async (env) => {
     const { verifyBackup } = await import('./maintenance/backup');
-    await verifyBackup(env.DB, (env as unknown as { BACKUPS?: R2Bucket }).BACKUPS);
+    const e = env as unknown as { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; SESSION_SECRET?: string };
+    await verifyBackup(env.DB, e.BACKUPS, e);
   },
   // Monthly 1st 05:00 UTC — archive old events to R2.
   "0 5 1 * *": async (env) => {
