@@ -149,6 +149,9 @@ const statusColors: Record<string, string> = {
     {order.fraud_decision === 'blocked' && (
       <span class="px-3 py-2 bg-red-100 text-red-800 rounded text-xs font-semibold">⚠️ FraudBD Blocked — requires override to confirm</span>
     )}
+    {order.order_channel === 'in_store' && order.payment_method === 'in_store' && (
+      <a href={`/api/staff/orders/${order.id}/invoice`} target="_blank" class="px-4 py-2 bg-brand text-white border border-brand rounded cursor-pointer font-semibold text-sm no-underline inline-flex items-center">Print POS Invoice</a>
+    )}
     <a href={`/api/staff/orders/${order.id}/label`} target="_blank" class="px-4 py-2 bg-surface text-ink-secondary border border-line rounded cursor-pointer font-semibold text-sm no-underline inline-flex items-center">Print Label</a>
   </div>
 

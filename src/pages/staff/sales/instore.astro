@@ -171,7 +171,7 @@ const rows = variants.results ?? [];
         const json = await res.json().catch(() => ({}));
         if (res.ok && json.ok) {
           showMsg('Sale completed: ' + json.order_number, true);
-          setTimeout(() => { window.location.href = '/staff/orders/' + json.order_id; }, 900);
+          setTimeout(() => { window.location.href = '/api/staff/orders/' + json.order_id + '/invoice'; }, 500);
         } else {
           showMsg(json.message || json.error || 'Could not complete the sale.', false);
           submitBtn.disabled = false;
