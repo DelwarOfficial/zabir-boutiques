@@ -1,0 +1,12 @@
+{
+  "maxHtmlBytes": 350000,
+  "maxInlineScripts": 8,
+  "maxRenderBlockingLinks": 3,
+  "requireLcpHint": true,
+  "requireSrcset": true,
+  "paths": [
+    "/",
+    "/products/saree-1",
+    "/categories/saree"
+  ]
+}

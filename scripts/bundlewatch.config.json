@@ -1,0 +1,43 @@
+{
+  "$schema": "https://bundlewatch.io/docs/config-schema",
+  "ci": {
+    "trackBranches": [
+      "main"
+    ]
+  },
+  "files": {
+    "dist/client/_astro/client.BtRKo7pY.js": {
+      "maxGz": 61386
+    },
+    "dist/client/_astro/GuestCheckout.CqRBk6B0.js": {
+      "maxGz": 5791
+    },
+    "dist/client/_astro/index.DQ_U63bv.js": {
+      "maxGz": 3079
+    },
+    "dist/client/_astro/useLocalCart.CH4LtxjT.js": {
+      "maxGz": 1468
+    },
+    "dist/client/_astro/BottomNav.1E6mLLqY.js": {
+      "maxGz": 1445
+    },
+    "dist/client/_astro/page.B9eF5IcF.js": {
+      "maxGz": 1099
+    },
+    "dist/client/_astro/AddToCartButton.DCCFsBFu.js": {
+      "maxGz": 982
+    },
+    "dist/client/_astro/ThemeToggle.CB7FvKVy.js": {
+      "maxGz": 817
+    },
+    "dist/client/_astro/jsx-runtime.DXco-PnT.js": {
+      "maxGz": 347
+    },
+    "dist/client/_astro/shopping-bag.DSSdLcg9.js": {
+      "maxGz": 246
+    }
+  },
+  "total": {
+    "maxGz": 76657
+  }
+}

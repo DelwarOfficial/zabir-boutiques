@@ -46,11 +46,14 @@
   "durable_objects": {
     "bindings": [
       { "name": "VARIANT_INVENTORY", "class_name": "VariantInventoryDO" },
-      { "name": "IDEMPOTENCY", "class_name": "IdempotencyDO" }
+      { "name": "IDEMPOTENCY", "class_name": "IdempotencyDO" },
+      { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
+      { "name": "WAF_RULES", "class_name": "WafRules" }
     ]
   },
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] }
+    { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
   ],
   "queues": {
     "producers": [

@@ -10,6 +10,7 @@
 import type { MiddlewareHandler } from 'astro';
 import { verifyCsrfToken, generateRandomHex } from './lib/security';
 import { getCurrentStaffUser } from './lib/rbac';
+import { getCspScriptHashes } from './lib/csp-hashes';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
@@ -136,13 +137,23 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
 function withSecurityHeaders(response: Response, nonce: string): Response {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
-  // Per-request nonce (Master_Prompt v7.0 §9.5). All <script is:inline>
-  // blocks in the codebase must be updated to include nonce={nonce};
-  // until then we keep 'unsafe-inline' for existing inline scripts.
-  // Migration plan: docs/csp.md.
+  // Master_Prompt v7.0 §9.5: per-request nonce + build-time SHA-256
+  // hashes for any script the app generated (loaded from
+  // dist/csp-hashes.json, written by scripts/csp-hashes-plugin.mjs).
+  // 'strict-dynamic' trusts dynamically-loaded scripts too. Inline
+  // scripts that the app ships on its own pages are accounted for
+  // in dist/csp-hashes.json — see docs/csp.md for the migration
+  // status of the 12 <script is:inline> blocks.
+  const scriptHashes = getCspScriptHashes();
+  const scriptSrc = [
+    "'self'",
+    `'nonce-${nonce}'`,
+    "'strict-dynamic'",
+    ...scriptHashes,
+  ].join(' ');
   headers.set('Content-Security-Policy', [
     "default-src 'self'",
-    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic' 'unsafe-inline'`,
+    `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' data: blob:",
     "font-src 'self'",

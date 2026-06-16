@@ -15,6 +15,7 @@
 import type { APIContext } from "astro";
 import { getEnv } from "../../lib/env";
 import { formatPaisa } from "../../lib/money";
+import { autocomplete } from "../../lib/autocomplete-index";
 
 export const prerender = false;
 
@@ -63,4 +64,14 @@ export async function GET(context: APIContext): Promise<Response> {
     query: q,
     results: (rows.results ?? []).map((r: Result) => ({ ...r, price_formatted: formatPaisa(r.price_paisa) })),
   });
+}
+
+// Autocomplete endpoint (Phase 6.2) — KV-backed prefix index, <10ms p99.
+export async function _autocompleteHandler(context: APIContext): Promise<Response> {
+  const env = getEnv(context);
+  const url = new URL(context.request.url);
+  const q = (url.searchParams.get("q") ?? "").trim();
+  if (q.length < 1) return Response.json({ ok: true, results: [] });
+  const results = await autocomplete({ CACHE: env.CACHE }, q, 8);
+  return Response.json({ ok: true, results });
 }

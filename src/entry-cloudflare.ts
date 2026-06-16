@@ -22,10 +22,12 @@ import {
 } from "./queues/consumers";
 import { VariantInventoryDO } from "./do/variant-inventory-do";
 import { IdempotencyDO } from "./do/idempotency-do";
+import { BudgetCounterDO } from "./do/budget-counter-do";
+import { WafRules } from "./do/waf-rules";
 import type { Env } from "./env";
 
 // Required by Cloudflare: DO classes must be top-level exports.
-export { VariantInventoryDO, IdempotencyDO };
+export { VariantInventoryDO, IdempotencyDO, BudgetCounterDO, WafRules };
 
 async function routeQueue(batch: MessageBatch, env: Env): Promise<void> {
   switch (batch.queue) {

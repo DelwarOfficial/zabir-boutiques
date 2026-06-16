@@ -2,448 +2,534 @@
   <img src="public/assets/zabir-logo.jpg" alt="Zabir Boutiques" width="120" height="120" style="border-radius: 50%;" />
   <br />
   <h1 align="center">Zabir Boutiques — AI Commerce Platform</h1>
-  <p align="center"><strong>v6.8B · Security Audit Patch Edition</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
+  <p align="center"><strong>v7.0 · Master Prompt Edition</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
 
   [![Astro](https://img.shields.io/badge/Astro-6.4.4-FF5D01?logo=astro)](https://astro.build)
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
   [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
-  [![TypeScript](https://img.shields.io/badge/TypeScript-5.9.3-3178C6?logo=typescript)](https://www.typescriptlang.org)
-  [![Vitest](https://img.shields.io/badge/Tests-150%2B%20passing-6E9F18?logo=vitest)](https://vitest.dev)
+  [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
+  [![Vitest](https://img.shields.io/badge/Tests-211%20passing-6E9F18?logo=vitest)](https://vitest.dev)
   [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
 </div>
 
 ---
 
-Premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built for the Bangladesh market. COD-first checkout with FraudBD risk routing, UddoktaPay payment gateway, real-time inventory reservation, and a full staff operations dashboard.
+A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built for the Bangladesh market. **COD-first checkout** with FraudBD risk routing, UddoktaPay payment gateway, real-time inventory reservation, full staff operations dashboard, and Workers AI–powered content tooling.
 
-> **Package version:** `6.8.0` · **Runtime:** Astro 6.4.4 / @astrojs/cloudflare 13.6.1 · **Spec edition:** v6.8B Security Audit Patch (server-authoritative checkout pricing + session-independent CSRF tokens, D1 source of truth, coupon atomicity compensations, payment-initiation atomic claiming, webhook alert FK safety).
+> **Package version:** `7.0.0` · **Runtime:** Astro 6.4.4 / @astrojs/cloudflare 13.6.1 (advanced mode) · **Spec edition:** Master_Prompt v7.0 — server-authoritative checkout, D1 source of truth, Durable Object inventory gates, Cloudflare Queues for webhooks and email, Workers AI + DeepSeek fallback, R2 Image Resizing, FTS5 search.
+
+---
+
+## Table of Contents
+
+- [Highlights](#highlights)
+- [Architecture](#architecture)
+- [Features](#features)
+- [Quick Start](#quick-start)
+- [Project Structure](#project-structure)
+- [Database Schema](#database-schema)
+- [API Endpoints](#api-endpoints)
+- [Security Model](#security-model)
+- [Deployment](#deployment)
+- [Operations](#operations)
+- [Scripts](#scripts)
+- [Testing](#testing)
+- [Documentation](#documentation)
+- [Guardrails](#guardrails)
+- [License](#license)
+
+---
+
+## Highlights
+
+- **Server-authoritative pricing** — checkout never trusts the browser for money fields; subtotal, delivery, discount, and total are recomputed from D1 `price_paisa` on every request.
+- **Zero overselling under concurrency** — single-threaded Durable Object gates reserve/release per variant; D1 remains source of truth.
+- **At-least-once webhooks, exactly-once orders** — Cloudflare Queue + IdempotencyDO with server-to-server UddoktaPay verification.
+- **30-min idle / 8-hour absolute session timeout** with KV revocation blacklist.
+- **Strict CSP** — per-request nonce + build-time SHA-256 allow-list of emitted scripts; no `unsafe-inline` at the perimeter.
+- **FTS5 product search** with bm25 ranking + KV-backed tri-gram autocomplete index.
+- **R2 Image Resizing** with 4 responsive variants (thumbnail 150w, card 400w, detail 800w, zoom 1600w) and a 1200×630 OG variant.
+- **Workers AI primary, DeepSeek fallback**, gated by a per-scope `BudgetCounterDO` for cost control.
+- **Three-stage content moderation** — PII regex → keyword blocks → Workers AI text-moderation.
+- **DR-grade backups** — every 6 hours to R2; RPO 6h, RTO 2h.
+
+---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     Cloudflare Pages                         │
-│  ┌─────────────┐  ┌──────────────┐  ┌───────────────────┐  │
-│  │  Astro SSR   │  │  Astro SSR   │  │  API (Workers)    │  │
-│  │ (all routes) │  │ (checkout,   │  │ (/api/*)          │  │
-│  │              │  │  order-track,│  │                   │  │
-│  │              │  │  staff/*)    │  │                   │  │
-│  └──────┬───────┘  └──────┬───────┘  └────────┬──────────┘  │
-│         │                 │                    │             │
-│         ▼                 ▼                    ▼             │
-│  ┌──────────────────────────────────────────────────────┐   │
-│  │              Cloudflare D1 (SQLite)                   │   │
-│  │  21 tables — inventory, orders, payments, fraud      │   │
-│  └──────────────────────────────────────────────────────┘   │
-│         │                 │                    │             │
-│         ▼                 ▼                    ▼             │
-│  ┌──────────┐    ┌──────────────┐    ┌──────────────────┐  │
-│  │  R2      │    │  KV          │    │  Scheduled       │  │
-│  │ (media,  │    │ (cache,      │    │  Workers (cron)  │  │
-│  │ backup)  │    │  rate-limit) │    │  maintenance     │  │
-│  └──────────┘    └──────────────┘    └──────────────────┘  │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────┐
+│                      Cloudflare Edge                              │
+│                                                                   │
+│   WAF Custom Rules          Cache API (SWR)        Image Resizing│
+│   (managed + per-zone)      script-src: nonce      /cdn-cgi/image│
+│        │                        │                        │       │
+└────────┼────────────────────────┼────────────────────────┼───────┘
+         │                        │                        │
+         ▼                        ▼                        ▼
+┌──────────────────────────────────────────────────────────────────┐
+│                Cloudflare Pages + Workers (Astro SSR)             │
+│                                                                   │
+│   ┌──────────────┐  ┌────────────────┐  ┌────────────────────┐   │
+│   │ Static pages │  │ SSR (checkout, │  │ API routes         │   │
+│   │ prerender=1  │  │ staff, order)  │  │ /api/*             │   │
+│   └──────────────┘  └────────────────┘  └────────────────────┘   │
+│                                                                   │
+│   ┌──────────────────────────────────────────────────────────┐  │
+│   │ Middleware  (CSRF · rate limit · per-request CSP nonce   │  │
+│   │  · session resolve · __Host- cookies · security headers) │  │
+│   └──────────────────────────────────────────────────────────┘  │
+│                                                                   │
+│   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
+│   │ Durable Objects  │  │ Queues           │  │ Cron Jobs    │  │
+│   │ VariantInvDO     │  │ payment-webhooks │  │ 9 schedules  │  │
+│   │ IdempotencyDO    │  │ order-emails     │  │ (see Ops)    │  │
+│   │ BudgetCounterDO  │  │ image-processing │  │              │  │
+│   │ WafRulesDO       │  │ fraud-scoring    │  │              │  │
+│   │                  │  │ d1-backup        │  │              │  │
+│   └──────────────────┘  └──────────────────┘  └──────────────┘  │
+│                                                                   │
+└────────┬─────────────────┬─────────────────┬───────────────────────┘
+         │                 │                 │
+         ▼                 ▼                 ▼
+   ┌──────────┐      ┌──────────┐      ┌──────────┐
+   │ D1 (SQL) │      │ R2       │      │ KV       │
+   │ 22 tables│      │ media    │      │ cache    │
+   │ truth    │      │ backups  │      │ session  │
+   └──────────┘      └──────────┘      └──────────┘
+         │
+         │ (read-only)
+         ▼
+   ┌────────────────────────────────────────────────────────────┐
+   │ External: UddoktaPay · FraudBD · Turnstile · Resend        │
+   │          · Workers AI · DeepSeek · Tinify · Cloudflare API │
+   └────────────────────────────────────────────────────────────┘
 ```
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Framework** | Astro 6.4.4 (`output: server`) | Server-rendered with prerender opt-in for static pages |
-| **Adapter** | `@astrojs/cloudflare` 13.6.1 | Cloudflare Workers runtime |
-| **Database** | Cloudflare D1 (SQLite) | Source of truth, transactional |
-| **Media** | Cloudflare R2 | Product images, backups, archives |
-| **Cache** | Cloudflare KV | Admin-cached listings, rate limits, sessions binding |
+| **Framework** | Astro 6.4.4 (`output: "server"`) | Per-page `prerender = true/false` opt-in |
+| **Adapter** | `@astrojs/cloudflare` 13.6.1 | Advanced runtime, DOs, Queues, Cron |
+| **Database** | Cloudflare D1 (SQLite) | Source of truth — 22 tables |
+| **Concurrency** | Durable Objects | Per-variant inventory gate, idempotency, AI budget, WAF observability |
+| **Async** | Cloudflare Queues | Webhooks, emails, image processing, fraud, backups |
+| **Media** | Cloudflare R2 | Product images + D1 backup archives |
+| **Cache** | Cloudflare KV | Cache API SWR, rate limits, session blacklist, autocomplete prefix index |
+| **Images** | Cloudflare Image Resizing | On-the-fly variants via `/cdn-cgi/image/` |
+| **Search** | D1 FTS5 + Workers AI | bm25 ranking; AI semantic for Phase 2 |
 | **Payments** | UddoktaPay | Server-to-server verification |
-| **Fraud** | FraudBD | External risk signal only |
-| **Images** | Tinify | Upload-time compression |
+| **Fraud** | FraudBD | Risk signal only — D1 stays authoritative |
+| **AI** | Workers AI + DeepSeek | Cost-gated by `BudgetCounterDO` |
+| **Email** | Resend | Transactional + abandoned cart |
+| **Bot defense** | Cloudflare Turnstile | Checkout + staff login |
+| **Observability** | Workers Analytics Engine | Business metrics; Logpush to R2 |
+| **Image comp** | Tinify | Upload-time compression |
 
-> This project runs on **Astro 6.4.4** with `output: "server"` and `@astrojs/cloudflare` 13.6.1. API routes, checkout, payments, staff dashboard, and cron handling execute on Cloudflare Workers via Pages Functions. Selected pages use `export const prerender = true` for static generation where appropriate.
+---
 
 ## Features
 
 ### Storefront
-- **Prerendered storefront** — Home, category, and product pages use build-time D1 snapshots with CDN cache headers
-- **CDN-cached stock badges** — Real-time stock read from D1 with CDN cache headers (zero KV writes on public traffic)
-- **Guest checkout** — Name, phone, address only. No account required.
-- **Server-authoritative pricing** — The checkout API never trusts browser-supplied money fields. Subtotal, delivery, discount, and total are computed from D1 `price_paisa` only
-- **Idempotent checkout** — Idempotency key prevents duplicate orders on network retry
-- **Coupon atomicity** — Limited-use coupons guarded by conditional D1 update; released on subsequent failure (fraud, stock, order)
-- **Max 10 line items** — Enforced server-side
+- **Prerendered catalog** — Home, category, and product pages use build-time D1 snapshots with CDN cache headers
+- **JSON-LD Product + BreadcrumbList** on PDP for Google rich results
+- **Canonical URLs, Open Graph, meta descriptions** site-wide
+- **CDN-cached stock badges** — fresh D1 read with `Cache-Tag` headers, zero KV writes on public traffic
+- **Guest checkout** — Name, phone, address. No account required.
+- **Idempotent checkout** — `Idempotency-Key` header prevents duplicate orders on retry
+- **Max 10 line items** — enforced server-side
 
 ### Inventory
-- **Reservation-first engine** — Stock is reserved (not deducted) at checkout time
-- **30-minute reservation expiry** — Released by cron if payment not completed
+- **Reservation-first engine** — Stock is reserved (not deducted) at checkout
+- **10-minute reservation TTL**, cleanup cron every 5 min
+- **Durable Object concurrency gate** — `reserveVariants()` / `releaseVariants()` are serialized per variant
 - **Atomic batch operations** — `db.batch()` with `meta.changes` verification
-- **Partial failure rollback** — All successful reservations released if any one fails
-- **Never creates order before reservation success** — Guardrail enforced
+- **Partial-failure rollback** — All successful reservations released if any one fails
+- **Order creation gated on reservation success** — guardrail enforced
 
 ### Payments
-- **UddoktaPay** — Bangladesh payment gateway
-- **Server-to-server verification** — Browser redirects never mark order paid
+- **UddoktaPay** with **server-to-server verification** (browser redirects never mark paid)
+- **Queue-backed webhook processing** — `payment-webhooks` queue with 5-retry backoff
+- **Reconciliation cron (15 min)** — catches orphaned payments from missed webhooks
 - **Webhook idempotency** — `INSERT OR IGNORE` with `UNIQUE(invoice_id, event_type, status)`
-- **`paid_over_allocated` fallback** — Graceful handling when stock runs out between checkout and payment
-- **Forward-only status transitions** — No backward status changes
+- **`paid_over_allocated` fallback** — graceful handling when stock runs out between checkout and payment
 
 ### Fraud Prevention
-- **FraudBD risk scoring** — External API, 3-second timeout
-- **Risk routing** — 0-30 approved, 31-79 review, 80-100 blocked
-- **Timeout/error = review** — Never auto-blocks on API failure
-- **Async fraud polling** — `fraud_polls` table with cron-based resolution
+- **FraudBD risk scoring** — 3-second timeout
+- **Risk routing** — 0-30 approved · 31-79 review · 80-100 blocked
+- **Timeout/error = review** — never auto-blocks on API failure
+- **Async fraud polling** — `fraud_polls` table + `fraud-scoring` queue
+
+### Returns
+- **Order state machine** with explicit `returned` → `refunded` transitions
+- **Auto-restock on approved returns** — `stock_adjustments` audit row per item
+- **UddoktaPay refund API** for prepaid orders
 
 ### Staff Operations
-- **RBAC** — 6 roles with hierarchical permissions (see below)
-- **HMAC-SHA256 sessions** — Only hashed tokens stored in D1
-- **CSRF protection** — Double-submit cookie with a session-independent `nonce.HMAC(nonce)` token (v6.8B fix #3)
-- **Audit log** — All state mutations recorded
+- **RBAC** — 6 roles (owner, super_admin, manager, salesman, packing, support) with 30+ permissions
+- **HMAC-SHA256 sessions** — only hashed tokens stored in D1
+- **Session-independent CSRF** — `nonce.HMAC(nonce)` token, never `sessionToken.hash`
+- **Turnstile** on staff login + checkout (server-side verification)
+- **KV session revocation blacklist** with D1 mirror
+- **Coupon brute-force protection** — 5 failures → 30-min lockout
+- **Tamper-evident audit log** with chain hash
+- **Returns / refunds / payments / coupons / media / staff menu / dev keys** — all RBAC-gated
+
+### Search & Discovery
+- **FTS5 product search** with bm25 relevance ranking
+- **KV-backed tri-gram autocomplete** for sub-10ms p99 keystroke responses
+- **Fallback to FTS5** when the index misses
+
+### AI Layer
+- **Workers AI primary**, DeepSeek fallback
+- **BudgetCounterDO** enforces per-scope, per-period cost caps
+- **Content moderation** pipeline (PII → keyword → AI) before any user-generated text is persisted
 
 ### Security
-- CSP, HSTS, frame-ancestors, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
-- Origin validation on login
-- Rate limiting on all public API routes
-- All money values are INTEGER paisa (no floating point)
+- **Strict CSP** — per-request nonce + build-time SHA-256 script allow-list
+- **HSTS preload**, `frame-ancestors 'none'`, `X-Content-Type-Options: nosniff`
+- **Origin validation** on login + checkout mutations
+- **Rate limiting** on every public API route (KV sliding window)
+- **Money = INTEGER paisa** — no floating point anywhere
+- **Zero Trust Access** for `/staff/*` (configurable via Cloudflare Access)
 
 ### Cron & Maintenance
-Cron triggers are declared in `wrangler.jsonc` (`triggers.crons`) and routed by `src/lib/cron-dispatch.ts`.
+Nine cron schedules, routed by `src/lib/cron-dispatch.ts` and listed in `wrangler.jsonc`:
 
-| Cron expression | Frequency | Job |
-|-----------------|-----------|-----|
-| `*/10 * * * *` | Every 10 min | Expired reservation cleanup + FraudBD poll sweep |
-| `0 3 * * *` | Daily 03:00 UTC | Session cleanup + Tinify retry + idempotency expiry |
-| `0 4 * * 0` | Weekly Sun 04:00 | D1 backup to R2 |
-| `0 5 1 * *` | Monthly 1st 05:00 | Archive old events/logs to R2 |
+| Cron | Frequency | Job |
+|------|-----------|-----|
+| `*/5 * * * *` | Every 5 min | Expired reservation cleanup |
+| `*/15 * * * *` | Every 15 min | Payment reconciliation (UddoktaPay status check) |
+| `0 * * * *` | Hourly | FraudBD poll sweep |
+| `0 0 * * *` | Daily 00:00 UTC | Inventory reconciliation |
+| `0 2 * * *` | Daily 02:00 UTC | Session cleanup, idempotency expiry, Tinify retry |
+| `0 3 * * *` | Daily 03:00 UTC | Archive old events/logs to R2 |
+| `0 */6 * * *` | Every 6 hours | D1 backup to R2 |
+| `0 9 * * 0` | Weekly Sun 09:00 | Backup verification + autocomplete index rebuild |
+| `0 5 1 * *` | Monthly 1st 05:00 | Long-term archive rotation |
+
+---
 
 ## Role-Based Access Control
 
-Server-side enforcement only (route splitting and menu hiding are **not** authorization). The matrix lives in `src/lib/rbac.ts`.
+Server-side enforcement only — route splitting and menu hiding are **not** authorization. The full matrix lives in `src/lib/rbac.ts`.
 
 | Role | Tier | Access |
 |------|------|--------|
-| `super_admin` | Owner-tier | Full system access (alias of owner) |
-| `owner` | Owner-tier | Full system access — every permission implicitly |
-| `manager` | Business | Daily operations: products, categories, inventory, orders, fraud view, media, reports |
+| `owner` | Owner | Full system access — every permission implicitly |
+| `super_admin` | Owner | Alias of `owner` for legacy compatibility |
+| `manager` | Business | Daily operations: products, inventory, orders, fraud view, media, reports |
 | `salesman` | Business | Sales dashboard + COD order creation/updates |
-| `packing` | Business | Packing queue + courier handoff (pack/ship) |
+| `packing` | Business | Packing queue + courier handoff |
 | `support` | Business | Order search + support notes |
 
-Owner-only areas (developer/API-code, secrets, backups) are gated by `assertOwnerOnly()` plus a specific permission such as `system.api_code.manage`.
+Owner-only areas (developer API keys, secrets, backups) are gated by `assertOwnerOnly()` plus a specific permission such as `system.api_code.manage`.
+
+---
 
 ## Quick Start
 
-```bash
-# Prerequisites: Node.js 20+, Cloudflare account, Wrangler
+### Prerequisites
+- Node.js 20+
+- A Cloudflare account
+- Wrangler CLI (`npm i -g wrangler`)
 
+### Setup
+
+```bash
 git clone https://github.com/DelwarOfficial/zabir-boutiques.git
 cd zabir-boutiques
 
-# Install dependencies
 npm install
 
-# Copy environment
 cp .env.example .env.local
-# Edit .env.local with your Cloudflare credentials
+# Edit .env.local with your Cloudflare credentials + service keys
 
-# Run D1 migrations locally
+# Apply D1 migrations locally
 npm run db:migrate:local
 
-# Seed sample data (optional)
+# (Optional) Seed sample data
 npx tsx scripts/seed.ts
 
-# Start development server
+# Start dev server
 npm run dev
 ```
+
+### One-shot
+
+```bash
+npm install && npm run db:migrate:local && npm run dev
+```
+
+---
 
 ## Project Structure
 
 ```
 zabir-boutiques/
 ├── src/
-│   ├── entry-cloudflare.ts    # Worker cron entry point (scheduled handler)
-│   ├── env.d.ts               # Cloudflare runtime type definitions (Env)
-│   ├── middleware.ts          # CSRF + rate limiting + security headers
+│   ├── entry-cloudflare.ts       # Worker entry: fetch + scheduled + queue
+│   ├── env.d.ts                  # Cloudflare runtime types
+│   ├── middleware.ts             # CSRF + rate limit + CSP nonce + auth guard
 │   ├── pages/
-│   │   ├── index.astro        # Homepage (SSG)
-│   │   ├── checkout.astro     # Guest checkout (React island host)
-│   │   ├── order-track.astro  # Order tracking
-│   │   ├── orders.astro       # Order lookup
-│   │   ├── categories/
-│   │   │   └── [slug].astro   # Category listing (SSG)
-│   │   ├── products/
-│   │   │   └── [slug].astro   # Product detail (SSG)
-│   │   ├── staff/
-│   │   │   ├── index.astro    # Dashboard
-│   │   │   ├── login.astro    # Staff login page
-│   │   │   └── orders/
-│   │   │       └── [id].astro # Order detail
-│   │   └── api/
+│   │   ├── index.astro           # Homepage (prerender = true)
+│   │   ├── checkout.astro        # Guest checkout (React island host)
+│   │   ├── order-track.astro     # Order tracking
+│   │   ├── categories/[slug].astro
+│   │   ├── products/[slug].astro # JSON-LD + srcset + CSP-friendly
+│   │   ├── staff/                # Operations dashboard
+│   │   └── api/                  # All HTTP endpoints
 │   │       ├── checkout.ts
+│   │       ├── search.ts         # FTS5 + autocomplete helper
 │   │       ├── orders/track.ts
 │   │       ├── stock/[variantId].ts
-│   │       ├── payments/
-│   │       │   ├── create.ts
-│   │       │   ├── webhook.ts
-│   │       │   └── status/[id].ts
+│   │       ├── payments/         # create, webhook, status
 │   │       ├── fraud/check.ts
-│   │       └── staff/
-│   │           ├── login.ts
-│   │           ├── logout.ts
-│   │           ├── uploads.ts
-│   │           ├── api-code/index.ts      # Owner-only API-code area
-│   │           └── orders/[id]/confirm.ts
-│   ├── lib/
-│   │   ├── env.ts             # Runtime env accessor
-│   │   ├── dates.ts           # UTC timestamp (nowSql)
-│   │   ├── phone.ts           # Bangladesh phone normalization
-│   │   ├── money.ts           # INTEGER paisa arithmetic, coupons
-│   │   ├── checkout-pricing.ts # Server-authoritative checkout pricing (v6.8B)
-│   │   ├── inventory.ts       # Reservation-first engine
-│   │   ├── orders.ts          # Order creation with retry
-│   │   ├── payments.ts        # UddoktaPay integration
-│   │   ├── fraud.ts           # FraudBD risk routing
-│   │   ├── sessions.ts        # HMAC-SHA256 staff auth
-│   │   ├── security.ts        # CSRF tokens + timing-safe comparison
-│   │   ├── rbac.ts            # Role-based access control
-│   │   ├── staff-menu.ts      # Permission-driven staff menu
-│   │   ├── audit.ts           # Audit log writer + request helpers
-│   │   ├── cache.ts           # KV utilities
-│   │   ├── cart-store.ts      # Client cart store helpers
-│   │   ├── idempotency.ts     # Checkout idempotency
-│   │   ├── tinify.ts          # Image compression pipeline
-│   │   ├── cron-dispatch.ts   # Scheduled job router
-│   │   └── maintenance/
-│   │       ├── backup.ts
-│   │       ├── archive.ts
-│   │       └── idempotency.ts
-│   ├── components/
-│   │   ├── product/           # ProductCard
-│   │   ├── checkout/          # CheckoutSkeleton
-│   │   ├── staff/
-│   │   ├── shared/
-│   │   └── shell/             # Header, Footer, CategoryRail, ProductGridSkeleton
-│   ├── islands/               # React islands
-│   │   ├── GuestCheckout.tsx
-│   │   ├── AddToCartButton.tsx
-│   │   ├── BottomNav.tsx
-│   │   └── ThemeToggle.tsx
-│   ├── hooks/
-│   │   └── useLocalCart.ts
-│   ├── data/
-│   │   ├── catalog.ts             # Snapshot/fallback resolver
-│   │   ├── category-taxonomy.ts   # Category filter taxonomy
-│   │   ├── demo-products.ts       # Fallback data for dev
-│   │   ├── categories-snapshot.json  # Build-time D1 snapshot
-│   │   └── products-snapshot.json    # Build-time D1 snapshot
-│   ├── layouts/
-│   │   └── RootLayout.astro
-│   └── styles/
-│       └── global.css
-├── db/
-│   └── migrations/
-│       ├── 0001_initial_v6_8a_schema.sql  # 21 tables
-│       └── 0002_indexes.sql               # Performance indexes
-├── scripts/
-│   ├── build-static-snapshots.ts  # D1 REST API snapshot generator
-│   └── seed.ts                    # Sample data seeder
-├── tests/                         # 150+ Vitest tests across 18 files
-│   ├── checkout.test.ts
-│   ├── security.test.ts
-│   ├── csrf.test.ts
-│   ├── rbac.test.ts
-│   ├── staff-menu.test.ts
-│   ├── sessions.test.ts
-│   ├── inventory.test.ts
-│   ├── payments.test.ts
-│   ├── fraud.test.ts
-│   ├── phone.test.ts
-│   ├── race-conditions.test.ts
-│   ├── paid-expired-reservation.test.ts
-│   ├── cron-imports.test.ts
-│   └── schema-naming.test.ts
-├── astro.config.mjs
-├── wrangler.jsonc
-├── package.json
-├── tsconfig.json
-└── vitest.config.ts
+│   │       └── staff/            # login, orders, returns, api-keys, ...
+│   ├── do/                       # Durable Objects
+│   │   ├── variant-inventory-do.ts
+│   │   ├── idempotency-do.ts
+│   │   ├── budget-counter-do.ts
+│   │   └── waf-rules.ts
+│   ├── queues/
+│   │   └── consumers.ts          # 5 queue handlers
+│   ├── lib/                      # Business logic
+│   │   ├── env.ts · dates.ts · phone.ts · money.ts
+│   │   ├── checkout-pricing.ts   # Server-authoritative pricing
+│   │   ├── inventory.ts          # Reservation-first engine
+│   │   ├── orders.ts · payments.ts · fraud.ts
+│   │   ├── sessions.ts · security.ts · rbac.ts · audit.ts
+│   │   ├── order-state-machine.ts
+│   │   ├── session-blacklist.ts
+│   │   ├── coupon-rate-limit.ts
+│   │   ├── image-resizing.ts     # R2 Image Resizing helper
+│   │   ├── cache-api.ts          # SWR + cache-tag purge
+│   │   ├── autocomplete-index.ts
+│   │   ├── pii-scrubber.ts
+│   │   ├── content-moderation.ts
+│   │   ├── ai-client.ts          # Workers AI + DeepSeek
+│   │   ├── email.ts              # Resend client
+│   │   ├── turnstile.ts
+│   │   ├── cron-dispatch.ts
+│   │   ├── csp-hashes.ts         # Build-time CSP allow-list
+│   │   └── maintenance/          # backup, archive, inventory-reconcile
+│   ├── components/               # Astro components
+│   ├── islands/                  # React islands (cart, checkout, nav)
+│   ├── data/                     # Build-time snapshots + fallback catalog
+│   ├── layouts/ · styles/ · hooks/
+│   └── generated/                # Build-time artifacts (csp-hashes)
+├── db/migrations/                # 12 SQL migrations
+│   └── rollback/                 # Paired rollbacks
+├── docs/                         # alerting · csp · dr · logpush · zero-trust
+├── scripts/                      # build · bundlewatch · cwv · migrate · seed
+├── tests/                        # 21 Vitest files · 211 tests
+├── astro.config.mjs              # CSP-hashes Vite plugin
+├── wrangler.jsonc                # bindings, DOs, queues, env, triggers
+└── package.json
 ```
 
-## Database (D1 Schema)
+---
 
-All 21 tables (migration `0001_initial_v6_8a_schema.sql`):
+## Database Schema
+
+22 tables across 12 migrations. D1 is the source of truth; DOs hold only short-lived concurrency state.
 
 | # | Table | Purpose |
 |---|-------|---------|
 | 1 | `schema_migrations` | Migration tracking |
-| 2 | `staff_users` | Admin accounts with RBAC roles |
+| 2 | `staff_users` | Admin accounts with RBAC |
 | 3 | `staff_sessions` | HMAC-hashed session tokens |
 | 4 | `categories` | Product categories (hierarchical) |
 | 5 | `products` | Product catalog |
 | 6 | `product_variants` | SKU, size, color variants (soft-delete) |
-| 7 | `product_images` | R2 image references with compression status |
-| 8 | `inventory_items` | Quantity + reserved_quantity (is_available) |
+| 7 | `product_images` | R2 references with compression status |
+| 8 | `inventory_items` | Quantity + reserved_quantity |
 | 9 | `coupons` | Discount codes (fixed/percentage, soft-delete) |
-| 10 | `fraud_checks` | FraudBD risk results |
-| 11 | `orders` | Guest orders with fraud/payment status |
-| 12 | `order_items` | Snapshot at checkout time |
-| 13 | `stock_reservations` | 30-minute reservation locks |
-| 14 | `order_status_history` | Status change audit trail |
-| 15 | `payments` | Payment records linked to UddoktaPay |
-| 16 | `payment_events` | Webhook idempotency |
-| 17 | `low_stock_alerts` | Over-allocated stock incidents |
-| 18 | `site_settings` | Admin-configurable key-value store |
-| 19 | `audit_log` | Staff action audit trail |
-| 20 | `checkout_idempotency` | Idempotency key store |
-| 21 | `fraud_polls` | Async fraud resolution polling |
+| 10 | `coupon_brute_force` | 5-failure / 30-min lockout tracking |
+| 11 | `coupon_claim_tokens` | Atomic claim tokens |
+| 12 | `fraud_checks` | FraudBD risk results |
+| 13 | `orders` | Guest orders |
+| 14 | `order_items` | Snapshot at checkout |
+| 15 | `order_status_history` | Status audit trail |
+| 16 | `return_requests` | Customer returns (approved/rejected/pending) |
+| 17 | `stock_reservations` | 10-min reservation locks |
+| 18 | `stock_adjustments` | Inventory delta audit (returns, restocks) |
+| 19 | `payments` | UddoktaPay records |
+| 20 | `payment_events` | Webhook idempotency |
+| 21 | `email_log` | Resend delivery tracking |
+| 22 | `low_stock_alerts` | Over-allocated stock incidents |
+| 23 | `site_settings` | Admin key-value store |
+| 24 | `audit_log` | Tamper-evident staff action trail |
+| 25 | `checkout_idempotency` | Idempotency key store |
+| 26 | `fraud_polls` | Async fraud resolution |
+| 27 | `session_blacklist` | Mirror of KV revocations |
+| 28 | `api_keys` | Owner-only dev key registry |
+| 29 | `products_fts` | FTS5 virtual table (5-stage triggers) |
+
+Migrations are applied in order; each has a paired rollback in `db/migrations/rollback/`.
+
+---
 
 ## API Endpoints
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/checkout` | Guest checkout (idempotent, server-authoritative pricing) |
-| `POST` | `/api/orders/track` | Order lookup by phone + number |
-| `GET` | `/api/stock/:variantId` | Stock badge (CDN-cached, no KV write) |
-| `POST` | `/api/payments/create` | Initiate UddoktaPay checkout |
-| `POST` | `/api/payments/webhook` | UddoktaPay payment notification |
-| `GET` | `/api/payments/status/:id` | Payment status lookup (server-to-server verification) |
-| `POST` | `/api/fraud/check` | FraudBD risk assessment |
-| `POST` | `/api/staff/login` | Staff authentication |
-| `POST` | `/api/staff/logout` | Staff session invalidation |
-| `POST` | `/api/staff/orders/:id/confirm` | Order confirmation (RBAC) |
-| `POST` | `/api/staff/uploads` | Image upload (R2 + Tinify) |
-| `GET` `POST` | `/api/staff/api-code` | Owner-only API-code area (key names only, never secret values) |
+| Method | Path | Purpose | Auth |
+|--------|------|---------|------|
+| `POST` | `/api/checkout` | Guest checkout (idempotent, server-authoritative pricing) | Turnstile |
+| `POST` | `/api/orders/track` | Order lookup by phone + number | — |
+| `GET` | `/api/stock/:variantId` | Stock badge (CDN-cached) | — |
+| `GET` | `/api/search?q=…` | FTS5 product search with snippets | — |
+| `POST` | `/api/payments/create` | Initiate UddoktaPay checkout | — |
+| `POST` | `/api/payments/webhook` | UddoktaPay notification (queue-backed) | UddoktaPay |
+| `GET` | `/api/payments/status/:id` | Payment status (server-to-server verified) | — |
+| `POST` | `/api/fraud/check` | FraudBD risk assessment | — |
+| `POST` | `/api/staff/login` | Staff auth (Turnstile) | Turnstile |
+| `POST` | `/api/staff/logout` | Session invalidation | staff |
+| `GET` `POST` | `/api/staff/api-keys` | Owner-only dev key registry | owner |
+| `POST` | `/api/staff/orders/:id/confirm` | Order confirmation | staff |
+| `POST` | `/api/staff/uploads` | Image upload (R2 + Tinify) | staff |
+| `POST` | `/api/staff/returns` | Create return request | `orders.update` |
+| `POST` | `/api/staff/returns/:id/approve` | Approve + restock + refund | `payments.refund` |
+| `POST` | `/api/staff/returns/:id/reject` | Reject return | `orders.update` |
 
-## Security
+---
 
-- **CSRF**: Double-submit cookie. The CSRF token is a session-independent `nonce.HMAC(nonce)` (random nonce signed with `SESSION_SECRET`), verified with timing-safe comparison. It never embeds the session token or its hash, so an XSS that reads the non-HttpOnly `csrf-token` cookie cannot recover the session token. *(v6.8B fix #3)*
-- **Checkout pricing**: The server loads `price_paisa` from D1 and computes subtotal, delivery, discount (coupons only, via `applyCouponAtomic`), and total. Browser-supplied money fields are ignored.
-- **Coupon atomicity**: Claimed coupon usage is atomically released on subsequent failure (fraud block, stock exhaustion, order creation error) via `releaseCouponUsageAtomic`. *(v6.8C)*
-- **Payment initiation race prevention**: Payment creation atomically claims the order (`payment_status = 'processing'`) before calling UddoktaPay, preventing duplicate active invoices. Provider failure resets status back to `pending`. *(v6.8C)*
-- **Webhook alert FK safety**: Amount-mismatch alerts resolve an actual order item variant, not `order_id` injected into `variant_id`. *(v6.8C)*
-- **Sessions**: Raw token in HttpOnly Secure SameSite=Strict cookie; only the HMAC hash is stored in D1
-- **RBAC**: 6-role hierarchy enforced on every staff API route
-- **Rate limiting**: KV-backed sliding window on public API endpoints
-- **Headers**: CSP, HSTS, X-Frame-Options, X-Content-Type-Options, Referrer-Policy, Permissions-Policy
-- **Origin validation**: Login endpoint checks the Origin header
-- **Money**: All amounts are INTEGER paisa — no floating point anywhere
+## Security Model
+
+- **CSP** — `script-src 'self' 'nonce-{N}' 'strict-dynamic' {sha256-...}`. Per-request nonce + build-time allow-list of emitted scripts. No `unsafe-inline` at the perimeter.
+- **CSRF** — Double-submit cookie. The CSRF token is a session-independent `nonce.HMAC(nonce)` signed with `SESSION_SECRET`. It never embeds the session token or its hash, so an XSS that reads the non-HttpOnly `csrf-token` cookie cannot recover the session.
+- **__Host- cookies** — Both `__Host-session` and `__Host-csrf-token` are bound to the exact host over HTTPS only.
+- **Checkout pricing** — `price_paisa` is loaded from D1; subtotal, delivery, discount, and total are recomputed server-side. Browser-supplied money fields are ignored.
+- **Coupon atomicity** — Limited-use coupons are claimed atomically (`applyCouponAtomic`); on subsequent failure they are released (`releaseCouponUsageAtomic`).
+- **Payment initiation race prevention** — `payment_status = 'processing'` is set atomically before calling UddoktaPay, preventing duplicate active invoices. Provider failure resets status back to `pending`.
+- **Webhook FK safety** — Amount-mismatch alerts resolve an actual `variant_id` from `order_items`, never inject `order_id` into `variant_id`.
+- **Sessions** — Raw token in HttpOnly Secure SameSite=Strict cookie; only the HMAC hash is stored in D1.
+- **RBAC** — 6-role hierarchy enforced on every staff API route via `requirePermission(user, "perm")`.
+- **Rate limiting** — KV sliding window on all public endpoints.
+- **Headers** — HSTS preload, `X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`, `Referrer-Policy`, `Permissions-Policy`.
+- **Origin validation** — login and checkout mutations check the `Origin` header.
+- **Money** — All amounts are INTEGER paisa — no floating point anywhere.
+
+---
 
 ## Deployment
-
-**CI/CD via GitHub Actions + Cloudflare Pages.** Every push to `main` runs quality checks, builds with live D1 snapshots, and deploys to Cloudflare Pages via wrangler-action. Pull requests run quality checks and build verification. Instant one-click rollbacks and zero-downtime releases are built into the Cloudflare platform.
 
 ### Prerequisites
 
 1. Cloudflare account with:
-   - D1 database (`zabir-db`)
-   - KV namespaces (`CACHE`, `SESSION`)
-   - R2 buckets (`zabir-media`, `zabir-backups`)
-2. External service accounts: UddoktaPay, FraudBD, Tinify
+   - D1 database `zabir-db`
+   - KV namespaces `CACHE` and `SESSION`
+   - R2 buckets `zabir-media` and `zabir-backups`
+   - Queues: `payment-webhooks`, `order-emails`, `image-processing`, `fraud-scoring`, `d1-backup`
+   - Durable Object migrations: `v1` (VariantInventoryDO + IdempotencyDO) and `v2` (BudgetCounterDO + WafRules)
+2. External accounts: UddoktaPay, FraudBD, Tinify, Resend, Turnstile, DeepSeek, OpenAI-compatible endpoint
 
-### Environment Variables
+### Secrets
 
-Set these via `wrangler secret put` (never in `.env`):
-
-| Secret | Description |
-|--------|-------------|
-| `SESSION_SECRET` | HMAC key for session tokens + CSRF |
-| `TINIFY_API_KEY` | Image compression API key |
-| `UDDOKTAPAY_API_KEY` | Payment gateway API key |
-| `UDDOKTAPAY_BASE_URL` | `https://sandbox.uddoktapay.com` (dev) |
-| `FRAUDBD_API_KEY` | Fraud scoring API key |
-| `DEEPSEEK_API_KEY` | AI feature API key |
-| `OPENAI_API_KEY` | AI feature API key |
-
-Build-time variables (set in CI):
-
-| Variable | Description |
-|----------|-------------|
-| `CF_ACCOUNT_ID` | Cloudflare account ID |
-| `CF_D1_DATABASE_ID` | D1 database ID |
-| `CF_D1_READ_TOKEN` | D1 read-only API token |
-
-### GitHub Secrets Required
-
-Set these [GitHub Actions secrets](https://github.com/DelwarOfficial/zabir-boutiques/settings/secrets/actions):
+Set via `wrangler secret put` (never commit):
 
 | Secret | Description |
 |--------|-------------|
-| `CF_ACCOUNT_ID` | Cloudflare account ID |
-| `CF_D1_DATABASE_ID` | D1 database ID (`zabir-db`) |
-| `CF_D1_READ_TOKEN` | D1 read-only API token |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare API token with Pages write permissions |
+| `SESSION_SECRET` | HMAC for sessions + CSRF |
+| `PASSWORD_PEPPER` | PBKDF2 password pepper |
+| `TINIFY_API_KEY` | Image compression |
+| `UDDOKTAPAY_API_KEY` | Payment gateway |
+| `UDDOKTAPAY_BASE_URL` | e.g. `https://sandbox.uddoktapay.com` |
+| `FRAUDBD_API_KEY` | Fraud scoring |
+| `RESEND_API_KEY` | Transactional email |
+| `TURNSTILE_SECRET_KEY` | Bot defense |
+| `AI_FALLBACK_KEY` | DeepSeek API key |
+| `AI_FALLBACK_URL` | DeepSeek endpoint |
+| `CF_API_TOKEN` | Cloudflare API token (cache purges) |
+| `CF_ZONE_ID` | Cloudflare zone (cache purges) |
 
-Runtime secrets (`SESSION_SECRET`, `TINIFY_API_KEY`, `UDDOKTAPAY_API_KEY`, etc.) are set via `wrangler secret put` on the Cloudflare Pages project.
-
-### Deploy
-
-Deploy via **GitHub Actions** (push to `main`):
-
-1. Push to `main` → CI runs quality checks → builds with D1 snapshots → deploys to Cloudflare Pages
-2. PRs run quality checks + build verification automatically
-
-Or manually via CLI:
+### Build & deploy
 
 ```bash
-# Set build-time env vars
-set CF_ACCOUNT_ID=xxx && set CF_D1_DATABASE_ID=xxx && set CF_D1_READ_TOKEN=xxx
+# Apply migrations
+npm run db:migrate:prod
 
-# Build with D1 snapshots
-npm run build:with-snapshots
+# Build (D1 snapshots + Astro + bundlewatch)
+npm run build
 
-# Deploy to Cloudflare Pages
-npx wrangler pages deploy dist --project-name zabir-boutiques
+# Deploy
+npm run deploy
 ```
+
+### Environments
+
+`wrangler.jsonc` defines three:
+
+| Environment | Command | Purpose |
+|-------------|---------|---------|
+| `main` (default) | `wrangler deploy` | Production |
+| `staging` | `wrangler deploy --env staging` | Pre-production mirror of prod |
+| `dev` | `wrangler deploy --env dev` | Internal experiments |
 
 ### CI/CD
 
-GitHub Actions (`.github/workflows/`) handles all CI/CD:
+Two GitHub Actions workflows:
 
-| Workflow | Trigger | Jobs |
-|----------|---------|------|
-| `ci.yml` | Pull requests | TypeScript checks, 133 Vitest tests, build verification |
-| `deploy.yml` | Push to `main` | TypeScript checks, tests, production build with D1 snapshots, deploy to Cloudflare Pages via wrangler-action |
+- `ci.yml` — runs on PRs: typecheck, vitest, build verification
+- `deploy.yml` — runs on push to `main`: typecheck, vitest, production build, deploy via wrangler-action
 
-### Cloudflare Pages (Dashboard) Setup
+DR runbook in [`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 
-1. Go to **Cloudflare Dashboard → Workers & Pages → Create → Pages → Connect to Git**
-2. Select your GitHub repo (`DelwarOfficial/zabir-boutiques`)
-3. Set build configuration (if you want preview deployments without relying on wrangler-action):
+---
 
-   | Setting | Value |
-   |---------|-------|
-   | Build command | `npm run build:with-snapshots` |
-   | Build output | `dist` |
-   | Root directory | `/` |
-   | Node.js version | `20` |
+## Operations
 
-4. Add environment variables (must be **Encrypted** for secrets):
+### Monitoring
 
-   | Variable | Type | Description |
-   |----------|------|-------------|
-   | `CF_ACCOUNT_ID` | Plain text | Cloudflare account ID |
-   | `CF_D1_DATABASE_ID` | Plain text | D1 database ID (`zabir-db`) |
-   | `CF_D1_READ_TOKEN` | Encrypted (secret) | D1 read-only API token |
+- **Workers Analytics Engine** — `ANALYTICS` dataset, indexes on `task`, `action`, `variant_id`
+- **Logpush → R2** — every 6h archive; PII scrubber applied (see [`docs/logpush.md`](docs/logpush.md))
+- **Alerting rules** — see [`docs/alerting.md`](docs/alerting.md)
 
-5. Deploy — first build may take 2-3 minutes.
+### Performance
 
-**PR previews** require Cloudflare Pages Git integration to be active alongside GitHub Actions.
+- **Bundle size** — `npm run bundlewatch` enforces a 350KB gz total budget (`scripts/bundlewatch.mjs`)
+- **Core Web Vitals** — `npm run cwv` asserts HTML size, inline-script count, and LCP hints against `scripts/cwv-budget.config.json`
+- **Cache hit rate** — verified via Cloudflare Analytics; SWR keeps product pages warm
+
+### Security
+
+- **Zero Trust Access** for `/staff/*` — config guide in [`docs/zero-trust.md`](docs/zero-trust.md)
+- **WAF custom ruleset** — versioned in `WafRulesDO`; rules cover staff brute-force, checkout throttling, bad-bot UA, and admin-path probes
+
+### Backups
+
+- **D1 → R2** every 6h; retention 30 days
+- **Restore** via `db/migrations/rollback/` runbook (see [`docs/disaster-recovery.md`](docs/disaster-recovery.md))
+- **Verification** cron Sundays 09:00 UTC
+
+---
 
 ## Scripts
 
 | Command | Description |
 |---------|-------------|
-| `npm run dev` | Start Astro dev server |
-| `npm run build` | Generate D1 snapshots + Astro production build |
+| `npm run dev` | Astro dev server |
+| `npm run build` | Snapshots + build + bundlewatch |
 | `npm run build:snapshots` | Generate D1 snapshots only |
-| `npm run build:with-snapshots` | Snapshots + build (used by CI and `deploy`) |
-| `npm run build:skip-snapshots` | Astro build without regenerating snapshots |
+| `npm run build:with-snapshots` | Snapshots + build (no bundlewatch) |
+| `npm run build:skip-snapshots` | Build only (no snapshots, no bundlewatch) |
 | `npm run preview` | Preview production build locally |
 | `npm run typecheck` | `astro check` + `tsc --noEmit` |
-| `npm test` | Run Vitest test suite once |
-| `npm run test:watch` | Run Vitest in watch mode |
+| `npm test` | Vitest test suite (211 tests) |
+| `npm run test:watch` | Vitest watch mode |
+| `npm run bundlewatch` | Assert JS bundle budget |
+| `npm run bundlewatch:update` | Reset budget to current sizes + 5% headroom |
+| `npm run cwv` | Assert Core Web Vitals proxies |
+| `npm run migrate` | Apply pending D1 migrations |
+| `npm run migrate:status` | Show applied/pending |
+| `npm run migrate:rollback-last` | Roll back the most recent migration |
 | `npm run db:migrate:local` | Apply migrations to local D1 |
 | `npm run db:migrate:prod` | Apply migrations to remote D1 |
-| `npm run deploy` | Build (with snapshots) + deploy to Cloudflare Pages |
+| `npm run deploy` | Build + deploy to Cloudflare Pages |
+
+---
 
 ## Testing
 
-**150+ tests across 18 files** covering:
+**211 tests across 21 files** covering:
 
 - Phone normalization (Bangladesh formats)
 - Inventory reservation atomicity and race conditions
@@ -453,28 +539,52 @@ GitHub Actions (`.github/workflows/`) handles all CI/CD:
 - Session token management
 - CSRF token verification (`nonce.HMAC(nonce)` format, tampering, legacy-format rejection)
 - RBAC matrix + staff menu
-- Schema naming conventions
+- Order state machine (transition table + side effects)
+- API keys + role-based dev access
+- Phase 12 extended coverage (audit, prepay, schema naming)
+- Media access
 - Cron import isolation
+- Content moderation (PII, keyword, vendor-pitch blocks)
+- KV-backed autocomplete index
+- Schema naming conventions
+- Race conditions and concurrency
 
 ```bash
-# Run all tests
-npm test
-
-# Watch mode
-npm run test:watch
+npm test            # one-shot
+npm run test:watch  # watch mode
 ```
+
+---
+
+## Documentation
+
+Detailed operational guides in [`docs/`](docs/):
+
+- [`docs/disaster-recovery.md`](docs/disaster-recovery.md) — RPO/RTO, backup/restore runbook
+- [`docs/csp.md`](docs/csp.md) — CSP migration plan, `is:inline` audit
+- [`docs/zero-trust.md`](docs/zero-trust.md) — Cloudflare Access for staff routes
+- [`docs/logpush.md`](docs/logpush.md) — Logpush configuration + PII scrubber
+- [`docs/alerting.md`](docs/alerting.md) — Critical-metric alerting rules
+
+---
 
 ## Guardrails
 
+These are non-negotiable:
+
 - D1 is SQLite — use only SQLite-compatible syntax
 - All money values are INTEGER paisa — no floating-point money
-- Checkout never trusts KV, CDN, or browser data for stock or price — uses fresh D1 reads/conditional updates
+- Checkout never trusts KV, CDN, or browser data for stock or price — uses fresh D1 reads and conditional updates
 - Never create order rows before `reserveVariants()` succeeds
 - Public stock badge API must NOT write KV
 - UddoktaPay paid status requires server-to-server verification
 - Store only HMAC-SHA256 hashes of staff session tokens
 - The CSRF token must be a session-independent `nonce.HMAC(nonce)` — never `sessionToken.hash`
 - All non-GET staff mutations require CSRF
+- Every state-mutating staff action goes through `writeAuditLog`
+- Durable Objects hold concurrency state only — D1 is the source of truth
+
+---
 
 ## License
 
@@ -482,4 +592,6 @@ Proprietary — Zabir Boutiques. All rights reserved.
 
 ---
 
-Built with [Astro](https://astro.build) · [Cloudflare](https://cloudflare.com) · [TypeScript](https://typescriptlang.org)
+<div align="center">
+Built with <a href="https://astro.build">Astro</a> · <a href="https://cloudflare.com">Cloudflare</a> · <a href="https://typescriptlang.org">TypeScript</a>
+</div>
