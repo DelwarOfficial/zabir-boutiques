@@ -3,7 +3,7 @@
   "name": "zabir-boutiques",
   "compatibility_date": "2026-06-04",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "./wrangler-entry.mjs",
+  "main": "./src/entry-cloudflare.ts",
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS"
