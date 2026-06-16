@@ -82,9 +82,24 @@ export async function reconcileInventory(
   // Read the live + baseline rows together. Bounded to MAX_VARIANTS_PER_RUN
   // so the daily cron does not exceed D1's per-DB write limit. The cron
   // is registered in src/lib/cron-dispatch.ts at `0 3 * * *`.
+  //
+  // P0-005 audit fix: `IN (subquery ... ORDER BY ... LIMIT ...)` does NOT
+  // guarantee that the outer query returns rows in the subquery's order.
+  // The previous query rotated through random variants under a 500-cap,
+  // missing drift on the oldest baselines. The CTE form materializes
+  // the candidates with explicit ordering, then the outer JOIN preserves
+  // that order.
   const rows = await db
     .prepare(
-      `SELECT
+      `WITH candidates AS (
+         SELECT variant_id
+         FROM inventory_baseline
+         WHERE baseline_hash = 'pending-first-reconcile'
+            OR set_at < ?1
+         ORDER BY set_at ASC
+         LIMIT ?2
+       )
+       SELECT
          iv.variant_id,
          iv.quantity      AS live_quantity,
          iv.reserved_quantity AS live_reserved,
@@ -93,15 +108,10 @@ export async function reconcileInventory(
          b.baseline_hash,
          b.set_at        AS baseline_set_at,
          b.reconciliation_count AS baseline_recon_count
-       FROM inventory_items iv
-       JOIN inventory_baseline b ON b.variant_id = iv.variant_id
-       WHERE iv.variant_id IN (
-         SELECT variant_id FROM inventory_baseline
-         WHERE baseline_hash = 'pending-first-reconcile'
-         OR set_at < ?1
-         ORDER BY set_at ASC
-         LIMIT ?2
-       )`,
+       FROM candidates c
+       JOIN inventory_items iv ON iv.variant_id = c.variant_id
+       JOIN inventory_baseline b ON b.variant_id = c.variant_id
+       ORDER BY b.set_at ASC`,
     )
     .bind(nowSql(new Date(Date.now() - 24 * 60 * 60 * 1000)), MAX_VARIANTS_PER_RUN)
     .all<{

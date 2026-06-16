@@ -73,7 +73,13 @@ export async function verifyUddoktaPayment(
 }
 
 /**
- * Forward-only payment status update.
+ * Forward-only payment status update. P0-002 audit fix: the
+ * `applyPaymentVerified` function inlines the same UPDATE inside its
+ * atomic batch so the claim + status + side effects are all-or-nothing.
+ * The standalone helper below is kept for callers (e.g. the
+ * reconciliation cron) that need to mark a payment paid without
+ * re-running the inventory deduct.
+ *
  * Will not transition backwards (e.g. paid -> pending).
  */
 export async function markPaymentPaid(
@@ -93,8 +99,8 @@ export async function markPaymentPaid(
 
 /**
  * Forward-only partial-prepay status update (50% advance captured,
- * balance pending on delivery). Mirrors markPaymentPaid semantics but
- * targets the partial-payment terminal status.
+ * balance pending on delivery). Same atomic-batch rationale as
+ * markPaymentPaid above.
  */
 export async function markPaymentPartiallyPaid(
   db: D1Database,
@@ -184,48 +190,9 @@ export async function applyPaymentVerified(
   const isPartialPrepay =
     verified.metadata?.type === 'partial_prepay' || payment.amount_paisa < orderTotalPaisa;
 
-  // 5. Claim the payment_events row. This is the SOLE idempotency gate.
-  const eventResult = await db
-    .prepare(
-      `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
-       VALUES (?1, ?2, ?3, 'webhook', ?4, ?5, ?6)`,
-    )
-    .bind(
-      crypto.randomUUID(),
-      payment.id,
-      invoiceId,
-      isPartialPrepay ? 'partially_paid' : 'paid',
-      verified.rawResponse,
-      now,
-    )
-    .run();
-  if (eventResult.meta.changes !== 1) {
-    return { ok: true, status: isPartialPrepay ? 'partially_paid' : 'paid', isPartialPrepay, alreadyProcessed: true };
-  }
-
-  // 6. Forward-only payments.status update. Replay-safe.
-  if (isPartialPrepay) {
-    await markPaymentPartiallyPaid(db, invoiceId, now);
-  } else {
-    await markPaymentPaid(db, invoiceId, now);
-  }
-
-  // 7. For partial-prepay, the order payment_status advances but the
-  //    stock is NOT deducted (advance only — the COD balance will
-  //    collect the rest on delivery and staff confirm at that point).
-  if (isPartialPrepay) {
-    await db
-      .prepare(
-        `UPDATE orders SET payment_status = 'partially_paid', updated_at = ?2
-         WHERE id = ?1 AND payment_status IN ('created','pending','processing')`,
-      )
-      .bind(payment.order_id, now)
-      .run();
-    return { ok: true, status: 'partially_paid', isPartialPrepay, alreadyProcessed: false };
-  }
-
-  // 8. Full-payment path: confirm reservations + deduct stock + advance
-  //    the order. All in one atomic batch.
+  // 5. Read the active reservations. We need them on the JS side
+  //    because D1 has no way to bind a dynamic list of statements
+  //    without first materializing it via SELECT.
   const reservations = await db
     .prepare(
       `SELECT id, variant_id, quantity FROM stock_reservations
@@ -235,6 +202,70 @@ export async function applyPaymentVerified(
     .all<{ id: string; variant_id: string; quantity: number }>();
   const reservationRows = reservations.results ?? [];
 
+  // 6. Build the entire side-effect batch up-front. P0-002 + P0-003:
+  //    The payment_events claim, payments.status update, and (for full
+  //    payments) the inventory deduct + reservation confirm + order
+  //    status advance ALL run in one atomic batch. If anything fails,
+  //    the entire batch rolls back — including the claim — so a retry
+  //    can re-run everything. This closes the partial-failure window
+  //    where a successful claim but a failed status update left
+  //    payments.status stuck.
+  const eventId = crypto.randomUUID();
+  const claimStmt = db
+    .prepare(
+      `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
+       VALUES (?1, ?2, ?3, 'webhook', ?4, ?5, ?6)`,
+    )
+    .bind(
+      eventId,
+      payment.id,
+      invoiceId,
+      isPartialPrepay ? 'partially_paid' : 'paid',
+      verified.rawResponse,
+      now,
+    );
+
+  if (isPartialPrepay) {
+    // Partial-prepay path: only the claim, the payments.status update,
+    // and the orders.payment_status update. Stock is NOT deducted
+    // here — the COD balance on delivery triggers the deduct via
+    // staff confirm.
+    const partialPaymentStatusStmt = db
+      .prepare(
+        `UPDATE payments SET status = 'partially_paid', verified_at = ?1, updated_at = ?1
+         WHERE invoice_id = ?2 AND status IN ('created','pending','processing')`,
+      )
+      .bind(now, invoiceId);
+    const partialOrderStatusStmt = db
+      .prepare(
+        `UPDATE orders SET payment_status = 'partially_paid', updated_at = ?2
+         WHERE id = ?1 AND payment_status IN ('created','pending','processing')`,
+      )
+      .bind(payment.order_id, now);
+
+    const partialBatch = await db.batch(
+      [claimStmt, partialPaymentStatusStmt, partialOrderStatusStmt],
+      { atomic: true },
+    );
+    const eventResult = partialBatch[0];
+    if (eventResult.meta.changes !== 1) {
+      return {
+        ok: true,
+        status: 'partially_paid',
+        isPartialPrepay: true,
+        alreadyProcessed: true,
+      };
+    }
+    return {
+      ok: true,
+      status: 'partially_paid',
+      isPartialPrepay: true,
+      alreadyProcessed: false,
+    };
+  }
+
+  // Full-payment path: claim + payments.status + deduct + confirm +
+  // order.status, all atomic.
   const deductStmts = reservationRows.map((r) =>
     db
       .prepare(
@@ -251,6 +282,12 @@ export async function applyPaymentVerified(
       .prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`)
       .bind(r.id, now),
   );
+  const paymentStatusStmt = db
+    .prepare(
+      `UPDATE payments SET status = 'paid', verified_at = ?1, updated_at = ?1
+       WHERE invoice_id = ?2 AND status IN ('created','pending','processing')`,
+    )
+    .bind(now, invoiceId);
   const orderStatusStmt = db
     .prepare(
       `UPDATE orders SET payment_status = 'paid', status = 'payment_verified', updated_at = ?2
@@ -258,46 +295,74 @@ export async function applyPaymentVerified(
     )
     .bind(payment.order_id, now);
 
-  await db.batch([...deductStmts, ...confirmStmts, orderStatusStmt], { atomic: true });
+  const fullBatch = await db.batch(
+    [claimStmt, paymentStatusStmt, ...deductStmts, ...confirmStmts, orderStatusStmt],
+    { atomic: true },
+  );
+  const eventResult = fullBatch[0];
+  if (eventResult.meta.changes !== 1) {
+    // The claim was a duplicate. Either a concurrent delivery beat us,
+    // or a previous delivery already processed this invoice. The
+    // `payments.status`, deduct, confirm, and order.status updates
+    // that ran in the same batch are no-ops (the WHERE guards in each
+    // UPDATE return 0 changes for an already-processed payment).
+    return {
+      ok: true,
+      status: 'paid',
+      isPartialPrepay: false,
+      alreadyProcessed: true,
+    };
+  }
 
-  // 9. Re-read order status to detect over-allocation. The batch above
-  //    is all-or-nothing: if any deduct returned 0 changes, the order
-  //    status was NOT updated, and we need to move it to
-  //    'paid_over_allocated' for staff review.
+  // The batch succeeded. Now re-read the order to detect
+  // over-allocation. If the deducts all hit 0 changes, the order
+  // status was not updated and we need to move to 'paid_over_allocated'.
   const orderAfter = await db
     .prepare(`SELECT status FROM orders WHERE id = ?1`)
     .bind(payment.order_id)
     .first<{ status: string }>();
 
   if (orderAfter?.status === 'payment_verified') {
-    return { ok: true, status: 'paid', isPartialPrepay: false, alreadyProcessed: false };
+    return {
+      ok: true,
+      status: 'paid',
+      isPartialPrepay: false,
+      alreadyProcessed: false,
+    };
   }
 
-  // Over-allocated: reservations were rolled back by the atomic batch.
-  // Mark the order paid_over_allocated so staff can source/substitute/
-  // refund, and emit a low_stock_alert.
-  await db
-    .prepare(
-      `UPDATE stock_reservations
-       SET status = 'cancelled', updated_at = ?2
-       WHERE order_id = ?1 AND status = 'active'`,
-    )
-    .bind(payment.order_id, now)
-    .run();
-  await db
-    .prepare(
-      `UPDATE orders SET status = 'paid_over_allocated', updated_at = ?2
-       WHERE id = ?1 AND status NOT IN ('paid_over_allocated','cancelled','refunded')`,
-    )
-    .bind(payment.order_id, now)
-    .run();
-  await db
-    .prepare(
-      `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
-       VALUES (?1, ?2, 'paid_over_allocated for order. Sourcing/substitution/refund needed.', ?3)`,
-    )
-    .bind(crypto.randomUUID(), reservationRows[0]?.variant_id ?? 'unknown', now)
-    .run();
+  // P0-002: over-allocated transition is now a single atomic batch.
+  // Either all three statements commit (stock_reservations cancelled,
+  // order moved to paid_over_allocated, alert written) or none do.
+  await db.batch(
+    [
+      db
+        .prepare(
+          `UPDATE stock_reservations
+           SET status = 'cancelled', updated_at = ?2
+           WHERE order_id = ?1 AND status = 'active'`,
+        )
+        .bind(payment.order_id, now),
+      db
+        .prepare(
+          `UPDATE orders SET status = 'paid_over_allocated', updated_at = ?2
+           WHERE id = ?1 AND status NOT IN ('paid_over_allocated','cancelled','refunded')`,
+        )
+        .bind(payment.order_id, now),
+      db
+        .prepare(
+          `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+           VALUES (?1, ?2, 'paid_over_allocated for order. Sourcing/substitution/refund needed.', ?3)`,
+        )
+        .bind(crypto.randomUUID(), reservationRows[0]?.variant_id ?? 'unknown', now),
+    ],
+    { atomic: true },
+  );
 
-  return { ok: true, status: 'paid_over_allocated', isPartialPrepay: false, alreadyProcessed: false };
+  return {
+    ok: true,
+    status: 'paid_over_allocated',
+    isPartialPrepay: false,
+    alreadyProcessed: false,
+  };
 }

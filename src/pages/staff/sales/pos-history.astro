@@ -1,0 +1,110 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'orders.view')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+const days = Number(Astro.url.searchParams.get('days') ?? '7');
+const safeDays = Math.max(1, Math.min(90, Number.isFinite(days) ? days : 7));
+const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
+
+const invoices = await env.DB.prepare(
+  `SELECT i.id, i.receipt_no, i.created_at, i.status, i.total_paisa,
+          i.amount_paid_paisa, i.change_due_paisa, i.customer_name,
+          u.full_name AS cashier_name
+   FROM invoices i
+   JOIN staff_users u ON u.id = i.cashier_id
+   WHERE i.created_at >= ?1
+   ORDER BY i.created_at DESC
+   LIMIT 100`
+).bind(since).all<{
+  id: string;
+  receipt_no: string;
+  created_at: string;
+  status: string;
+  total_paisa: number;
+  amount_paid_paisa: number;
+  change_due_paisa: number;
+  customer_name: string | null;
+  cashier_name: string;
+}>();
+const rows = invoices.results ?? [];
+const totalRevenue = rows.filter(r => r.status === 'paid').reduce((s, r) => s + r.total_paisa, 0);
+---
+<StaffLayout title="POS Invoices" user={user}>
+  <PageHeader title="POS Invoices" subtitle={`Last ${safeDays} days · ${rows.length} invoice${rows.length === 1 ? '' : 's'}`}>
+    <form method="get" class="flex items-center gap-2 text-xs">
+      <label for="days" class="text-muted">Range:</label>
+      <select id="days" name="days" onchange="this.form.submit()"
+        class="px-2 py-1 border border-line rounded bg-bg text-ink">
+        <option value="1" selected={safeDays === 1}>Today</option>
+        <option value="7" selected={safeDays === 7}>7 days</option>
+        <option value="30" selected={safeDays === 30}>30 days</option>
+        <option value="90" selected={safeDays === 90}>90 days</option>
+      </select>
+    </form>
+  </PageHeader>
+
+  <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
+    <div class="bg-surface border border-line rounded-lg p-3">
+      <div class="text-xs text-muted uppercase tracking-wider">Invoices</div>
+      <div class="text-2xl font-bold mt-1">{rows.length}</div>
+    </div>
+    <div class="bg-surface border border-line rounded-lg p-3">
+      <div class="text-xs text-muted uppercase tracking-wider">Paid revenue</div>
+      <div class="text-2xl font-bold mt-1">৳{Math.floor(totalRevenue / 100).toLocaleString('en-BD')}</div>
+    </div>
+    <div class="bg-surface border border-line rounded-lg p-3">
+      <div class="text-xs text-muted uppercase tracking-wider">Voided</div>
+      <div class="text-2xl font-bold mt-1">{rows.filter(r => r.status === 'voided').length}</div>
+    </div>
+  </div>
+
+  {rows.length === 0 ? (
+    <p class="text-muted text-sm bg-surface border border-line rounded-lg p-6 text-center">No POS invoices in this range.</p>
+  ) : (
+    <div class="overflow-x-auto bg-surface border border-line rounded-lg">
+      <table class="w-full border-collapse text-sm">
+        <thead>
+          <tr class="text-left bg-surface-soft">
+            <th class="px-3 py-2 font-semibold border-b border-line">Receipt</th>
+            <th class="px-3 py-2 font-semibold border-b border-line">When</th>
+            <th class="px-3 py-2 font-semibold border-b border-line">Cashier</th>
+            <th class="px-3 py-2 font-semibold border-b border-line">Customer</th>
+            <th class="px-3 py-2 font-semibold border-b border-line text-right">Total</th>
+            <th class="px-3 py-2 font-semibold border-b border-line text-right">Paid</th>
+            <th class="px-3 py-2 font-semibold border-b border-line text-center">Status</th>
+            <th class="px-3 py-2 font-semibold border-b border-line text-right">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr class="border-b border-line-soft">
+              <td class="px-3 py-2 font-mono text-xs">{r.receipt_no}</td>
+              <td class="px-3 py-2 text-muted text-xs whitespace-nowrap">{r.created_at}</td>
+              <td class="px-3 py-2 text-xs">{r.cashier_name}</td>
+              <td class="px-3 py-2 text-xs">{r.customer_name ?? '—'}</td>
+              <td class="px-3 py-2 text-right">৳{Math.floor(r.total_paisa / 100).toLocaleString('en-BD')}</td>
+              <td class="px-3 py-2 text-right">৳{Math.floor(r.amount_paid_paisa / 100).toLocaleString('en-BD')}</td>
+              <td class="px-3 py-2 text-center">
+                <span class={`text-[10px] px-2 py-0.5 rounded font-semibold uppercase tracking-wider ${r.status === 'paid' ? 'bg-green-100 text-green-800' : r.status === 'voided' ? 'bg-red-100 text-red-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                  {r.status}
+                </span>
+              </td>
+              <td class="px-3 py-2 text-right whitespace-nowrap">
+                <a href={`/api/staff/invoices/${r.id}/print`} target="_blank" rel="noopener"
+                  class="text-xs text-brand no-underline hover:underline">Print</a>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  )}
+</StaffLayout>

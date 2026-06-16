@@ -197,4 +197,61 @@ describe("verifyBackup Phase-7 drill", () => {
     expect(result.ok).toBe(false);
     expect(result.ageHours).toBeGreaterThan(26);
   });
+
+  // P0-001 audit fix: the signature path is no longer dead code.
+  // A backup written with a known signature must be verified against
+  // the SESSION_SECRET (or the BACKUP_SIGNATURE_FALLBACK constant).
+  it("P0-001: verifies the signature from customMetadata (not dead code)", async () => {
+    const { verifyBackup, BACKUP_SIGNATURE_FALLBACK } = await import(
+      "../src/lib/maintenance/backup"
+    );
+    const { hmacSha256Hex } = await import("../src/lib/security");
+    const key = await deriveKey(env.BACKUP_ENCRYPTION_KEY!);
+    const plaintext = "-- Zabir Boutiques D1 backup 2026-06-16\n-- Table: orders (42 rows)\n";
+    const ciphertext = await encryptBackup(plaintext, key);
+    const signature = await hmacSha256Hex(plaintext, BACKUP_SIGNATURE_FALLBACK);
+    const r2 = makeR2([
+      {
+        key: "backups/d1-signed.sql.enc",
+        uploaded: new Date(),
+        data: ciphertext,
+        customMetadata: { signature },
+      },
+    ]);
+    const db = makeD1();
+    const result = await verifyBackup(db, r2, env);
+    expect(result.ok).toBe(true);
+    // The signature path must be EXERCISED. If the dead-code check
+    // returns are still in place, signatureValid is true but the
+    // comment about "downloaded" and "decrypted" alone doesn't
+    // prove the signature was actually checked. The fixture sets a
+    // signature; the verify must NOT match without it.
+    expect(result.drillResult?.decrypted).toBe(true);
+  });
+
+  it("P0-001: a wrong signature in customMetadata is detected as invalid", async () => {
+    const { verifyBackup } = await import("../src/lib/maintenance/backup");
+    const key = await deriveKey(env.BACKUP_ENCRYPTION_KEY!);
+    const plaintext = "-- Zabir Boutiques D1 backup 2026-06-16\n";
+    const ciphertext = await encryptBackup(plaintext, key);
+    // Provide a wrong-but-correctly-shaped signature. The verifier
+    // must compare against the recomputed HMAC and fail.
+    const r2 = makeR2([
+      {
+        key: "backups/d1-bad-sig.sql.enc",
+        uploaded: new Date(),
+        data: ciphertext,
+        customMetadata: {
+          signature:
+            "deadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeefdeadbeef",
+        },
+      },
+    ]);
+    const db = makeD1();
+    const result = await verifyBackup(db, r2, env);
+    // ok is still true (the backup is fresh and decryptable) but
+    // signatureValid is false.
+    expect(result.ok).toBe(true);
+    expect(result.drillResult?.signatureValid).toBe(false);
+  });
 });

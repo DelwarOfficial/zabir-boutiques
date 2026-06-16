@@ -20,6 +20,7 @@ import { env as cloudflareEnv } from 'cloudflare:workers';
 import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
 import { safeLog } from './pii-scrubber';
+import { writeAuditLog } from './audit';
 
 export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
@@ -281,6 +282,24 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
           );
         } catch (err) {
           safeLog.warn('[rbac] session_blacklist mirror failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) });
+        }
+        // P0-004 audit fix: write an audit_log row for the idle-revoke.
+        // Best-effort — the revoke has already committed. A failure here
+        // is logged but does not block the response.
+        try {
+          await writeAuditLog(env.DB, {
+            actorStaffId: row.staff_user_id,
+            actorRole: row.role,
+            action: 'staff.session.idle_revoked',
+            entityType: 'staff_session',
+            entityId: row.session_id,
+            metadata: {
+              idleMs: Math.floor(idleMs),
+              absoluteExpiresAt: row ? null : null, // populated if needed
+            },
+          });
+        } catch (err) {
+          safeLog.warn('[rbac] idle-revoke audit log failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) });
         }
       }
       return null;

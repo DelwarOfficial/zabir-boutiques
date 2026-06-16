@@ -1,0 +1,349 @@
+---
+export const prerender = false;
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'orders.create')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+const variants = await env.DB.prepare(
+  `SELECT pv.id, pv.sku, pv.size, pv.color, pv.price_paisa, p.name AS product_name,
+          (ii.quantity - ii.reserved_quantity) AS available
+   FROM product_variants pv
+   JOIN products p ON p.id = pv.product_id
+   JOIN inventory_items ii ON ii.variant_id = pv.id
+   WHERE pv.is_deleted = 0 AND p.status = 'published' AND ii.quantity > ii.reserved_quantity
+   ORDER BY p.name, pv.size`
+).all<any>();
+const rows = variants.results ?? [];
+---
+<StaffLayout title="POS Invoice" user={user}>
+  <PageHeader title="POS Invoice" subtitle="In-store sale with thermal receipt." />
+
+  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4">
+    <!-- Cart + payments -->
+    <section class="lg:col-span-2 bg-surface border border-line rounded-lg p-4 h-fit">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Customer</h2>
+      <form id="pos-form" class="flex flex-col gap-3">
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="cust-name">Customer name <span class="text-muted">(optional)</span></label>
+          <input id="cust-name" name="name" type="text" autocomplete="off"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="cust-phone">Phone <span class="text-muted">(optional)</span></label>
+          <input id="cust-phone" name="phone" type="tel" placeholder="01712345678" autocomplete="off"
+            pattern="[0-9+\s\-]{10,15}" title="Bangladeshi mobile: 01XXXXXXXXX or +8801XXXXXXXXX"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="discount-paisa">Discount (paisa) <span class="text-muted">(optional)</span></label>
+          <input id="discount-paisa" name="discount" type="number" min="0" value="0" inputmode="numeric"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+        <div>
+          <label class="block text-xs text-ink-secondary mb-1" for="vat-paisa">VAT (paisa) <span class="text-muted">(optional)</span></label>
+          <input id="vat-paisa" name="vat" type="number" min="0" value="0" inputmode="numeric"
+            class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+        </div>
+
+        <div class="mt-2 pt-3 border-t border-line">
+          <div class="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Cart</div>
+          <div id="cart-list" class="text-xs text-muted">Cart is empty. Add items from the right.</div>
+          <div id="cart-totals" class="hidden mt-2 text-sm">
+            <div class="flex justify-between py-0.5"><span class="text-muted">Subtotal</span><span id="sum-subtotal">৳0</span></div>
+            <div class="flex justify-between py-0.5"><span class="text-muted">Discount</span><span id="sum-discount">− ৳0</span></div>
+            <div class="flex justify-between py-0.5"><span class="text-muted">VAT</span><span id="sum-vat">৳0</span></div>
+            <div class="flex justify-between py-1 border-t border-line mt-1 font-bold text-base"><span>Total</span><span id="sum-total">৳0</span></div>
+          </div>
+        </div>
+
+        <div class="mt-2 pt-3 border-t border-line">
+          <div class="text-xs font-semibold uppercase tracking-wider text-muted mb-2">Payment</div>
+          <div class="grid grid-cols-2 gap-2 text-xs">
+            <label class="flex items-center gap-1.5 px-2 py-1.5 border border-line rounded cursor-pointer">
+              <input type="radio" name="pay-method" value="cash" checked class="accent-brand"/> Cash
+            </label>
+            <label class="flex items-center gap-1.5 px-2 py-1.5 border border-line rounded cursor-pointer">
+              <input type="radio" name="pay-method" value="card" class="accent-brand"/> Card
+            </label>
+            <label class="flex items-center gap-1.5 px-2 py-1.5 border border-line rounded cursor-pointer">
+              <input type="radio" name="pay-method" value="bkash" class="accent-brand"/> bKash
+            </label>
+            <label class="flex items-center gap-1.5 px-2 py-1.5 border border-line rounded cursor-pointer">
+              <input type="radio" name="pay-method" value="nagad" class="accent-brand"/> Nagad
+            </label>
+            <label class="flex items-center gap-1.5 px-2 py-1.5 border border-line rounded cursor-pointer">
+              <input type="radio" name="pay-method" value="rocket" class="accent-brand"/> Rocket
+            </label>
+            <label class="flex items-center gap-1.5 px-2 py-1.5 border border-line rounded cursor-pointer">
+              <input type="radio" name="pay-method" value="bank_transfer" class="accent-brand"/> Bank
+            </label>
+          </div>
+          <div class="mt-2">
+            <label class="block text-xs text-ink-secondary mb-1" for="amount-paid">Amount paid (paisa)</label>
+            <input id="amount-paid" name="amount-paid" type="number" min="0" value="0" inputmode="numeric"
+              class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
+          </div>
+          <div class="flex justify-between py-0.5 mt-1 text-sm">
+            <span class="text-muted">Change</span><span id="change-due">৳0</span>
+          </div>
+        </div>
+
+        <button type="submit" id="submit-btn" disabled
+          class="mt-1 py-2.5 bg-brand text-white rounded-lg font-semibold text-sm border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          Issue Receipt
+        </button>
+        <p id="form-msg" class="text-xs text-center m-0 hidden"></p>
+      </form>
+    </section>
+
+    <!-- Product picker -->
+    <section class="lg:col-span-3 bg-surface border border-line rounded-lg p-4">
+      <div class="flex items-center justify-between mb-3 gap-2">
+        <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0">Products</h2>
+        <input id="prod-filter" type="search" placeholder="Filter…"
+          class="px-2.5 py-1.5 border border-line rounded-md bg-bg text-ink text-xs box-border w-40" />
+      </div>
+      {rows.length > 0 ? (
+        <div class="overflow-x-auto max-h-[460px] overflow-y-auto">
+          <table class="w-full border-collapse text-sm">
+            <thead>
+              <tr class="text-left sticky top-0 bg-surface">
+                <th class="px-2 py-2 font-semibold border-b border-line">Product</th>
+                <th class="px-2 py-2 font-semibold border-b border-line">Size</th>
+                <th class="px-2 py-2 font-semibold border-b border-line text-right">Price</th>
+                <th class="px-2 py-2 font-semibold border-b border-line text-center">Avail</th>
+                <th class="px-2 py-2 font-semibold border-b border-line text-center w-20">Add</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((v) => (
+                <tr class="border-b border-line-soft pos-row" data-name={`${v.product_name} ${v.size ?? ''} ${v.color ?? ''}`.toLowerCase()}>
+                  <td class="px-2 py-1.5">{v.product_name}</td>
+                  <td class="px-2 py-1.5 text-muted">{[v.size, v.color].filter(Boolean).join(' / ') || '—'}</td>
+                  <td class="px-2 py-1.5 text-right">৳{Math.floor((v.price_paisa ?? 0) / 100)}</td>
+                  <td class="px-2 py-1.5 text-center text-muted">{v.available}</td>
+                  <td class="px-2 py-1.5 text-center">
+                    <button type="button" class="add-btn px-2 py-1 bg-brand text-white rounded text-xs border-0 cursor-pointer"
+                      data-variant-id={v.id}
+                      data-name={v.product_name}
+                      data-label={[v.size, v.color].filter(Boolean).join(' / ') || v.sku}
+                      data-price={v.price_paisa}
+                      data-available={v.available}>+ Add</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      ) : (
+        <p class="text-muted text-sm">No products with available stock.</p>
+      )}
+    </section>
+  </div>
+
+  <p class="text-xs text-muted mt-5">POS invoices are separate from online orders. Stock is deducted immediately and the receipt is auto-printed. Refunds go through the Returns flow.</p>
+</StaffLayout>
+
+<script nonce={Astro.locals.cspNonce} is:inline>
+  // Cart state. variantId → { name, label, pricePaisa, qty }.
+  const cart = new Map();
+
+  // Cache CSRF cookie (the same __Host-csrf-token must be echoed
+  // back in the X-CSRF-Token header).
+  function getCookie(name) {
+    const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]+)'));
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  // Render the cart UI and recompute totals.
+  function taka(p) { return '\u09f3' + Math.floor(p / 100); }
+  function fmt(p) { return p === 0 ? '৳0' : taka(p); }
+
+  function renderCart() {
+    const list = document.getElementById('cart-list');
+    const totals = document.getElementById('cart-totals');
+    const submit = document.getElementById('submit-btn');
+    if (cart.size === 0) {
+      list.textContent = 'Cart is empty. Add items from the right.';
+      totals.classList.add('hidden');
+      submit.disabled = true;
+      return;
+    }
+    totals.classList.remove('hidden');
+    submit.disabled = false;
+    let subtotal = 0;
+    const rows = [];
+    for (const [vid, it] of cart) {
+      const lineTotal = it.pricePaisa * it.qty;
+      subtotal += lineTotal;
+      rows.push(
+        '<div class="flex items-center justify-between gap-2 py-1 border-b border-line-soft">' +
+          '<div class="text-xs"><div class="font-medium">' + escapeHtml(it.name) + '</div><div class="text-muted">' + escapeHtml(it.label) + '</div></div>' +
+          '<div class="flex items-center gap-1">' +
+            '<button type="button" class="qty-dec px-2 py-0.5 text-sm border border-line rounded" data-vid="' + vid + '">−</button>' +
+            '<input type="number" class="qty-input w-12 text-center text-sm border border-line rounded" data-vid="' + vid + '" min="1" max="' + it.available + '" value="' + it.qty + '"/>' +
+            '<button type="button" class="qty-inc px-2 py-0.5 text-sm border border-line rounded" data-vid="' + vid + '">+</button>' +
+            '<button type="button" class="remove-btn px-2 py-0.5 text-sm text-red-600 border-0" data-vid="' + vid + '">×</button>' +
+          '</div>' +
+          '<div class="text-xs text-right whitespace-nowrap"><div>' + fmt(lineTotal) + '</div><div class="text-muted">' + it.qty + ' × ' + fmt(it.pricePaisa) + '</div></div>' +
+        '</div>'
+      );
+    }
+    list.innerHTML = rows.join('');
+    const discount = Math.max(0, parseInt(document.getElementById('discount-paisa').value || '0', 10) || 0);
+    const vat = Math.max(0, parseInt(document.getElementById('vat-paisa').value || '0', 10) || 0);
+    const total = Math.max(0, subtotal - discount + vat);
+    document.getElementById('sum-subtotal').textContent = fmt(subtotal);
+    document.getElementById('sum-discount').textContent = '− ' + fmt(discount);
+    document.getElementById('sum-vat').textContent = fmt(vat);
+    document.getElementById('sum-total').textContent = fmt(total);
+    updateChange(total);
+  }
+
+  function updateChange(total) {
+    const paid = Math.max(0, parseInt(document.getElementById('amount-paid').value || '0', 10) || 0);
+    const change = Math.max(0, paid - total);
+    document.getElementById('change-due').textContent = fmt(change);
+  }
+
+  function escapeHtml(s) {
+    return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&apos;' }[c]));
+  }
+
+  // Wire up the "Add" buttons.
+  document.querySelectorAll('.add-btn').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const vid = btn.dataset.variantId;
+      const existing = cart.get(vid);
+      if (existing) {
+        if (existing.qty + 1 > existing.available) return;
+        existing.qty += 1;
+      } else {
+        cart.set(vid, {
+          name: btn.dataset.name,
+          label: btn.dataset.label,
+          pricePaisa: parseInt(btn.dataset.price, 10),
+          available: parseInt(btn.dataset.available, 10),
+          qty: 1,
+        });
+      }
+      renderCart();
+    });
+  });
+
+  // Cart interactions (delegated).
+  document.getElementById('cart-list').addEventListener('click', (ev) => {
+    const t = ev.target;
+    if (t.classList.contains('qty-inc')) {
+      const vid = t.dataset.vid;
+      const it = cart.get(vid);
+      if (it && it.qty < it.available) { it.qty += 1; renderCart(); }
+    } else if (t.classList.contains('qty-dec')) {
+      const vid = t.dataset.vid;
+      const it = cart.get(vid);
+      if (it && it.qty > 1) { it.qty -= 1; renderCart(); }
+    } else if (t.classList.contains('remove-btn')) {
+      cart.delete(t.dataset.vid);
+      renderCart();
+    }
+  });
+  document.getElementById('cart-list').addEventListener('change', (ev) => {
+    const t = ev.target;
+    if (t.classList.contains('qty-input')) {
+      const vid = t.dataset.vid;
+      const it = cart.get(vid);
+      if (!it) return;
+      let q = parseInt(t.value, 10);
+      if (!Number.isFinite(q) || q < 1) q = 1;
+      if (q > it.available) q = it.available;
+      it.qty = q;
+      renderCart();
+    }
+  });
+
+  // Discount / VAT / amount-paid re-render the cart.
+  ['discount-paisa', 'vat-paisa', 'amount-paid'].forEach((id) => {
+    document.getElementById(id).addEventListener('input', renderCart);
+  });
+
+  // Product filter.
+  document.getElementById('prod-filter').addEventListener('input', (ev) => {
+    const q = ev.target.value.trim().toLowerCase();
+    document.querySelectorAll('.pos-row').forEach((row) => {
+      row.style.display = (!q || row.dataset.name.includes(q)) ? '' : 'none';
+    });
+  });
+
+  // Form submit.
+  document.getElementById('pos-form').addEventListener('submit', async (ev) => {
+    ev.preventDefault();
+    const msg = document.getElementById('form-msg');
+    const submit = document.getElementById('submit-btn');
+    if (cart.size === 0) return;
+    submit.disabled = true;
+    msg.classList.remove('hidden');
+    msg.textContent = 'Issuing receipt…';
+    msg.className = 'text-xs text-center m-0 text-muted';
+
+    const items = [];
+    for (const [vid, it] of cart) {
+      items.push({ variant_id: vid, quantity: it.qty });
+    }
+    const methodEl = document.querySelector('input[name="pay-method"]:checked');
+    const method = methodEl ? methodEl.value : 'cash';
+    const amountPaid = parseInt(document.getElementById('amount-paid').value || '0', 10) || 0;
+    const discount = parseInt(document.getElementById('discount-paisa').value || '0', 10) || 0;
+    const vat = parseInt(document.getElementById('vat-paisa').value || '0', 10) || 0;
+
+    const body = {
+      idempotency_key: crypto.randomUUID(),
+      customer_name: document.getElementById('cust-name').value.trim() || undefined,
+      customer_phone: document.getElementById('cust-phone').value.trim() || undefined,
+      discount_paisa: discount,
+      vat_paisa: vat,
+      items,
+      payments: [{ method, amount_paisa: amountPaid }],
+    };
+
+    try {
+      const res = await fetch('/api/staff/invoices', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-CSRF-Token': getCookie('__Host-csrf-token') || '',
+        },
+        body: JSON.stringify(body),
+        credentials: 'same-origin',
+      });
+      const json = await res.json();
+      if (!res.ok || !json.ok) {
+        msg.textContent = (json && json.message) || ('Failed: HTTP ' + res.status);
+        msg.className = 'text-xs text-center m-0 text-red-600';
+        submit.disabled = false;
+        return;
+      }
+      // Open the print page in a new tab. The cashier's browser
+      // handles the print dialog (which may be a thermal printer
+      // dialog if the OS has the right driver).
+      const printUrl = '/api/staff/invoices/' + json.invoice_id + '/print';
+      window.open(printUrl, '_blank', 'noopener,noreferrer');
+      msg.textContent = 'Issued ' + json.receipt_no + ' — opening print dialog…';
+      msg.className = 'text-xs text-center m-0 text-green-600';
+      // Clear the cart so the cashier can start the next sale.
+      cart.clear();
+      renderCart();
+    } catch (err) {
+      msg.textContent = 'Network error: ' + (err && err.message ? err.message : err);
+      msg.className = 'text-xs text-center m-0 text-red-600';
+      submit.disabled = false;
+    }
+  });
+
+  renderCart();
+</script>

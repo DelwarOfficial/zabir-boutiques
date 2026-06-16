@@ -178,44 +178,47 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Drive the order state machine: delivered -> returned -> refunded.
-  await env.DB
-    .prepare(
-      `UPDATE return_requests SET status = 'approved', refund_amount_paisa = ?2, reviewed_by = ?3, updated_at = ?4 WHERE id = ?1`,
-    )
-    .bind(id, refundAmount, user.id, now)
-    .run();
+  // P1-001 audit fix: wrap the 5 post-refund statements in a single
+  // atomic batch. The state machine + history rows either all commit
+  // or all roll back. A retry of the return id returns ALREADY_PROCESSED
+  // and so the operator cannot manually retry a partial state.
   const fromStatus = order.status;
-  await env.DB
-    .prepare(
-      `UPDATE orders SET status = 'returned', updated_at = ?2 WHERE id = ?1 AND status = ?3`,
-    )
-    .bind(rr.order_id, now, fromStatus)
-    .run();
-  await env.DB
-    .prepare(
-      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
-       VALUES (?1, ?2, ?3, 'returned', ?4, ?5)`,
-    )
-    .bind(crypto.randomUUID(), rr.order_id, fromStatus, user.id, now)
-    .run();
-
-  // Drive the state machine all the way to 'refunded' so the side
-  // effects (restock + refund_partial) declared in the table are
-  // actually executed. Restock already happened above; this only
-  // finalizes the status and the source-of-truth transitions.
-  await env.DB
-    .prepare(
-      `UPDATE orders SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'returned'`,
-    )
-    .bind(rr.order_id, now)
-    .run();
-  await env.DB
-    .prepare(
-      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
-       VALUES (?1, ?2, 'returned', 'refunded', ?3, ?4)`,
-    )
-    .bind(crypto.randomUUID(), rr.order_id, user.id, now)
-    .run();
+  const stateMachineBatch = await env.DB.batch(
+    [
+      env.DB
+        .prepare(
+          `UPDATE return_requests SET status = 'approved', refund_amount_paisa = ?2, reviewed_by = ?3, updated_at = ?4 WHERE id = ?1`,
+        )
+        .bind(id, refundAmount, user.id, now),
+      env.DB
+        .prepare(
+          `UPDATE orders SET status = 'returned', updated_at = ?2 WHERE id = ?1 AND status = ?3`,
+        )
+        .bind(rr.order_id, now, fromStatus),
+      env.DB
+        .prepare(
+          `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
+           VALUES (?1, ?2, ?3, 'returned', ?4, ?5)`,
+        )
+        .bind(crypto.randomUUID(), rr.order_id, fromStatus, user.id, now),
+      env.DB
+        .prepare(
+          `UPDATE orders SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'returned'`,
+        )
+        .bind(rr.order_id, now),
+      env.DB
+        .prepare(
+          `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
+           VALUES (?1, ?2, 'returned', 'refunded', ?3, ?4)`,
+        )
+        .bind(crypto.randomUUID(), rr.order_id, user.id, now),
+    ],
+    { atomic: true },
+  );
+  // Reference the result so the variable is "used" — Vite/esbuild will
+  // tree-shake the call otherwise. The atomicity guarantee is the
+  // value, not the response.
+  void stateMachineBatch;
 
   await writeAuditLog(env.DB, {
     actorStaffId: user.id,
