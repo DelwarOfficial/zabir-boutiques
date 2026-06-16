@@ -156,11 +156,18 @@ function withSecurityHeaders(response: Response, nonce: string): Response {
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   // Master_Prompt v7.0 §9.5: per-request nonce + build-time SHA-256
   // hashes for any script the app generated (loaded from
-  // dist/csp-hashes.json, written by scripts/csp-hashes-plugin.mjs).
-  // 'strict-dynamic' trusts dynamically-loaded scripts too. Inline
-  // scripts that the app ships on its own pages are accounted for
-  // in dist/csp-hashes.json — see docs/csp.md for the migration
-  // status of the 12 <script is:inline> blocks.
+  // src/generated/csp-hashes.ts, written by scripts/csp-hashes-plugin.mjs).
+  // The plugin walks both dist/client/_astro (Astro build output) and
+  // src/{pages,components,layouts,islands} for <script> blocks. Every
+  // emitted script — Astro-internal, inline, or external — has a
+  // matching hash, so the per-page nonce + 'strict-dynamic' allow the
+  // browser to load them all without 'unsafe-inline' in script-src.
+  //
+  // style-src 'self' 'unsafe-inline' is intentional: Astro's scoped
+  // styles inject inline style attributes for hash-scoped classnames
+  // and CSS-in-JS. Removing 'unsafe-inline' here would break the
+  // build. The risk is bounded because style attributes cannot
+  // execute JavaScript (no XSS via style). See docs/csp.md.
   const scriptHashes = getCspScriptHashes();
   const scriptSrc = [
     "'self'",

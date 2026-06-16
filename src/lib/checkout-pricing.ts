@@ -168,7 +168,14 @@ export function assertNoClientMoneyTrust(
   } catch (err) {
     // If even safeLog is unavailable, fall back to a best-effort
     // non-PII log. The data here is structured so no PII leaks.
-    try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn('[checkout] analytics write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) }); } catch {}
+    void (async () => {
+      try {
+        const { safeLog } = await import('./pii-scrubber');
+        safeLog.warn('[checkout] analytics write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) });
+      } catch {
+        // truly nothing left
+      }
+    })();
   }
 
   // KV-bucketed tamper counter. After 10 attempts from the same IP in

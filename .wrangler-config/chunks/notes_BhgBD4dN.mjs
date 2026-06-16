@@ -1,0 +1,31 @@
+globalThis.process ??= {};
+globalThis.process.env ??= {};
+import { c as createComponent } from "./astro-component_mvRJbLGV.mjs";
+import { r as renderTemplate, m as maybeRenderHead } from "./sequence_XySMyPne.mjs";
+import { f as renderComponent } from "./worker-entry_CjpE2ho_.mjs";
+import { $ as $$StaffLayout } from "./StaffLayout_CdcerS8F.mjs";
+import { $ as $$PageHeader } from "./PageHeader_93CCipe8.mjs";
+import { $ as $$ComingSoon } from "./ComingSoon_uVxpAChw.mjs";
+import { g as getCurrentStaffUser, f as can } from "./rbac_cfH-YcoZ.mjs";
+const prerender = false;
+const $$Notes = createComponent(async ($$result, $$props, $$slots) => {
+  const Astro2 = $$result.createAstro($$props, $$slots);
+  Astro2.self = $$Notes;
+  const user = await getCurrentStaffUser(Astro2);
+  if (!user) return Astro2.redirect("/staff/login");
+  if (!can(user.role, "support.note")) return new Response("Forbidden", { status: 403 });
+  return renderTemplate`${renderComponent($$result, "StaffLayout", $$StaffLayout, { "title": "Customer Notes", "user": user }, { "default": async ($$result2) => renderTemplate` ${renderComponent($$result2, "PageHeader", $$PageHeader, { "title": "Customer Notes", "subtitle": "View and add customer notes across orders." })} ${renderComponent($$result2, "ComingSoon", $$ComingSoon, { "title": "Customer notes are coming", "description": "A running log of notes per customer so the whole team shares the same context." }, { "default": async ($$result3) => renderTemplate` ${maybeRenderHead()}<ul class="list-disc pl-5 space-y-1"> <li>Add timestamped notes against a phone number</li> <li>See prior interactions before calling back</li> <li>Flag VIP and repeat customers</li> </ul> ` })} ` })}`;
+}, "D:/Antigravity/zabir-boutiques/src/pages/staff/sales/notes.astro", void 0);
+const $$file = "D:/Antigravity/zabir-boutiques/src/pages/staff/sales/notes.astro";
+const $$url = "/staff/sales/notes";
+const _page = /* @__PURE__ */ Object.freeze(/* @__PURE__ */ Object.defineProperty({
+  __proto__: null,
+  default: $$Notes,
+  file: $$file,
+  prerender,
+  url: $$url
+}, Symbol.toStringTag, { value: "Module" }));
+const page = () => _page;
+export {
+  page
+};

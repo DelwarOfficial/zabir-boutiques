@@ -35,6 +35,7 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 - [Scripts](#scripts)
 - [Testing](#testing)
 - [Documentation](#documentation)
+- [Changelog](CHANGELOG.md)
 - [Guardrails](#guardrails)
 - [License](#license)
 
@@ -561,10 +562,19 @@ npm run test:watch  # watch mode
 Detailed operational guides in [`docs/`](docs/):
 
 - [`docs/disaster-recovery.md`](docs/disaster-recovery.md) — RPO/RTO, backup/restore runbook
-- [`docs/csp.md`](docs/csp.md) — CSP migration plan, `is:inline` audit
+- [`docs/csp.md`](docs/csp.md) — CSP per-nonce model + inline-script migration status
 - [`docs/zero-trust.md`](docs/zero-trust.md) — Cloudflare Access for staff routes
 - [`docs/logpush.md`](docs/logpush.md) — Logpush configuration + PII scrubber
 - [`docs/alerting.md`](docs/alerting.md) — Critical-metric alerting rules
+
+Top-level references:
+
+- [`CHANGELOG.md`](CHANGELOG.md) — release notes for v7.0.0 (the audit-fix
+  release) and v6.8.0
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — pre-deploy checklist, secret
+  rotation, smoke tests, rollback runbook
+- [`AGENTS.md`](AGENTS.md) — agent rules (architecture overview,
+  guardrails, graphify)
 
 ---
 
