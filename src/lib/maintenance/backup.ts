@@ -18,6 +18,14 @@ import { nowSql } from "../dates";
 import { hmacSha256Hex, generateRandomHex } from "../security";
 import { recordMediaObject } from "../media-access";
 
+/** Fallback secret for HMAC-signing backups when SESSION_SECRET is unset.
+ *  Production MUST set SESSION_SECRET; this constant exists only to keep
+ *  dev environments functional. The constant is shared between the
+ *  write path (backupD1ToR2) and the read path (verifyBackup) so the
+ *  signature round-trip works in dev.
+ */
+export const BACKUP_SIGNATURE_FALLBACK = "fallback-signature-secret";
+
 const TABLES = [
   "schema_migrations",
   "staff_users",
@@ -128,8 +136,9 @@ export async function backupD1ToR2(
   const plaintextBytes = new TextEncoder().encode(plaintext);
 
   // Sign the plaintext first. The signature is over plaintext so the
-  // restore path can verify after decryption.
-  const signatureSecret = env.SESSION_SECRET ?? "fallback-signature-secret";
+  // restore path can verify after decryption. The fallback constant
+  // matches the verifyBackup fallback (see P0-001 audit fix).
+  const signatureSecret = env.SESSION_SECRET ?? BACKUP_SIGNATURE_FALLBACK;
   const signature = await hmacSha256Hex(plaintext, signatureSecret);
 
   // Encrypt with AES-256-GCM. Key is derived from BACKUP_ENCRYPTION_KEY
@@ -283,9 +292,14 @@ export async function verifyBackup(
     drill.downloaded = true;
 
     const ciphertext = new Uint8Array(await obj.arrayBuffer());
-    const signature = obj.httpMetadata?.contentType === undefined
-      ? (obj as unknown as { customMetadata?: { signature?: string } }).customMetadata?.signature
-      : undefined;
+    // P0-001 audit fix: read customMetadata directly. R2's httpMetadata
+    // and customMetadata are independent fields — the previous condition
+    // (contentType === undefined) was almost never true, which made the
+    // signature check dead code. Backups written before the signature
+    // change have no signature; backups written after have it in
+    // customMetadata.signature.
+    const signature = (obj as unknown as { customMetadata?: { signature?: string } })
+      .customMetadata?.signature;
 
     const keyMaterial = env.BACKUP_ENCRYPTION_KEY ?? env.SESSION_SECRET;
     if (!keyMaterial) {
@@ -296,7 +310,12 @@ export async function verifyBackup(
     drill.decrypted = true;
 
     if (signature) {
-      const expectedSignature = await hmacSha256Hex(new TextDecoder().decode(plaintext), env.SESSION_SECRET ?? "fallback");
+      // P0-001: use the same fallback constant as the write path so
+      // dev environments can verify their own backups.
+      const expectedSignature = await hmacSha256Hex(
+        new TextDecoder().decode(plaintext),
+        env.SESSION_SECRET ?? BACKUP_SIGNATURE_FALLBACK,
+      );
       drill.signatureValid = expectedSignature === signature;
     } else {
       // Backups written before the signature change have no signature.
@@ -316,8 +335,17 @@ export async function verifyBackup(
   }
 
   // Write a summary alert so the staff dashboard surfaces the drill.
+  // Include the top-5 tables by row count so operators can spot
+  // structural anomalies at a glance.
+  const topTables = drill
+    ? Object.entries(drill.rowCountByTable)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 5)
+        .map(([name, count]) => `${name}=${count}`)
+        .join(" ")
+    : "";
   const drillSummary = drill
-    ? `drill: downloaded=${drill.downloaded} decrypted=${drill.decrypted} sig=${drill.signatureValid} tables=${Object.keys(drill.rowCountByTable).length}`
+    ? `drill: downloaded=${drill.downloaded} decrypted=${drill.decrypted} sig=${drill.signatureValid} tables=${Object.keys(drill.rowCountByTable).length}${topTables ? " top=" + topTables : ""}`
     : "drill: not run";
   await db
     .prepare(

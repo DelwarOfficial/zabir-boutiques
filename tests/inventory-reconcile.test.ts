@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect } from 'vitest';
 
 /**
  * Tests for the Phase-7 inventory reconciliation rewrite.
@@ -15,21 +15,32 @@ function makeStubD1(handler: (sql: string, params: any[]) => SqlRow[] = () => []
     prepare(sql: string) {
       let bound: any[] = [];
       const stmt: any = {
-        bind(...params: any[]) { bound = params; return stmt; },
-        async all<T>() { return { results: handler(sql, bound) as T[] }; },
-        async first<T>() { return (handler(sql, bound)[0] ?? null) as T; },
-        async run() { return { meta: { changes: 1 } }; }
+        bind(...params: any[]) {
+          bound = params;
+          return stmt;
+        },
+        async all<T>() {
+          return { results: handler(sql, bound) as T[] };
+        },
+        async first<T>() {
+          return (handler(sql, bound)[0] ?? null) as T;
+        },
+        async run() {
+          return { meta: { changes: 1 } };
+        },
       };
       return stmt;
-    }
+    },
   } as unknown as D1Database;
 }
 
 describe('reconcileInventory (Phase-7 baseline tracking)', () => {
   it('returns a no-drift report when live matches baseline', async () => {
-    // matchFirst returns the row for the live+baseline join.
+    // P0-005 audit fix: the SELECT now uses a WITH clause and joins
+    // candidates → inventory_items → inventory_baseline. Match the
+    // outer SELECT to return the test fixtures.
     const db = makeStubD1((sql) => {
-      if (/FROM inventory_items iv[\s\S]+inventory_baseline b/.test(sql)) {
+      if (/WITH candidates AS/.test(sql)) {
         return [
           {
             variant_id: 'v1',
@@ -53,7 +64,7 @@ describe('reconcileInventory (Phase-7 baseline tracking)', () => {
 
   it('reports drift when live quantity diverges from baseline', async () => {
     const db = makeStubD1((sql) => {
-      if (/FROM inventory_items iv[\s\S]+inventory_baseline b/.test(sql)) {
+      if (/WITH candidates AS/.test(sql)) {
         return [
           {
             variant_id: 'v1',
@@ -81,7 +92,7 @@ describe('reconcileInventory (Phase-7 baseline tracking)', () => {
 
   it('does NOT report drift when within DISCREPANCY_THRESHOLD (2)', async () => {
     const db = makeStubD1((sql) => {
-      if (/FROM inventory_items iv[\s\S]+inventory_baseline b/.test(sql)) {
+      if (/WITH candidates AS/.test(sql)) {
         return [
           {
             variant_id: 'v1',
@@ -104,7 +115,7 @@ describe('reconcileInventory (Phase-7 baseline tracking)', () => {
 
   it('classifies soft drift at 3-10 units and hard drift at >10', async () => {
     const db = makeStubD1((sql) => {
-      if (/FROM inventory_items iv[\s\S]+inventory_baseline b/.test(sql)) {
+      if (/WITH candidates AS/.test(sql)) {
         return [
           {
             variant_id: 'soft',

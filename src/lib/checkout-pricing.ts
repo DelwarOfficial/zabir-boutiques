@@ -178,34 +178,70 @@ export function assertNoClientMoneyTrust(
     })();
   }
 
-  // KV-bucketed tamper counter. After 10 attempts from the same IP in
-  // a 5-minute window, write a low_stock_alert. KV is eventually
-  // consistent, so two simultaneous requests can both pass the
-  // threshold — that's acceptable (the alert is duplicated, not
-  // bypassed).
-  if (!env.CACHE || !context?.ip) return;
+  // P1-002 audit fix: atomic tamper counter via D1 ON CONFLICT.
+  // The previous KV read-modify-write was racy under concurrency —
+  // two requests from the same IP could both read 9 and both write
+  // 10, neither seeing the other's increment. The D1 INSERT ... ON
+  // CONFLICT DO UPDATE SET count = count + 1 is serialized on the
+  // unique (ip, window_id) index. The `RETURNING count` clause
+  // gives us the post-increment value, which we compare against
+  // the alert threshold (10).
+  const ip = context?.ip;
+  const db = env?.DB;
+  if (!ip || !db) return;
   const windowId = Math.floor(Date.now() / (5 * 60 * 1000));
-  const key = `tamper:${context.ip}:${windowId}`;
+  const nowStr = context?.now ?? new Date().toISOString().replace('T', ' ').slice(0, 19);
+  const ip_ = ip;
+  const db_ = db;
   void (async () => {
     try {
-      const current = Number((await env.CACHE!.get(key)) ?? '0');
-      const next = current + 1;
-      await env.CACHE!.put(key, String(next), { expirationTtl: 60 * 10 });
-      if (next === 10 && env.DB) {
-        await env.DB
+      const result = await db_
+        .prepare(
+          `INSERT INTO tamper_lockout (ip, window_id, count, last_attempt_at, alerted_at)
+           VALUES (?1, ?2, 1, ?3, NULL)
+           ON CONFLICT (ip, window_id) DO UPDATE SET
+             count = count + 1,
+             last_attempt_at = excluded.last_attempt_at
+           RETURNING count`,
+        )
+        .bind(ip_, windowId, nowStr)
+        .first<{ count: number }>();
+      const count = result?.count ?? 0;
+
+      // Alert at the threshold and ONLY if the row was not previously
+      // alerted. The `alerted_at IS NULL` guard ensures at most one
+      // alert per (ip, window_id) even if 20 concurrent requests
+      // race past the threshold. We also bound by `count = 10`
+      // exactly so the first request that crosses the threshold is
+      // the one that fires the alert.
+      if (count === 10) {
+        const claimed = await db_
           .prepare(
-            `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
-             VALUES (?1, 'system', ?2, ?3)`,
+            `UPDATE tamper_lockout
+             SET alerted_at = ?3
+             WHERE ip = ?1 AND window_id = ?2 AND alerted_at IS NULL`,
           )
-          .bind(
-            crypto.randomUUID(),
-            `client_money_tampering_abuse ip=${context.ip} fields=${present.join(',')}`,
-            context.now ?? new Date().toISOString().replace('T', ' ').slice(0, 19),
-          )
+          .bind(ip_, windowId, nowStr)
           .run();
+        if (claimed.meta.changes === 1) {
+          await db_
+            .prepare(
+              `INSERT INTO low_stock_alerts (id, variant_id, message, created_at)
+               VALUES (?1, 'system', ?2, ?3)`,
+            )
+            .bind(
+              crypto.randomUUID(),
+              `client_money_tampering_abuse ip=${ip_} fields=${present.join(',')}`,
+              nowStr,
+            )
+            .run();
+        }
       }
     } catch (err) {
-      try { const { safeLog } = await import('./pii-scrubber'); safeLog.warn('[checkout] tamper counter write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) }); } catch {}
+      try {
+        const { safeLog } = await import('./pii-scrubber');
+        safeLog.warn('[checkout] tamper counter write failed (non-fatal)', { error: err instanceof Error ? err.message : String(err) });
+      } catch {}
     }
   })();
 }
