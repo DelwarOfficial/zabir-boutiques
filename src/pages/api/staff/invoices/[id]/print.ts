@@ -15,9 +15,9 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
-import { getEnv } from "../../../../lib/env";
-import { requireAuth, requirePermission, RbacError } from "../../../../lib/rbac";
-import { loadInvoiceForPrint } from "../../../../lib/invoices";
+import { getEnv } from "../../../../../lib/env";
+import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";
+import { loadInvoiceForPrint } from "../../../../../lib/invoices";
 
 function escapeHtml(s: string): string {
   return s

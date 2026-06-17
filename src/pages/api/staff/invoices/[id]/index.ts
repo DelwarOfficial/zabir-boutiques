@@ -7,9 +7,9 @@
 export const prerender = false;
 
 import type { APIContext } from "astro";
-import { getEnv } from "../../../../lib/env";
-import { requireAuth, requirePermission, RbacError } from "../../../../lib/rbac";
-import { loadInvoiceForPrint } from "../../../../lib/invoices";
+import { getEnv } from "../../../../../lib/env";
+import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";
+import { loadInvoiceForPrint } from "../../../../../lib/invoices";
 
 export async function GET(context: APIContext): Promise<Response> {
   const env = getEnv(context);

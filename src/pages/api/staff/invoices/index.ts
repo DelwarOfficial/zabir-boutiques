@@ -18,7 +18,7 @@ import type { APIContext } from "astro";
 import { getEnv } from "../../../../lib/env";
 import { nowSql } from "../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../lib/rbac";
-import { createInvoice } from "../../../../lib/invoices";
+import { createInvoice, type InvoicePaymentMethod } from "../../../../lib/invoices";
 import { writeAuditLog, clientIp, userAgent } from "../../../../lib/audit";
 import { safeLog } from "../../../../lib/pii-scrubber";
 import { normalizeBangladeshPhone } from "../../../../lib/phone";
@@ -96,15 +96,15 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!body.payments?.length) {
     return Response.json({ ok: false, code: "PAYMENT_MISMATCH", message: "At least one payment method is required." }, { status: 400 });
   }
-  const validMethods = new Set(["cash", "card", "bkash", "nagad", "rocket", "bank_transfer", "other"]);
+  const validMethods: Set<string> = new Set(["cash", "card", "bkash", "nagad", "rocket", "bank_transfer", "other"]);
   const payments = body.payments.map((p) => {
     if (!p.method || !validMethods.has(p.method)) {
+      throw new Error("INVALID_METHOD");
+    }
+    if (!Number.isSafeInteger(p.amount_paisa) || p.amount_paisa! < 0) {
       throw new Error("INVALID_AMOUNT");
     }
-    if (!Number.isSafeInteger(p.amount_paisa) || p.amount_paisa < 0) {
-      throw new Error("INVALID_AMOUNT");
-    }
-    return { method: p.method as never, amountPaisa: p.amount_paisa, reference: p.reference ?? null };
+    return { method: p.method as InvoicePaymentMethod, amountPaisa: p.amount_paisa!, reference: p.reference ?? null };
   });
 
   // Discount and VAT are optional. Reject negative values.

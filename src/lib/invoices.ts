@@ -391,7 +391,7 @@ export async function createInvoice(
         id: string;
         receipt_no: string;
         total_paisa: number;
-        amount_paisa: number;
+        amount_paid_paisa: number;
         change_due_paisa: number;
       }>();
     if (existing) {

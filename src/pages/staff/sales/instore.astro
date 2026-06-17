@@ -142,7 +142,7 @@ const rows = variants.results ?? [];
     }
 
     function getCsrf() {
-      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
       return m ? decodeURIComponent(m[1]) : '';
     }
 

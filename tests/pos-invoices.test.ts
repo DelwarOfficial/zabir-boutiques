@@ -137,7 +137,7 @@ function makeD1(opts: {
               id: inv.id,
               receipt_no: inv.receipt_no,
               total_paisa: inv.total_paisa ?? 0,
-              amount_paisa: inv.amount_paid_paisa ?? 0,
+              amount_paid_paisa: inv.amount_paid_paisa ?? 0,
               change_due_paisa: inv.change_due_paisa ?? 0,
             } : null) as T;
           }
@@ -154,8 +154,10 @@ function makeD1(opts: {
           invocations.push({ sql, args: [...bound] });
           if (/^INSERT OR IGNORE INTO invoices/.test(sql)) {
             const id = bound[0];
-            const existing = invoices.get(id);
-            if (existing) {
+            const idempotencyKey = bound[2];
+            const existingById = invoices.get(id);
+            const existingByKey = Array.from(invoices.values()).find(i => i.idempotency_key === idempotencyKey);
+            if (existingById || existingByKey) {
               return { meta: { changes: 0 } };
             }
             invoices.set(id, {
@@ -214,15 +216,20 @@ function makeD1(opts: {
             return { meta: { changes: 1 } };
           }
           if (/^INSERT INTO invoice_audit/.test(sql)) {
+            // Some audit inserts use inline literals for action/from/to (e.g. 'invoice.void'),
+            // while others use bind parameters (?4, ?5, ?6). Detect which pattern.
+            const useLiteralAction = /'invoice\.\w+'/.test(sql);
+            const useLiteralPaid = /'paid'/.test(sql);
+            const useLiteralVoided = /'voided'/.test(sql);
             audit.push({
               id: bound[0],
               invoice_id: bound[1],
               actor_staff_id: bound[2],
-              action: bound[3],
-              from_status: bound[4],
-              to_status: bound[5],
-              metadata_json: bound[6],
-              created_at: bound[7],
+              action: useLiteralAction ? sql.match(/'(invoice\.\w+)'/)![1] : bound[3],
+              from_status: useLiteralPaid ? 'paid' : bound[4],
+              to_status: useLiteralVoided ? 'voided' : bound[5],
+              metadata_json: useLiteralAction ? bound[3] : bound[6],
+              created_at: useLiteralAction ? bound[4] : bound[7],
             });
             return { meta: { changes: 1 } };
           }
@@ -247,6 +254,37 @@ function makeD1(opts: {
         },
       };
       return stmt;
+    },
+    async batch(statements: any[], opts?: { atomic?: boolean }) {
+      // Deep-snapshot mutable state for atomic rollback.
+      const snapInv = new Map([...inventoryItems].map(([k, v]) => [k, { ...v }]));
+      const snapInvMap = new Map([...invoices].map(([k, v]) => [k, { ...v }]));
+      const snapItems = new Map([...invoiceItems].map(([k, v]) => [k, { ...v }]));
+      const snapPay = new Map([...payments].map(([k, v]) => [k, { ...v }]));
+      const snapAudit = [...audit];
+
+      const results: any[] = [];
+      let anyFailed = false;
+      for (const stmt of statements) {
+        const r = await stmt.run();
+        results.push(r);
+        if (r.meta?.changes === 0) anyFailed = true;
+      }
+
+      // Atomic means all-or-nothing: if any statement returned 0
+      // changes (e.g. INSERT OR IGNORE duplicate, stock over-alloc),
+      // roll back the entire batch.
+      if (opts?.atomic && anyFailed) {
+        inventoryItems.clear(); for (const [k, v] of snapInv) inventoryItems.set(k, v);
+        invoices.clear();       for (const [k, v] of snapInvMap) invoices.set(k, v);
+        invoiceItems.clear();   for (const [k, v] of snapItems) invoiceItems.set(k, v);
+        payments.clear();       for (const [k, v] of snapPay) payments.set(k, v);
+        audit.length = 0;       audit.push(...snapAudit);
+        // Return meta.changes=0 on the first statement so the caller
+        // can detect the rollback.
+        if (results[0]) results[0] = { meta: { changes: 0 } };
+      }
+      return results;
     },
   } as unknown as D1Database & {
     invocations: Array<{ sql: string; args: any[] }>;
