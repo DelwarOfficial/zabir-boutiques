@@ -32,7 +32,7 @@ if (!can(user.role, "media.upload")) return new Response("Forbidden", { status: 
     const btn = document.getElementById('upload-btn');
     const msg = document.getElementById('upload-msg');
     function getCsrf() {
-      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
       return m ? decodeURIComponent(m[1]) : '';
     }
     form?.addEventListener('submit', async (e) => {

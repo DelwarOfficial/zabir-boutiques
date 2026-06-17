@@ -171,7 +171,8 @@ const roleColor: Record<string, string> = {
     <script is:inline>
       // Logout + CSRF helper
       function getCsrf() {
-        const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/) || document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+        // Only support __Host- prefixed CSRF (legacy bare name removed)
+        const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
         return m ? decodeURIComponent(m[1]) : '';
       }
       document.getElementById('logout-btn')?.addEventListener('click', async () => {
@@ -189,7 +190,12 @@ const roleColor: Record<string, string> = {
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;
         const action = form.getAttribute('action') || '';
+        const enctype = form.getAttribute('enctype') || '';
+        // Skip if multipart (file uploads like media) or if the form has data-no-auto-csrf
         if (form.method.toLowerCase() === 'post' && action.includes('/api/staff/')) {
+          if (enctype.includes('multipart') || form.dataset.noAutoCsrf !== undefined) {
+            return;
+          }
           const csrf = getCsrf();
           if (!csrf) return;
           e.preventDefault();

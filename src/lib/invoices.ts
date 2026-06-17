@@ -30,6 +30,7 @@
 import { nowSql } from "./dates";
 import { assertPaisa } from "./money";
 import { writeAuditLog } from "./audit";
+import { doSyncFromD1 } from "./do-client";
 
 /** Generate a Bangladesh NBR-style receipt number.
  *  Format: ZB-INV-YYYYMMDD-NNNN. The NNNN is the count of paid
@@ -146,7 +147,7 @@ export type CreateInvoiceFailure =
  *  batch rolls back — no half-created invoices, no negative stock.
  */
 export async function createInvoice(
-  env: { DB: D1Database },
+  env: { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
   input: CreateInvoiceInput,
   now: string,
 ): Promise<CreateInvoiceResult | CreateInvoiceFailure> {
@@ -405,6 +406,20 @@ export async function createInvoice(
         status: "paid",
         alreadyProcessed: true,
       };
+    }
+  }
+
+  // Sync VariantInventoryDO so online checkout sees the reduced stock immediately.
+  // Best effort (non-blocking for the response).
+  if (env.VARIANT_INVENTORY_DO) {
+    for (const l of lines) {
+      const row = await db
+        .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+        .bind(l.variantId)
+        .first<{ quantity: number; reserved_quantity: number }>();
+      if (row) {
+        await doSyncFromD1(env as any, l.variantId, row.quantity, row.reserved_quantity ?? 0).catch(() => {});
+      }
     }
   }
 

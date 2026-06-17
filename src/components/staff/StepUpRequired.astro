@@ -54,7 +54,7 @@ const { message = 'This section requires recent authentication for security.' } 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '')
+            'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/) || [])[1] || '')
           },
           body: JSON.stringify({ password: pw })
         });

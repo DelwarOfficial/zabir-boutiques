@@ -117,7 +117,7 @@ async function createKey() {
   const scopes = Array.from(document.querySelectorAll('input[name="apiScope"]:checked')).map(input => input.value);
   if (!name) return;
   if (!scopes.length) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ name, scopes }) });
+  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ name, scopes }) });
   const data = await res.json();
   const resultDiv = document.getElementById('newKeyResult');
   if (data.ok) {
@@ -133,7 +133,7 @@ async function createKey() {
 }
 async function revokeKey(id) {
   if (!confirm('Revoke this API key? This cannot be undone.')) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ id }) });
+  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ id }) });
   const data = await res.json();
   if (data.ok) loadKeys();
 }

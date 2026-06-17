@@ -97,7 +97,7 @@ const flagged = await env.DB.prepare(
     const btn = document.getElementById('ov-btn');
     const msg = document.getElementById('ov-msg');
     function getCsrf() {
-      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
+      const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
       return m ? decodeURIComponent(m[1]) : '';
     }
     function showMsg(text, ok) {

@@ -304,7 +304,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
             entityId: row.session_id,
             metadata: {
               idleMs: Math.floor(idleMs),
-              absoluteExpiresAt: row ? null : null, // populated if needed
+              absoluteExpiresAt: null,
             },
           });
         } catch (err) {
