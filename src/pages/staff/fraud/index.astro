@@ -97,8 +97,8 @@ const flagged = await env.DB.prepare(
     const btn = document.getElementById('ov-btn');
     const msg = document.getElementById('ov-msg');
     function getCsrf() {
-      const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
-      return m ? decodeURIComponent(m[1]) : '';
+      if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+      try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
     }
     function showMsg(text, ok) {
       msg.textContent = text;

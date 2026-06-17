@@ -2,6 +2,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
 import { createCsrfToken } from '../../../lib/security';
+import { buildCsrfSetCookie } from '../../../lib/csrf';
 import { hashPassword, verifyPassword, legacyHashPassword } from '../../../lib/password';
 import { generateRandomHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
@@ -174,9 +175,13 @@ export async function POST(context: APIContext): Promise<Response> {
   // session-independent nonce.HMAC(nonce) CSRF token to prevent XSS-driven
   // session hijack via the CSRF cookie.
   headers.append('Set-Cookie', `__Host-session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
-  headers.append('Set-Cookie', `__Host-csrf-token=${csrfToken}; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
+  headers.append('Set-Cookie', buildCsrfSetCookie(csrfToken, maxAge));
 
-  return new Response(JSON.stringify({ ok: true, staff: { id: staff.id, name: staff.full_name, role: staff.role } }), {
+  return new Response(JSON.stringify({
+    ok: true,
+    csrf_token: csrfToken,
+    staff: { id: staff.id, name: staff.full_name, role: staff.role },
+  }), {
     status: 200,
     headers
   });

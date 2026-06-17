@@ -4,6 +4,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken } from '../../../lib/sessions';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
+import { buildCsrfClearCookie } from '../../../lib/csrf';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -42,7 +43,7 @@ export async function POST(context: APIContext): Promise<Response> {
   // Clear only the __Host- prefixed cookies on logout. The legacy
   // bare-name cookies have been removed (P1-001).
   headers.append('Set-Cookie', '__Host-session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
-  headers.append('Set-Cookie', '__Host-csrf-token=; Secure; SameSite=Strict; Path=/; Max-Age=0');
+  headers.append('Set-Cookie', buildCsrfClearCookie());
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

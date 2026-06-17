@@ -8,10 +8,12 @@
  * sets strict-dynamic + nonce-X CSP for script-src.
  */
 import type { MiddlewareHandler } from 'astro';
-import { verifyCsrfToken, generateRandomHex } from './lib/security';
-import { getCurrentStaffUser, can, type Permission, type StaffRole } from './lib/rbac';
+import { generateRandomHex } from './lib/security';
+import { getCurrentStaffUser, can } from './lib/rbac';
 import { getCspScriptHashes } from './lib/csp-hashes';
 import { safeLog } from './lib/pii-scrubber';
+import { validateCsrfDoubleSubmit } from './lib/csrf';
+import { getRequiredStaffPermission } from './lib/staff-route-rbac';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
@@ -72,18 +74,10 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   if (STAFF_MUTATION_PATHS.test(url.pathname) && !SAFE_METHODS.has(request.method) && !CSRF_EXEMPT_PATHS.has(url.pathname)) {
-    // P1-001 audit fix: read only the __Host- prefixed CSRF cookie. The
-    // bare csrf-token fallback has been removed.
-    const cookieToken = getCsrfCookie(request);
-    const headerToken = request.headers.get('X-CSRF-Token');
-
-    if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token' }, { status: 403 }), cspNonce);
-    }
-
-    const secret = runtimeEnv?.SESSION_SECRET;
-    if (!secret || !(await verifyCsrfToken(cookieToken, secret))) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }), cspNonce);
+    const csrf = await validateCsrfDoubleSubmit(request, runtimeEnv?.SESSION_SECRET);
+    if (!csrf.ok) {
+      const message = csrf.reason === 'invalid_signature' ? 'Invalid CSRF token signature' : 'Invalid CSRF token';
+      return withSecurityHeaders(Response.json({ error: message }, { status: 403 }), cspNonce);
     }
   }
 
@@ -109,10 +103,6 @@ function getSessionCookie(request: Request): string | null {
   // Accepting the bare name re-opens the subdomain-cookie downgrade
   // attack that __Host- was introduced to prevent.
   return getCookieValue(request.headers.get('Cookie'), '__Host-session');
-}
-
-function getCsrfCookie(request: Request): string | null {
-  return getCookieValue(request.headers.get('Cookie'), '__Host-csrf-token');
 }
 
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
@@ -160,28 +150,6 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
   return null;
 }
 
-// RBAC route -> permission map for /api/staff (Task 5). Extend as new protected endpoints added.
-function getRequiredStaffPermission(pathname: string, method: string): Permission | null {
-  const p = pathname.toLowerCase();
-  const isMut = !['GET', 'HEAD', 'OPTIONS'].includes(method);
-
-  if (p.includes('refund')) return 'payments.refund';
-  if (p.includes('/orders/') && p.includes('/confirm')) return 'orders.confirm';
-  if (p.includes('/returns/') && (p.includes('/approve') || p.includes('/reject'))) return 'orders.update';
-  if (p.includes('/fraud/override')) return 'fraud.override';
-  if (p.includes('/invoices/') && (p.includes('/void') || p.includes('/print'))) return 'payments.verify';
-  if (p.includes('/coupons')) return isMut ? 'staff.manage' : null;
-  if (p.includes('/api-keys')) return isMut ? 'api_keys.create' : 'api_keys.read';
-  if (p.includes('/uploads')) return 'media.upload';
-  if (p.includes('/ai/')) return 'products.manage';
-  if (p.includes('/roles')) return 'roles.manage';
-  if (p.includes('/users')) return 'staff.manage';
-  if (p.includes('/settings')) return 'settings.manage';
-  if (p.includes('/backups')) return 'backups.read';
-  // Default: authenticated role sufficient for most read/ops. Specifics above enforce Owner/Manager etc.
-  return null;
-}
-
 function withSecurityHeaders(response: Response, nonce: string): Response {
   const headers = new Headers(response.headers);
   headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
@@ -210,7 +178,7 @@ function withSecurityHeaders(response: Response, nonce: string): Response {
     "default-src 'self'",
     `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' https://cdn.zabirboutiques.com data: blob:",
     "font-src 'self'",
     "connect-src 'self'",
     "frame-ancestors 'none'",

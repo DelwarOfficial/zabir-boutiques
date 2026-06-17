@@ -1,0 +1,60 @@
+---
+import { productImageAttrs } from "@/lib/image-resizing";
+
+type Props = {
+  imageUrl: string;
+  alt: string;
+  layout?: "thumbnail" | "card" | "detail";
+  loading?: "lazy" | "eager";
+  decoding?: "async" | "sync" | "auto";
+  fetchpriority?: "high" | "low" | "auto";
+  class?: string;
+  sizes?: string;
+  siteOrigin?: string;
+};
+
+const {
+  imageUrl,
+  alt,
+  layout = "card",
+  loading = "lazy",
+  decoding = "async",
+  fetchpriority,
+  class: className,
+  sizes,
+  siteOrigin,
+} = Astro.props;
+
+const img = productImageAttrs(imageUrl, layout, { siteOrigin, sizes });
+---
+
+{img.resizable ? (
+  <picture>
+    <source type="image/avif" srcset={img.srcsetAvif} sizes={img.sizes} />
+    <source type="image/webp" srcset={img.srcset} sizes={img.sizes} />
+    <img
+      src={img.src}
+      alt={alt}
+      width={img.width}
+      height={img.height}
+      sizes={img.sizes}
+      loading={loading}
+      decoding={decoding}
+      fetchpriority={fetchpriority}
+      class={className}
+    />
+  </picture>
+) : (
+  <img
+    src={img.src}
+    srcset={img.srcset}
+    sizes={img.sizes}
+    alt={alt}
+    width={img.width}
+    height={img.height}
+    loading={loading}
+    decoding={decoding}
+    fetchpriority={fetchpriority}
+    class={className}
+  />
+)}

@@ -93,8 +93,8 @@ const products = await env.DB.prepare(
 <script>
 // @ts-nocheck
 function getCsrf() {
-  const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
-  return m ? decodeURIComponent(m[1]) : '';
+  if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+  try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
 }
 async function generateContent() {
   const btn = document.getElementById('aiGenerateBtn');

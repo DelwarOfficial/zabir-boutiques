@@ -74,13 +74,14 @@ export async function doSyncFromD1(
   variantId: VariantId,
   stock: number,
   reserved: number,
+  sold = 0,
 ): Promise<void> {
   if (!env.VARIANT_INVENTORY_DO) return;
   const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/sync", {
     method: "POST",
-    body: JSON.stringify({ stock, reserved, variantId, env: { DB: env.DB } }),
+    body: JSON.stringify({ stock, reserved, sold, variantId, env: { DB: env.DB } }),
   });
 }
 
@@ -88,9 +89,22 @@ export interface ClaimResult {
   ok: boolean;
   claimed?: true;
   replay?: true;
+  status?: "absent";
   code?: "PROCESSING";
   orderId?: string;
   responseBody?: string;
+}
+
+/** Read-only idempotency check (Master Plan §6.1 step 1). Does not claim. */
+export async function doPeek(env: DoEnv, key: string): Promise<ClaimResult> {
+  if (!env.IDEMPOTENCY_DO) return { ok: true, status: "absent" };
+  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const stub = env.IDEMPOTENCY_DO.get(id);
+  const res = await stub.fetch("https://do/peek", {
+    method: "POST",
+    body: JSON.stringify({ key }),
+  });
+  return (await res.json()) as ClaimResult;
 }
 
 export async function doClaim(env: DoEnv, key: string): Promise<ClaimResult> {
@@ -139,7 +153,10 @@ async function d1OnlyReserve(
   qty: number,
 ): Promise<ReserveResult> {
   const row = await env.DB
-    .prepare("SELECT (quantity - reserved_quantity) AS available FROM inventory_items WHERE variant_id = ?1")
+    .prepare(
+      `SELECT (quantity - reserved_quantity - COALESCE(sold_quantity, 0)) AS available
+       FROM inventory_items WHERE variant_id = ?1`,
+    )
     .bind(variantId)
     .first<{ available: number }>();
   const available = Math.max(0, row?.available ?? 0);

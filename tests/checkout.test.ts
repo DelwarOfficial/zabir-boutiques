@@ -5,6 +5,7 @@ import {
   calculateAuthoritativeSubtotal,
   assertNoClientMoneyTrust,
   calculateDeliveryPaisa,
+  parseCheckoutCart,
   type VariantSnapshot
 } from '../src/lib/checkout-pricing';
 import { applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim } from '../src/lib/money';
@@ -130,6 +131,36 @@ describe('calculateAuthoritativeSubtotal', () => {
     const snapshots = new Map<string, VariantSnapshot>([['v1', snapshotRow('v1', 1000) as VariantSnapshot]]);
     expect(() => calculateAuthoritativeSubtotal([{ variantId: 'v1', qty: 0 }], snapshots)).toThrow('INVALID_QTY');
     expect(() => calculateAuthoritativeSubtotal([{ variantId: 'v1', qty: -3 }], snapshots)).toThrow('INVALID_QTY');
+  });
+});
+
+describe('parseCheckoutCart — strict payload (Master Plan §6.1)', () => {
+  it('extracts only variant_id and quantity from cart lines', () => {
+    const parsed = parseCheckoutCart({
+      cart: [{ variant_id: 'v1', quantity: 2, unit_price_paisa: 1, subtotal_paisa: 1 }],
+      payment_method: 'cod',
+      subtotal_paisa: 999,
+      total_paisa: 1,
+    });
+    expect('error' in parsed).toBe(false);
+    if (!('error' in parsed)) {
+      expect(parsed.items).toEqual([{ variantId: 'v1', qty: 2 }]);
+      expect(parsed.paymentMethod).toBe('cod');
+    }
+  });
+
+  it('rejects empty cart', () => {
+    const parsed = parseCheckoutCart({ cart: [] });
+    expect(parsed).toMatchObject({ code: 'EMPTY_CART' });
+  });
+
+  it('accepts partial_prepay payment method', () => {
+    const parsed = parseCheckoutCart({
+      cart: [{ variant_id: 'v1', quantity: 1 }],
+      payment_method: 'partial_prepay',
+    });
+    expect('error' in parsed).toBe(false);
+    if (!('error' in parsed)) expect(parsed.paymentMethod).toBe('partial_prepay');
   });
 });
 

@@ -20,11 +20,45 @@ import { safeLog } from "../lib/pii-scrubber";
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
-export type PaymentWebhookMessage = { invoiceId: string; receivedAt: string };
+export type PaymentWebhookMessage = { invoiceId: string; eventId?: string; receivedAt: string };
 
-export async function enqueuePaymentWebhook(env: { PAYMENT_WEBHOOKS?: Queue }, invoiceId: string): Promise<void> {
+export async function enqueuePaymentWebhook(
+  env: { PAYMENT_WEBHOOKS?: Queue },
+  invoiceId: string,
+  eventId?: string,
+): Promise<void> {
   if (!env.PAYMENT_WEBHOOKS) return;
-  await env.PAYMENT_WEBHOOKS.send({ invoiceId, receivedAt: nowSql() });
+  await env.PAYMENT_WEBHOOKS.send({ invoiceId, eventId, receivedAt: nowSql() });
+}
+
+/** Shared verify + apply path for queue consumer and dev waitUntil fallback. */
+export async function processPaymentWebhookMessage(
+  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
+  invoiceId: string,
+): Promise<void> {
+  const verified = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
+  if (verified.status !== "paid") return;
+
+  const result = await applyPaymentVerified(
+    env,
+    invoiceId,
+    { amountPaisa: verified.amountPaisa, metadata: verified.metadata, rawResponse: verified.rawResponse ?? "" },
+    nowSql(),
+  );
+
+  if (result.ok && !result.alreadyProcessed) {
+    const payment = await env.DB
+      .prepare("SELECT amount_paisa FROM payments WHERE invoice_id = ?1")
+      .bind(invoiceId)
+      .first<{ amount_paisa: number }>();
+    if (payment) {
+      await trackMetric(env, {
+        name: "orders_created",
+        doubles: { revenue_paisa: payment.amount_paisa },
+        indexes: ["channel:queue"],
+      });
+    }
+  }
 }
 
 export async function handlePaymentWebhookBatch(
@@ -33,35 +67,7 @@ export async function handlePaymentWebhookBatch(
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {
-      const { invoiceId } = msg.body;
-      const verified = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
-      if (verified.status !== "paid") {
-        msg.ack();
-        continue;
-      }
-      // Single source-of-truth for "payment verified" — same function the
-      // inline webhook path uses. Idempotency, deduct, and state
-      // transitions all happen here.
-      const result = await applyPaymentVerified(
-        env,
-        invoiceId,
-        { amountPaisa: verified.amountPaisa, metadata: verified.metadata, rawResponse: verified.rawResponse ?? "" },
-        nowSql(),
-      );
-
-      if (result.ok && !result.alreadyProcessed) {
-        const payment = await env.DB
-          .prepare("SELECT amount_paisa FROM payments WHERE invoice_id = ?1")
-          .bind(invoiceId)
-          .first<{ amount_paisa: number }>();
-        if (payment) {
-          await trackMetric(env, {
-            name: "orders_created",
-            doubles: { revenue_paisa: payment.amount_paisa },
-            indexes: ["channel:queue"],
-          });
-        }
-      }
+      await processPaymentWebhookMessage(env, msg.body.invoiceId);
       msg.ack();
     } catch (err) {
       safeLog.error("[payment-webhook-consumer] failed", { error: err instanceof Error ? err.message : String(err) });

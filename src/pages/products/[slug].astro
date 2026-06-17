@@ -3,7 +3,8 @@ import RootLayout from "@/layouts/RootLayout.astro";
 import { AddToCartButton } from "@/islands/AddToCartButton";
 import { CATALOG_PRODUCTS } from "@/data/catalog";
 import { formatPaisa } from "@/lib/money";
-import { imageSrcset } from "@/lib/image-resizing";
+import ProductImage from "@/components/product/ProductImage.astro";
+import { ogImageFromProduct } from "@/lib/image-resizing";
 
 export const prerender = true;
 
@@ -15,7 +16,7 @@ const { product } = Astro.props;
 const lowStock = product.availableQuantity > 0 && product.availableQuantity <= 3;
 const outOfStock = product.availableQuantity <= 0;
 const SITE = Astro.site?.origin ?? "https://zabirboutiques.com";
-const ogImage = `${SITE}${product.imageUrl}`;
+const ogImage = ogImageFromProduct(product.imageUrl, SITE);
 const productJsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "Product",
@@ -50,17 +51,15 @@ const breadcrumbJsonLd = JSON.stringify({
   <article class="grid gap-5 md:grid-cols-[0.9fr_1fr] fade-up">
     <div class="md:sticky md:top-32 self-start">
       <div class="relative aspect-[4/5] overflow-hidden rounded-3xl bg-[var(--surface-soft)] shadow-md shine-card">
-        <img
-          src={product.imageUrl}
-          srcset={imageSrcset(SITE, product.imageUrl.replace(/^\//, ""), "webp")}
-          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 800px"
+        <ProductImage
+          imageUrl={product.imageUrl}
           alt={product.title}
-          width="800"
-          height="1000"
+          layout="detail"
+          siteOrigin={SITE}
           loading="eager"
           decoding="async"
-          class="h-full w-full object-cover"
           fetchpriority="high"
+          class="h-full w-full object-cover"
         />
         {lowStock && (
           <span class="absolute left-3 top-3 chip chip-danger pop">

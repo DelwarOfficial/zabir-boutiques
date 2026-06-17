@@ -12,6 +12,7 @@
     "enabled": true,
     "head_sampling_rate": 0.1
   },
+  // Root config = production (Master Plan §18.1). Use --env staging|dev for other targets.
   "d1_databases": [
     {
       "binding": "DB",
@@ -75,6 +76,55 @@
     { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
   ],
   "env": {
+    "prod": {
+      "name": "zabir-boutiques",
+      "d1_databases": [
+        { "binding": "DB", "database_name": "zabir-db", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+      ],
+      "kv_namespaces": [
+        { "binding": "CACHE", "id": "REPLACE_WITH_CACHE_KV_NAMESPACE_ID" },
+        { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_KV_NAMESPACE_ID" }
+      ],
+      "r2_buckets": [
+        { "binding": "MEDIA", "bucket_name": "zabir-media" },
+        { "binding": "BACKUPS", "bucket_name": "zabir-backups" }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
+          { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
+          { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
+          { "name": "WAF_RULES", "class_name": "WafRules" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+      ],
+      "queues": {
+        "producers": [
+          { "queue": "payment-webhooks", "binding": "PAYMENT_WEBHOOKS" },
+          { "queue": "order-emails", "binding": "ORDER_EMAILS" },
+          { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
+          { "queue": "fraud-scoring", "binding": "FRAUD_SCORING" },
+          { "queue": "d1-backup", "binding": "D1_BACKUP" }
+        ],
+        "consumers": [
+          { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
+          { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
+          { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
+          { "queue": "fraud-scoring", "max_batch_size": 10, "max_retries": 2 },
+          { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 }
+        ]
+      },
+      "analytics_engine_datasets": [
+        { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
+      ],
+      "vars": {
+        "PUBLIC_SITE_URL": "https://zabirboutiques.com",
+        "PUBLIC_SITE_NAME": "Zabir Boutiques"
+      }
+    },
     "staging": {
       "name": "zabir-boutiques-staging",
       "d1_databases": [
@@ -87,6 +137,37 @@
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "zabir-media-staging" },
         { "binding": "BACKUPS", "bucket_name": "zabir-backups-staging" }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
+          { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
+          { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
+          { "name": "WAF_RULES", "class_name": "WafRules" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+      ],
+      "queues": {
+        "producers": [
+          { "queue": "payment-webhooks-staging", "binding": "PAYMENT_WEBHOOKS" },
+          { "queue": "order-emails-staging", "binding": "ORDER_EMAILS" },
+          { "queue": "image-processing-staging", "binding": "IMAGE_PROCESSING" },
+          { "queue": "fraud-scoring-staging", "binding": "FRAUD_SCORING" },
+          { "queue": "d1-backup-staging", "binding": "D1_BACKUP" }
+        ],
+        "consumers": [
+          { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5 },
+          { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
+          { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
+          { "queue": "fraud-scoring-staging", "max_batch_size": 10, "max_retries": 2 },
+          { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 }
+        ]
+      },
+      "analytics_engine_datasets": [
+        { "binding": "ANALYTICS", "dataset": "zabir_metrics_staging" }
       ],
       "vars": {
         "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
@@ -105,6 +186,37 @@
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "zabir-media-dev" },
         { "binding": "BACKUPS", "bucket_name": "zabir-backups-dev" }
+      ],
+      "durable_objects": {
+        "bindings": [
+          { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
+          { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
+          { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
+          { "name": "WAF_RULES", "class_name": "WafRules" }
+        ]
+      },
+      "migrations": [
+        { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+      ],
+      "queues": {
+        "producers": [
+          { "queue": "payment-webhooks-dev", "binding": "PAYMENT_WEBHOOKS" },
+          { "queue": "order-emails-dev", "binding": "ORDER_EMAILS" },
+          { "queue": "image-processing-dev", "binding": "IMAGE_PROCESSING" },
+          { "queue": "fraud-scoring-dev", "binding": "FRAUD_SCORING" },
+          { "queue": "d1-backup-dev", "binding": "D1_BACKUP" }
+        ],
+        "consumers": [
+          { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5 },
+          { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3 },
+          { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3 },
+          { "queue": "fraud-scoring-dev", "max_batch_size": 10, "max_retries": 2 },
+          { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2 }
+        ]
+      },
+      "analytics_engine_datasets": [
+        { "binding": "ANALYTICS", "dataset": "zabir_metrics_dev" }
       ],
       "vars": {
         "PUBLIC_SITE_URL": "http://localhost:4321",

@@ -67,7 +67,7 @@ export async function reserveVariants(
        SET reserved_quantity = reserved_quantity + ?1, updated_at = ?3
        WHERE variant_id = ?2
          AND is_available = 1
-         AND (quantity - reserved_quantity) >= ?1`
+         AND (quantity - reserved_quantity - COALESCE(sold_quantity, 0)) >= ?1`
     ).bind(item.qty, item.variantId, now)
   );
 
@@ -79,10 +79,13 @@ export async function reserveVariants(
     if (env.VARIANT_INVENTORY_DO) {
       await Promise.all(items.map(async item => {
         const row = await db
-          .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+          .prepare(
+            `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
+             FROM inventory_items WHERE variant_id = ?1`,
+          )
           .bind(item.variantId)
-          .first<{ quantity: number; reserved_quantity: number }>();
-        if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity);
+          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
+        if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
       }));
     }
     return { ok: true };
@@ -179,10 +182,13 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
   if (env.VARIANT_INVENTORY_DO) {
     await Promise.all(variantIds.map(async variantId => {
       const row = await db
-        .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+        .prepare(
+          `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
+           FROM inventory_items WHERE variant_id = ?1`,
+        )
         .bind(variantId)
-        .first<{ quantity: number; reserved_quantity: number }>();
-      if (row) await doSyncFromD1(env, variantId, row.quantity, row.reserved_quantity);
+        .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
+      if (row) await doSyncFromD1(env, variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
     }));
   }
 }
@@ -214,10 +220,13 @@ export async function confirmReservedVariants(
     if (env.VARIANT_INVENTORY_DO) {
       await Promise.all(items.map(async item => {
         const row = await db
-          .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+          .prepare(
+            `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
+             FROM inventory_items WHERE variant_id = ?1`,
+          )
           .bind(item.variantId)
-          .first<{ quantity: number; reserved_quantity: number }>();
-        if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity);
+          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
+        if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
       }));
     }
     return { ok: true };

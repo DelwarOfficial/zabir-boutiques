@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronRight, Loader2, MapPin, Minus, Package, Plus, ShieldCheck, Sparkles, Trash2, Truck, User } from "lucide-react";
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition } from "react";
 import { useLocalCart } from "../hooks/useLocalCart";
 import { applyOutOfStockUpdate } from "../lib/cart-store";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
@@ -35,6 +35,7 @@ export function GuestCheckout() {
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [status, setStatus] = useState<CheckoutStatus>({ type: "idle" });
   const [step, setStep] = useState<Step>(0);
+  const idempotencyKeyRef = useRef<string | null>(null);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
   const shippingPaisa = SHIPPING_COST[zone];
@@ -49,33 +50,41 @@ export function GuestCheckout() {
 
   function submitCheckout() {
     if (!canSubmit || !normalizedPhone.ok) return;
+    const phoneE164 = normalizedPhone.phone;
     setStatus({ type: "idle" });
 
     startTransition(async () => {
       try {
-        const response = await fetch("/api/checkout", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "Idempotency-Key": crypto.randomUUID(),
-          },
-          body: JSON.stringify({
-            cart: cart.items.map((item) => ({
-              variant_id: item.variantId,
-              quantity: item.quantity,
-            })),
-            customer: {
-              name: name.trim(),
-              phone: normalizedPhone.phone,
-              address: address.trim(),
-            },
-            payment_method: paymentMethod,
-            shipping_zone: zone,
-            // note and coupon_code optional, server ignores client money fields
-          }),
-        });
+        if (!idempotencyKeyRef.current) {
+          idempotencyKeyRef.current = crypto.randomUUID();
+        }
+        const idempotencyKey = idempotencyKeyRef.current;
 
-        const payload = (await response.json().catch(() => ({}))) as {
+        async function postCheckout(method: PaymentMethod | "partial_prepay") {
+          return fetch("/api/checkout", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              "Idempotency-Key": idempotencyKey,
+            },
+            body: JSON.stringify({
+              cart: cart.items.map((item) => ({
+                variant_id: item.variantId,
+                quantity: item.quantity,
+              })),
+              customer: {
+                name: name.trim(),
+                phone: phoneE164,
+                address: address.trim(),
+              },
+              payment_method: method,
+              shipping_zone: zone,
+            }),
+          });
+        }
+
+        let response = await postCheckout(paymentMethod);
+        let payload = (await response.json().catch(() => ({}))) as {
           ok?: boolean;
           code?: string;
           message?: string;
@@ -84,6 +93,20 @@ export function GuestCheckout() {
           failed_cart_index?: number;
           available_quantity?: number;
         };
+
+        if (response.status === 402 && payload.code === "PREPAYMENT_REQUIRED") {
+          response = await postCheckout("partial_prepay");
+          payload = (await response.json().catch(() => ({}))) as typeof payload;
+        }
+
+        if (response.status === 202) {
+          setStatus({
+            type: "error",
+            code: "CHECKOUT_PROCESSING",
+            message: "Your order is still processing. Please wait a moment and try again.",
+          });
+          return;
+        }
 
         if (!response.ok || !payload.ok) {
           if (payload.code === "OUT_OF_STOCK" && typeof payload.failed_cart_index === "number" && payload.failed_cart_index >= 0) {
@@ -103,6 +126,7 @@ export function GuestCheckout() {
           return;
         }
 
+        idempotencyKeyRef.current = null;
         cart.clear();
         setStatus({ type: "success", orderNumber: payload.order_number || "Pending", redirectUrl: payload.checkout_url });
         if (payload.checkout_url) {

@@ -17,6 +17,8 @@
  * zone.
  */
 
+export const CDN_ORIGIN = "https://cdn.zabirboutiques.com";
+
 export const IMAGE_VARIANTS = {
   thumbnail: { width: 150, quality: 75, fit: "cover" as const },
   card:      { width: 400, quality: 80, fit: "cover" as const },
@@ -54,4 +56,99 @@ export function imageSrcset(baseUrl: string, r2Key: string, format: "webp" | "av
     ["800w", imageUrl(baseUrl, r2Key, "detail", format)],
     ["1600w", imageUrl(baseUrl, r2Key, "zoom", format)],
   ] as const).map(([w, u]) => `${u} ${w}`).join(", ");
+}
+
+const CARD_SIZES = "(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 400px";
+const DETAIL_SIZES = "(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 800px";
+const THUMB_SIZES = "96px";
+
+const VARIANT_DIMS: Record<Exclude<ImageVariant, "og" | "zoom">, { width: number; height: number; sizes: string }> = {
+  thumbnail: { width: 150, height: 188, sizes: THUMB_SIZES },
+  card: { width: 400, height: 500, sizes: CARD_SIZES },
+  detail: { width: 800, height: 1000, sizes: DETAIL_SIZES },
+};
+
+/** Resolve CDN origin (production custom domain; same-origin fallback for local previews). */
+export function resolveCdnOrigin(siteOrigin?: string): string {
+  return CDN_ORIGIN || siteOrigin?.replace(/\/$/, "") || "";
+}
+
+/**
+ * Extract the R2 object key from snapshot URLs, absolute CDN URLs, or bare keys.
+ * Returns null for static /assets placeholders and SVGs (no Image Resizing).
+ */
+export function extractR2KeyFromImageUrl(imageUrl: string): string | null {
+  if (!imageUrl || imageUrl.startsWith("/assets/") || imageUrl.endsWith(".svg")) return null;
+
+  let path = imageUrl;
+  if (imageUrl.startsWith("http")) {
+    try {
+      path = new URL(imageUrl).pathname;
+    } catch {
+      return null;
+    }
+  }
+
+  const resized = path.match(/\/cdn-cgi\/image\/[^/]+\/(.+)$/);
+  if (resized) return decodeURIComponent(resized[1]);
+
+  const bare = path.replace(/^\//, "");
+  if (/^(?:products|media)\//.test(bare)) return bare;
+
+  return null;
+}
+
+export type ProductImageLayout = "thumbnail" | "card" | "detail";
+
+export type ProductImageAttrs = {
+  src: string;
+  srcset?: string;
+  srcsetAvif?: string;
+  sizes?: string;
+  width: number;
+  height: number;
+  resizable: boolean;
+};
+
+/** Build responsive img attributes for catalog/product surfaces. */
+export function productImageAttrs(
+  productImageUrl: string,
+  layout: ProductImageLayout = "card",
+  opts: { siteOrigin?: string; sizes?: string } = {},
+): ProductImageAttrs {
+  const dims = VARIANT_DIMS[layout];
+  const r2Key = extractR2KeyFromImageUrl(productImageUrl);
+  const cdnOrigin = resolveCdnOrigin(opts.siteOrigin);
+
+  if (!r2Key) {
+    return {
+      src: productImageUrl,
+      srcset: `${productImageUrl} ${dims.width}w`,
+      sizes: opts.sizes ?? dims.sizes,
+      width: dims.width,
+      height: dims.height,
+      resizable: false,
+    };
+  }
+
+  return {
+    src: imageUrl(cdnOrigin, r2Key, layout, "webp"),
+    srcset: imageSrcset(cdnOrigin, r2Key, "webp"),
+    srcsetAvif: imageSrcset(cdnOrigin, r2Key, "avif"),
+    sizes: opts.sizes ?? dims.sizes,
+    width: dims.width,
+    height: dims.height,
+    resizable: true,
+  };
+}
+
+/** Open Graph image URL (1200×630 JPEG) for social previews. */
+export function ogImageFromProduct(productImageUrl: string, siteOrigin?: string): string {
+  const r2Key = extractR2KeyFromImageUrl(productImageUrl);
+  if (!r2Key) {
+    if (productImageUrl.startsWith("http")) return productImageUrl;
+    const origin = (siteOrigin ?? "https://zabirboutiques.com").replace(/\/$/, "");
+    return `${origin}${productImageUrl.startsWith("/") ? productImageUrl : `/${productImageUrl}`}`;
+  }
+  return imageUrl(resolveCdnOrigin(siteOrigin), r2Key, "og", "jpeg");
 }

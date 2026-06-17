@@ -4,6 +4,7 @@ export const prerender = false;
 import "@/styles/global.css";
 import type { StaffUser } from "@/lib/rbac";
 import { menuForRole } from "@/lib/staff-menu";
+import { readCsrfCookie } from "@/lib/csrf";
 
 type Props = {
   title: string;
@@ -11,6 +12,7 @@ type Props = {
 };
 
 const { title, user } = Astro.props;
+const csrfToken = readCsrfCookie(Astro.request) ?? "";
 const currentPath = Astro.url.pathname;
 const menu = menuForRole(user.role).map((item) => ({
   ...item,
@@ -49,7 +51,9 @@ const roleColor: Record<string, string> = {
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>{title} — Zabir Boutiques Staff</title>
-    <script is:inline>
+    <script is:inline define:vars={{ csrfToken }}>
+      window.__ZB_CSRF__ = csrfToken;
+      try { if (csrfToken) sessionStorage.setItem('zb-csrf', csrfToken); } catch (_) {}
       (function(){
         var t = localStorage.getItem('zb-theme');
         if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches)) {
@@ -171,9 +175,8 @@ const roleColor: Record<string, string> = {
     <script is:inline>
       // Logout + CSRF helper
       function getCsrf() {
-        // Only support __Host- prefixed CSRF (legacy bare name removed)
-        const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/);
-        return m ? decodeURIComponent(m[1]) : '';
+        if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+        try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
       }
       document.getElementById('logout-btn')?.addEventListener('click', async () => {
         try {

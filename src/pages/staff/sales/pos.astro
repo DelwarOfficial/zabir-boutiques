@@ -154,11 +154,9 @@ const rows = variants.results ?? [];
   // Cart state. variantId → { name, label, pricePaisa, qty }.
   const cart = new Map();
 
-  // Cache CSRF cookie (the same __Host-csrf-token must be echoed
-  // back in the X-CSRF-Token header).
-  function getCookie(name) {
-    const m = document.cookie.match(new RegExp('(?:^|;\\s*)' + name.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\$&') + '=([^;]+)'));
-    return m ? decodeURIComponent(m[1]) : null;
+  function getCsrf() {
+    if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+    try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
   }
 
   // Render the cart UI and recompute totals.
@@ -316,7 +314,7 @@ const rows = variants.results ?? [];
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-CSRF-Token': getCookie('__Host-csrf-token') || '',
+          'X-CSRF-Token': getCsrf(),
         },
         body: JSON.stringify(body),
         credentials: 'same-origin',
