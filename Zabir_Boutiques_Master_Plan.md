@@ -81,9 +81,11 @@ Zabir Boutiques Master Plan  |  Page 2
  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . 19
 8.2 In-Store Order Creation
  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . 19
+8.2.1 POS Thermal Receipt Printer & In-Store Ledger
+ .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . 19
 8.3 Staff-Assisted Phone/Messenger Orders
  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . 19
-8.4 Shipping Label Generation
+8.4 Shipping Label Generation (see 8.2.1 for POS thermal receipts)
 21
 9. Security Architecture
  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  .  . 21
@@ -219,10 +221,11 @@ actionable, every constraint is enforceable, and every design choice is justifie
 mitigates.
 The platform uses Astro 6 with hybrid output mode, deploying to Cloudflare Pages with Workers for server-side
 execution. Static routes (product pages, category listings, marketing pages) are pre-rendered at build time for
-maximum edge cache efficiency. Dynamic routes (checkout, staff dashboard, API endpoints) execute in
+maximum edge cache efficiency. Dynamic routes (checkout, staff dashboard, API endpoints, POS) execute in
 Cloudflare Workers with bindings to D1 (relational data), R2 (object storage), KV (session and feature flags),
 Durable Objects (concurrency gates), and Queues (async processing). React 19 Islands provide selective hydration
-for interactive components, with a strict budget of five islands per public page. Tailwind CSS handles all styling
+for interactive components, with a strict budget of five islands per public page. The platform includes a full
+in-store POS system with 80mm thermal receipt printing and a dedicated invoices ledger. Tailwind CSS handles all styling
 through a centralized design token system, ensuring visual consistency across every component and page.
 Property
 Specification
@@ -447,8 +450,9 @@ Zabir Boutiques Master Plan  |  Page 9
 All CHECK constraints are enforced at the D1 schema level. Application-layer validation provides user-friendly
 error messages, but the database is the final authority on data integrity. CI tests verify every constraint by
 attempting invalid inserts and asserting rejection. Money values are stored as INTEGER paisa (1 BDT = 100
-paisa) to eliminate floating-point arithmetic errors. The available quantity for each variant is a computed column,
-ensuring it is always consistent: available = stock - reserved - sold.
+paisa) to eliminate floating-point arithmetic errors. The available quantity for each variant is a computed column (via inventory_items or the `variants` VIEW),
+ensuring it is always consistent: available = stock - reserved - sold. Actual runtime tables use `product_variants` + `inventory_items`;
+a compatibility VIEW `variants` is provided (see migration 0017).
 -- Core tables with enforced constraints
 CREATE TABLE variants (
 id TEXT PRIMARY KEY,
@@ -488,6 +492,42 @@ order_id TEXT REFERENCES orders(id),
 response_body TEXT,
 expires_at INTEGER NOT NULL -- TTL 24 hours
 );
+
+-- POS In-Store Sales Ledger (separate from online orders)
+-- See migration 0016_invoices.sql + lib/invoices.ts
+CREATE TABLE invoices (
+  id TEXT PRIMARY KEY,
+  receipt_no TEXT UNIQUE NOT NULL,           -- ZB-INV-YYYYMMDD-NNNN
+  status TEXT NOT NULL CHECK(status IN ('issued','voided')),
+  customer_name TEXT,
+  customer_phone TEXT,
+  subtotal_paisa INTEGER NOT NULL CHECK(subtotal_paisa >= 0),
+  discount_paisa INTEGER NOT NULL DEFAULT 0 CHECK(discount_paisa >= 0),
+  vat_paisa INTEGER NOT NULL DEFAULT 0 CHECK(vat_paisa >= 0),
+  total_paisa INTEGER NOT NULL CHECK(total_paisa >= 0),
+  amount_paid_paisa INTEGER NOT NULL,
+  change_due_paisa INTEGER NOT NULL DEFAULT 0,
+  payment_method TEXT NOT NULL,
+  paid_at TEXT,
+  voided_reason TEXT,
+  created_by TEXT REFERENCES staff_users(id),
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE invoice_items (
+  id TEXT PRIMARY KEY,
+  invoice_id TEXT NOT NULL REFERENCES invoices(id),
+  variant_id TEXT NOT NULL,
+  product_name TEXT NOT NULL,
+  variant_label TEXT NOT NULL,
+  sku TEXT,
+  quantity INTEGER NOT NULL,
+  unit_price_paisa INTEGER NOT NULL,
+  total_price_paisa INTEGER NOT NULL
+);
+
+-- Bangladesh legal compliance fields (required for printed receipts)
+-- POS_BIN (15-digit), POS_TIN (12-digit) come from Cloudflare secrets (env.POS_BIN / env.POS_TIN)
 3.2 KV Usage Map
 
 
@@ -1083,13 +1123,37 @@ RBAC: orders.create permission required
 Flow: Server-authoritative pricing. Auto-confirmed (order_status: 'confirmed'). Stock deducted immediately.
 No COD/UddoktaPay initiation. No fraud check. Orders with more than 2 items auto-upgrade from COD to
 partial_prepay
+
+8.2.1 POS Thermal Receipt Printer & Dedicated In-Store Sales Ledger (Implemented)
+The platform includes a dedicated POS (Point of Sale) system for in-store counter sales that is **separate from the
+online orders table**.
+
+Key components:
+• UI: `/staff/sales/pos` — Cashier-facing form for building cart from published variants, optional customer name/phone,
+  discount, VAT, multiple payment methods (cash, card, bKash, Nagad, Rocket, bank_transfer).
+• Immediate stock deduction on "Issue Receipt".
+• Receipt number format: `ZB-INV-YYYYMMDD-NNNN` (daily resetting counter, NBR SRO 198/Law/2015 compliant).
+• API: `/api/staff/invoices` (create + idempotency), `/api/staff/invoices/{id}/void`, `/api/staff/invoices/{id}/print`.
+• Thermal Receipt Printer: `GET /api/staff/invoices/{id}/print`
+  - Renders a self-contained 80mm thermal receipt (CSS `@page { size: 80mm auto }`, monospace 12px, 72mm body width).
+  - Auto-triggers `window.print()` on load.
+  - Includes: store header, receipt_no, date/time, cashier, customer info, line items (name + SKU), subtotal/discount/VAT/total,
+    payments with references, change due, **BIN** and **TIN** (from `POS_BIN` / `POS_TIN` env secrets), void stamp if applicable.
+  - Legal footer warning if BIN/TIN not configured.
+• History & Reprints: `/staff/sales/pos-history` shows recent POS invoices with direct "Print" links.
+• Tables: `invoices`, `invoice_items`, `invoice_payments`, `invoice_audit` (separate ledger for cash/card counter sales).
+• Void: Same-day void restores stock atomically and writes audit row. Requires higher RBAC.
+
+POS flow does **not** go through the guest checkout pipeline, reservations, or UddoktaPay. It is designed for fast counter
+transactions with immediate stock impact and printable thermal receipts.
+
 8.3 Staff-Assisted Phone/Messenger Orders
 •
 API: POST /api/staff/orders/create with channel: 'phone' | 'messenger' | 'whatsapp'
 •
 Flow: Same checkout pipeline as guest. Includes idempotency, fraud scoring, and prepayment rules. Staff
 enters customer details on their behalf.
-8.4 Shipping Label Generation
+8.4 Shipping Label Generation (see 8.2.1 for POS thermal receipts)
 
 
 ---
@@ -1104,6 +1168,8 @@ order ID and tracking URL
 Layout: 210mm x 99mm per label. Thermal printer format (4x6 inch) via ?format=thermal
 •
 Courier Templates: Configurable templates per courier partner (Pathao, Steadfast, Redx)
+
+Note: A separate 80mm thermal receipt system exists for POS counter sales (see 8.2.1). Courier labels and POS receipts are distinct flows.
 
 
 ---
@@ -1187,6 +1253,9 @@ Storage: All API keys in Cloudflare Workers Secrets (encrypted at rest)
 Rotation: Quarterly schedule via Wrangler CLI with zero-downtime deployment
 •
 Environment Separation: Separate secrets per environment. Never share across environments
+•
+POS Compliance: POS_BIN (15-digit) and POS_TIN (12-digit) are required for legal thermal receipts
+  (Bangladesh NBR SRO 198/Law/2015). Missing values produce a warning on printed receipts.
 •
 Audit: Log all secret read access via Analytics Engine. Alert on unexpected patterns
 •
