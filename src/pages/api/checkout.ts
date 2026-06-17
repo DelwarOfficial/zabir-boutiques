@@ -49,6 +49,12 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
+  // Early strict parse of allowed fields only (strip client prices)
+  const cust = (body && body.customer && typeof body.customer === 'object') ? body.customer : {};
+  const nameInput = (cust.name ?? body?.name ?? '').toString().trim();
+  const phoneInput = (cust.phone ?? body?.phone ?? '').toString();
+  const addressInput = (cust.address ?? body?.address ?? '').toString().trim();
+
   // Client money fields are display-only; warn but never trust them.
   assertNoClientMoneyTrust(body ?? {}, env, {
     ip: clientIp(context.request),
@@ -121,12 +127,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // 3. Strip body: only accept cart:[{variant_id, quantity}], customer:{name,phone,address}, payment_method.
-  // Client-supplied prices/totals are ignored (server authoritative).
-  const cust = (body.customer && typeof body.customer === 'object') ? body.customer : {};
-  const nameInput = (cust.name ?? body.name ?? '').toString().trim();
-  const phoneInput = (cust.phone ?? body.phone ?? '').toString();
-  const addressInput = (cust.address ?? body.address ?? '').toString().trim();
-
+  // (cust vars already parsed early; client prices ignored)
   const rawItems: Array<{ variant_id?: string; variantId?: string; quantity?: number; qty?: number }> =
     Array.isArray(body.cart) ? body.cart : (body.items ?? []);
   if (!Array.isArray(rawItems) || !rawItems.length) {
