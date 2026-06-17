@@ -12,6 +12,7 @@ import { verifyCsrfToken, generateRandomHex } from './lib/security';
 import { getCurrentStaffUser } from './lib/rbac';
 import { getCspScriptHashes } from './lib/csp-hashes';
 import { safeLog } from './lib/pii-scrubber';
+import { isLocalHttpDev, readStaffCsrfCookie } from './lib/staff-cookies';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
@@ -41,11 +42,11 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   context.locals.cspNonce = cspNonce;
 
   if (url.pathname === '/api/staff/login' && !SAFE_METHODS.has(request.method) && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
-    return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }), cspNonce);
+    return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }), cspNonce, request);
   }
 
   const limited = await rateLimit(context, url.pathname);
-  if (limited) return withSecurityHeaders(limited, cspNonce);
+  if (limited) return withSecurityHeaders(limited, cspNonce, request);
 
   // Central authentication guard (defense-in-depth). Resolves the staff session
   // exactly once and caches it on locals so getCurrentStaffUser does not re-query
@@ -56,9 +57,9 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     context.locals.staffUserResolved = true;
     if (!user) {
       if (url.pathname.startsWith('/api/')) {
-        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }), cspNonce);
+        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }), cspNonce, request);
       }
-      return withSecurityHeaders(context.redirect('/staff/login'), cspNonce);
+      return withSecurityHeaders(context.redirect('/staff/login'), cspNonce, request);
     }
   }
 
@@ -69,41 +70,20 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     const headerToken = request.headers.get('X-CSRF-Token');
 
     if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token' }, { status: 403 }), cspNonce);
+      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token' }, { status: 403 }), cspNonce, request);
     }
 
     const secret = runtimeEnv?.SESSION_SECRET;
     if (!secret || !(await verifyCsrfToken(cookieToken, secret))) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }), cspNonce);
+      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }), cspNonce, request);
     }
   }
 
-  // Touch the session resolver so legacy bare-name session cookies
-  // (if any browser still sends one) are ignored and the auth guard
-  // still runs.
-  void getSessionCookie;
-
-  return withSecurityHeaders(await next(), cspNonce);
+  return withSecurityHeaders(await next(), cspNonce, request);
 };
 
-function getCookieValue(cookieHeader: string | null, name: string): string | null {
-  if (!cookieHeader) return null;
-  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]+)`));
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
-function getSessionCookie(request: Request): string | null {
-  // P1-001 audit fix: accept only the __Host- prefixed session cookie.
-  // The legacy bare `session=` cookie was kept in the original rollout
-  // for one deployment cycle (v6.8A → v6.8D); that window has closed.
-  // Accepting the bare name re-opens the subdomain-cookie downgrade
-  // attack that __Host- was introduced to prevent.
-  return getCookieValue(request.headers.get('Cookie'), '__Host-session');
-}
-
 function getCsrfCookie(request: Request): string | null {
-  return getCookieValue(request.headers.get('Cookie'), '__Host-csrf-token');
+  return readStaffCsrfCookie(request);
 }
 
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
@@ -151,9 +131,12 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
   return null;
 }
 
-function withSecurityHeaders(response: Response, nonce: string): Response {
+function withSecurityHeaders(response: Response, nonce: string, request: Request): Response {
   const headers = new Headers(response.headers);
-  headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  const localDev = isLocalHttpDev(request);
+  if (!localDev) {
+    headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
+  }
   // Master_Prompt v7.0 §9.5: per-request nonce + build-time SHA-256
   // hashes for any script the app generated (loaded from
   // src/generated/csp-hashes.ts, written by scripts/csp-hashes-plugin.mjs).
@@ -168,14 +151,19 @@ function withSecurityHeaders(response: Response, nonce: string): Response {
   // and CSS-in-JS. Removing 'unsafe-inline' here would break the
   // build. The risk is bounded because style attributes cannot
   // execute JavaScript (no XSS via style). See docs/csp.md.
-  const scriptHashes = getCspScriptHashes();
-  const scriptSrc = [
-    "'self'",
-    `'nonce-${nonce}'`,
-    "'strict-dynamic'",
-    ...scriptHashes,
-  ].join(' ');
-  headers.set('Content-Security-Policy', [
+  // CSP hashes are generated at production build time. Astro dev serves
+  // inline script bodies with different whitespace, so hash-only CSP blocks
+  // login and other is:inline handlers on http://localhost. Relax script-src
+  // for local HTTP dev only; production keeps nonce + strict-dynamic + hashes.
+  const scriptSrc = localDev
+    ? "'self' 'unsafe-inline'"
+    : [
+        "'self'",
+        `'nonce-${nonce}'`,
+        "'strict-dynamic'",
+        ...getCspScriptHashes(),
+      ].join(' ');
+  const csp = [
     "default-src 'self'",
     `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
@@ -185,8 +173,9 @@ function withSecurityHeaders(response: Response, nonce: string): Response {
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",
-    "upgrade-insecure-requests",
-  ].join('; '));
+  ];
+  if (!localDev) csp.push('upgrade-insecure-requests');
+  headers.set('Content-Security-Policy', csp.join('; '));
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   headers.set('X-Content-Type-Options', 'nosniff');

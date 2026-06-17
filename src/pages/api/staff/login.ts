@@ -9,6 +9,7 @@ import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { safeLog } from '../../../lib/pii-scrubber';
+import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 
 export const prerender = false;
 
@@ -152,13 +153,13 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const maxAge = 24 * 60 * 60;
-  // __Host- prefix requires Path=/; Secure; no Domain attribute. This
-  // guarantees the cookie is bound to the exact host (no subdomain leaks)
-  // and that it is only ever sent over HTTPS. Works in tandem with the
-  // session-independent nonce.HMAC(nonce) CSRF token to prevent XSS-driven
-  // session hijack via the CSRF cookie.
-  headers.append('Set-Cookie', `__Host-session=${sessionToken}; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
-  headers.append('Set-Cookie', `__Host-csrf-token=${csrfToken}; Secure; SameSite=Strict; Path=/; Max-Age=${maxAge}`);
+  // Production uses __Host- + Secure (HTTPS only). Local HTTP dev omits
+  // Secure and the __Host- prefix so browsers accept session cookies.
+  appendStaffAuthCookies(headers, context.request, {
+    sessionToken,
+    csrfToken,
+    maxAge,
+  });
 
   return new Response(JSON.stringify({ ok: true, staff: { id: staff.id, name: staff.full_name, role: staff.role } }), {
     status: 200,

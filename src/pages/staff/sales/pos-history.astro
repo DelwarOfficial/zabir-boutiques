@@ -4,6 +4,7 @@ import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 import { getEnv } from '../../../lib/env';
+import { isInvoicesSchemaMissingError, listPosInvoiceHistory } from '../../../lib/invoices';
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
@@ -14,27 +15,17 @@ const days = Number(Astro.url.searchParams.get('days') ?? '7');
 const safeDays = Math.max(1, Math.min(90, Number.isFinite(days) ? days : 7));
 const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString().replace('T', ' ').slice(0, 19);
 
-const invoices = await env.DB.prepare(
-  `SELECT i.id, i.receipt_no, i.created_at, i.status, i.total_paisa,
-          i.amount_paid_paisa, i.change_due_paisa, i.customer_name,
-          u.full_name AS cashier_name
-   FROM invoices i
-   JOIN staff_users u ON u.id = i.cashier_id
-   WHERE i.created_at >= ?1
-   ORDER BY i.created_at DESC
-   LIMIT 100`
-).bind(since).all<{
-  id: string;
-  receipt_no: string;
-  created_at: string;
-  status: string;
-  total_paisa: number;
-  amount_paid_paisa: number;
-  change_due_paisa: number;
-  customer_name: string | null;
-  cashier_name: string;
-}>();
-const rows = invoices.results ?? [];
+let rows: Awaited<ReturnType<typeof listPosInvoiceHistory>> = [];
+let schemaMissing = false;
+try {
+  rows = await listPosInvoiceHistory(env.DB, since);
+} catch (err) {
+  if (isInvoicesSchemaMissingError(err)) {
+    schemaMissing = true;
+  } else {
+    throw err;
+  }
+}
 const totalRevenue = rows.filter(r => r.status === 'paid').reduce((s, r) => s + r.total_paisa, 0);
 ---
 <StaffLayout title="POS Invoices" user={user}>
@@ -66,7 +57,12 @@ const totalRevenue = rows.filter(r => r.status === 'paid').reduce((s, r) => s + 
     </div>
   </div>
 
-  {rows.length === 0 ? (
+  {schemaMissing ? (
+    <div class="text-sm bg-surface border border-line rounded-lg p-6">
+      <p class="font-semibold text-ink m-0">POS invoice tables are not set up yet.</p>
+      <p class="text-muted mt-2 mb-0">Run <code class="text-xs bg-surface-soft px-1 py-0.5 rounded">npm run db:migrate:local</code> (or apply migration <code class="text-xs bg-surface-soft px-1 py-0.5 rounded">0016_invoices</code>) on your local D1 database, then reload this page.</p>
+    </div>
+  ) : rows.length === 0 ? (
     <p class="text-muted text-sm bg-surface border border-line rounded-lg p-6 text-center">No POS invoices in this range.</p>
   ) : (
     <div class="overflow-x-auto bg-surface border border-line rounded-lg">

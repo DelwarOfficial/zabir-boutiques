@@ -1,0 +1,152 @@
+---
+pid: 1696
+cwd: "D:\Antigravity\zabir-boutiques"
+command: "Set-Location D:\\Antigravity\\zabir-boutiques; npm run dev"
+started_at: 2026-06-17T13:00:40.797Z
+running_for_ms: 1980003  
+---
+
+> zabir-boutiques@6.8.0 dev
+> astro dev
+
+19:00:56 [@astrojs/cloudflare] Enabling compile-time image optimization. Images will be pre-optimized at build time.
+19:00:56 [@astrojs/cloudflare] Enabling sessions with Cloudflare KV with the "SESSION" KV binding.
+19:00:57 [vite] Re-optimizing dependencies because vite config has changed
+Using secrets defined in .env.local
+19:01:16 [types] Generated 1ms
+19:01:16 [vite] Re-optimizing dependencies because vite config has changed
+19:01:16 [vite] Re-optimizing dependencies because vite config has changed
+ astro  v6.4.4 ready in 27764 ms
+┃ Local    http://localhost:4321/
+┃ Network  use --host to expose
+19:01:17 watching for file changes...
+19:14:56 [vite] [vite] program reload
+19:14:56 [vite] [vite] program reload
+19:15:31 [vite] [vite] program reload
+19:15:35 [vite] [vite] program reload
+19:15:44 [vite] [vite] program reload
+19:15:45 [vite] [vite] program reload
+19:15:54 [vite] [vite] program reload
+19:15:55 [vite] [vite] program reload
+19:15:55 [vite] [vite] program reload
+19:15:56 [vite] [vite] program reload
+19:16:04 [vite] [vite] program reload
+19:16:05 [vite] [vite] program reload
+19:16:30 [vite] [vite] program reload
+19:16:31 [vite] [vite] program reload
+19:16:45 [vite] [vite] program reload
+19:16:45 [vite] [vite] program reload
+19:17:09 [vite] [vite] program reload
+19:17:10 [vite] [vite] program reload
+19:17:59 [vite] [vite] program reload
+19:18:00 [vite] [vite] program reload
+19:18:04 [vite] [vite] program reload
+19:18:04 [vite] [vite] program reload
+19:18:10 [vite] [vite] program reload
+19:18:10 [vite] [vite] program reload
+19:18:19 [vite] [vite] program reload
+19:18:20 [vite] [vite] program reload
+19:18:51 [vite] [vite] program reload
+19:18:51 [vite] [vite] program reload
+19:18:56 [vite] [vite] program reload
+19:18:57 [vite] [vite] program reload
+19:18:57 [vite] [vite] program reload
+19:25:07 [vite] [vite] program reload
+19:25:07 [vite] [vite] program reload
+19:25:14 [vite] [vite] program reload
+19:25:15 [vite] [vite] program reload
+19:25:16 [vite] [vite] program reload
+19:25:21 [vite] [vite] program reload
+19:25:21 [vite] [vite] program reload
+19:25:22 [vite] [vite] program reload
+19:25:24 [vite] [vite] program reload
+19:25:27 [ERROR] [vite] Internal server error: D1_ERROR: no such table: invoices: SQLITE_ERROR
+      at D1DatabaseSessionAlwaysPrimary._sendOrThrow (cloudflare-internal:d1-api:139:19)
+      at null.<anonymous> (cloudflare-internal:d1-api:366:41)
+      at null.<anonymous> (D:/Antigravity/zabir-boutiques/src/pages/staff/sales/pos-history.astro:17:18)
+      at callComponentAsTemplateResultOrResponse (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:607:25)
+      at renderToReadableStream (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:555:26)
+      at renderPage (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-MVSENVO7.js?v=37b3b2f7:594:14)
+      at PagesHandler.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:360:22)
+      at onRequest (D:/Antigravity/zabir-boutiques/src/middleware.ts:82:30)
+      at callMiddleware (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:508:10)
+      at AstroMiddleware.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:2519:18)
+19:28:14 [ERROR] [vite] Internal server error: D1_ERROR: no such table: invoices: SQLITE_ERROR
+      at D1DatabaseSessionAlwaysPrimary._sendOrThrow (cloudflare-internal:d1-api:139:19)
+      at null.<anonymous> (cloudflare-internal:d1-api:366:41)
+      at null.<anonymous> (D:/Antigravity/zabir-boutiques/src/pages/staff/sales/pos-history.astro:17:18)
+      at callComponentAsTemplateResultOrResponse (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:607:25)
+      at renderToReadableStream (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:555:26)
+      at renderPage (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-MVSENVO7.js?v=37b3b2f7:594:14)
+      at PagesHandler.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:360:22)
+      at onRequest (D:/Antigravity/zabir-boutiques/src/middleware.ts:82:30)
+      at callMiddleware (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:508:10)
+      at AstroMiddleware.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:2519:18)
+19:28:25 [vite] [vite] program reload
+19:28:26 [vite] [vite] program reload
+19:28:26 [ERROR] [vite] Internal server error: D1_ERROR: no such table: invoices: SQLITE_ERROR
+      at D1DatabaseSessionAlwaysPrimary._sendOrThrow (cloudflare-internal:d1-api:139:19)
+      at null.<anonymous> (cloudflare-internal:d1-api:366:41)
+      at null.<anonymous> (D:/Antigravity/zabir-boutiques/src/pages/staff/sales/pos-history.astro:17:18)
+      at callComponentAsTemplateResultOrResponse (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:607:25)
+      at renderToReadableStream (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:555:26)
+      at renderPage (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-MVSENVO7.js?v=37b3b2f7:594:14)
+      at PagesHandler.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:360:22)
+      at onRequest (D:/Antigravity/zabir-boutiques/src/middleware.ts:82:30)
+      at callMiddleware (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:508:10)
+      at AstroMiddleware.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:2519:18)
+19:28:26 [vite] [vite] program reload
+19:28:29 [vite] [vite] program reload
+19:28:29 [vite] [vite] program reload
+19:28:30 [vite] [vite] program reload
+19:28:30 [ERROR] [vite] Internal server error: D1_ERROR: no such table: invoices: SQLITE_ERROR
+      at D1DatabaseSessionAlwaysPrimary._sendOrThrow (cloudflare-internal:d1-api:139:19)
+      at null.<anonymous> (cloudflare-internal:d1-api:366:41)
+      at null.<anonymous> (D:/Antigravity/zabir-boutiques/src/pages/staff/sales/pos-history.astro:17:18)
+      at callComponentAsTemplateResultOrResponse (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:607:25)
+      at renderToReadableStream (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:555:26)
+      at renderPage (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-MVSENVO7.js?v=37b3b2f7:594:14)
+      at PagesHandler.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:360:22)
+      at onRequest (D:/Antigravity/zabir-boutiques/src/middleware.ts:82:30)
+      at callMiddleware (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:508:10)
+      at AstroMiddleware.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:2519:18)
+19:28:31 [vite] [vite] program reload
+19:28:33 [vite] [vite] program reload
+19:28:34 [vite] [vite] program reload
+19:28:35 [ERROR] [vite] Internal server error: D1_ERROR: no such table: invoices: SQLITE_ERROR
+      at D1DatabaseSessionAlwaysPrimary._sendOrThrow (cloudflare-internal:d1-api:139:19)
+      at null.<anonymous> (cloudflare-internal:d1-api:366:41)
+      at null.<anonymous> (D:/Antigravity/zabir-boutiques/src/pages/staff/sales/pos-history.astro:17:18)
+      at callComponentAsTemplateResultOrResponse (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:607:25)
+      at renderToReadableStream (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-2BBC6B6R.js?v=37b3b2f7:555:26)
+      at renderPage (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-MVSENVO7.js?v=37b3b2f7:594:14)
+      at PagesHandler.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:360:22)
+      at onRequest (D:/Antigravity/zabir-boutiques/src/middleware.ts:82:30)
+      at callMiddleware (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:508:10)
+      at AstroMiddleware.handle (D:/Antigravity/zabir-boutiques/node_modules/.vite/deps_ssr/chunk-5XZPO7AU.js?v=37b3b2f7:2519:18)
+19:28:35 [vite] [vite] program reload
+19:29:20 [vite] [vite] program reload
+19:29:20 [vite] [vite] program reload
+19:29:21 [vite] [vite] program reload
+19:29:21 [vite] [vite] program reload
+19:29:57 [watch] /src/styles/global.css
+19:29:57 [vite] [vite] program reload
+19:29:57 [watch] /src/styles/global.css
+19:29:58 [vite] [vite] program reload
+19:29:59 [vite] [vite] program reload
+19:29:59 [vite] [vite] program reload
+19:30:00 [vite] [vite] program reload
+19:30:09 [vite] [vite] program reload
+19:30:09 [vite] [vite] program reload
+19:30:10 [vite] [vite] program reload
+19:30:11 [vite] [vite] program reload
+19:30:15 [vite] [vite] program reload
+19:30:15 [vite] [vite] program reload
+19:30:16 [vite] [vite] program reload
+19:30:16 [vite] [vite] program reload
+19:30:17 [vite] [vite] program reload
+19:30:18 [vite] [vite] program reload
+19:31:43 [vite] [vite] program reload
+19:31:44 [vite] [vite] program reload
+19:31:44 [vite] [vite] program reload
+19:31:45 [vite] [vite] program reload

@@ -4,14 +4,12 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken } from '../../../lib/sessions';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
+import { clearStaffAuthCookies, readStaffSessionCookie } from '../../../lib/staff-cookies';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
 
-  const cookie = context.request.headers.get('Cookie') ?? '';
-  // P1-001: only the __Host- prefixed session cookie.
-  const match = cookie.match(/(?:^|;\s*)__Host-session=([^;]+)/);
-  const sessionToken = match ? decodeURIComponent(match[1]) : null;
+  const sessionToken = readStaffSessionCookie(context.request);
 
   if (sessionToken) {
     const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
@@ -39,10 +37,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
-  // Clear only the __Host- prefixed cookies on logout. The legacy
-  // bare-name cookies have been removed (P1-001).
-  headers.append('Set-Cookie', '__Host-session=; HttpOnly; Secure; SameSite=Strict; Path=/; Max-Age=0');
-  headers.append('Set-Cookie', '__Host-csrf-token=; Secure; SameSite=Strict; Path=/; Max-Age=0');
+  clearStaffAuthCookies(headers, context.request);
 
   return new Response(JSON.stringify({ ok: true }), {
     status: 200,

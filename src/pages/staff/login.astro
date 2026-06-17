@@ -19,7 +19,7 @@ if (user) {
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
-    <script is:inline>
+    <script nonce={Astro.locals.cspNonce} is:inline>
       (function(){
         var t = localStorage.getItem('zb-theme');
         if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches)) {
@@ -35,7 +35,7 @@ if (user) {
           <div style="font-size:1.5rem;font-weight:800;color:var(--brand);letter-spacing:-0.5px;">Zabir Boutiques</div>
           <div style="color:var(--muted);font-size:0.85rem;margin-top:0.25rem;">Staff Portal</div>
         </div>
-        <form id="login-form">
+        <form id="login-form" method="post" action="/api/staff/login">
           <div style="margin-bottom:1rem;">
             <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Email or phone</label>
             <input name="identifier" type="text" autocomplete="username" required
@@ -55,12 +55,20 @@ if (user) {
       </div>
       <p style="text-align:center;color:var(--muted);font-size:0.75rem;margin-top:1.5rem;">Zabir Boutiques &copy; 2026</p>
     </main>
-    <script is:inline>
+    <script nonce={Astro.locals.cspNonce} is:inline>
       const form = document.getElementById('login-form');
       const btn = document.getElementById('login-btn');
       const err = document.getElementById('error');
-      form.addEventListener('submit', async (e) => {
-        e.preventDefault();
+      const params = new URLSearchParams(window.location.search);
+      const idInput = form.querySelector('[name="identifier"]');
+      const pwInput = form.querySelector('[name="password"]');
+      if (params.get('identifier')) idInput.value = params.get('identifier');
+      if (params.get('password')) pwInput.value = params.get('password');
+      if (params.has('identifier') || params.has('password')) {
+        history.replaceState(null, '', window.location.pathname);
+      }
+
+      async function submitLogin() {
         err.style.display = 'none';
         btn.disabled = true;
         btn.textContent = 'Signing in…';
@@ -68,18 +76,28 @@ if (user) {
         const res = await fetch('/api/staff/login', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
           body: JSON.stringify({ identifier: data.get('identifier'), password: data.get('password') })
         });
         if (res.ok) {
           window.location.href = '/staff';
-        } else {
-          const body = await res.json().catch(() => ({}));
-          err.textContent = body.error || 'Login failed';
-          err.style.display = 'block';
-          btn.disabled = false;
-          btn.textContent = 'Sign in';
+          return;
         }
+        const body = await res.json().catch(() => ({}));
+        err.textContent = body.error || 'Login failed';
+        err.style.display = 'block';
+        btn.disabled = false;
+        btn.textContent = 'Sign in';
+      }
+
+      form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        void submitLogin();
       });
+
+      if (params.get('identifier') && params.get('password')) {
+        void submitLogin();
+      }
     </script>
   </body>
 </html>

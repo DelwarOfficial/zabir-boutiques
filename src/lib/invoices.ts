@@ -483,6 +483,45 @@ export async function voidInvoice(
   return { ok: true };
 }
 
+export interface PosInvoiceHistoryRow {
+  id: string;
+  receipt_no: string;
+  created_at: string;
+  status: string;
+  total_paisa: number;
+  amount_paid_paisa: number;
+  change_due_paisa: number;
+  customer_name: string | null;
+  cashier_name: string;
+}
+
+export function isInvoicesSchemaMissingError(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("no such table: invoices");
+}
+
+/** Recent POS invoices for the staff history page. */
+export async function listPosInvoiceHistory(
+  db: D1Database,
+  since: string,
+  limit = 100,
+): Promise<PosInvoiceHistoryRow[]> {
+  const result = await db
+    .prepare(
+      `SELECT i.id, i.receipt_no, i.created_at, i.status, i.total_paisa,
+              i.amount_paid_paisa, i.change_due_paisa, i.customer_name,
+              u.full_name AS cashier_name
+       FROM invoices i
+       JOIN staff_users u ON u.id = i.cashier_id
+       WHERE i.created_at >= ?1
+       ORDER BY i.created_at DESC
+       LIMIT ?2`,
+    )
+    .bind(since, limit)
+    .all<PosInvoiceHistoryRow>();
+  return result.results ?? [];
+}
+
 /** Load a full invoice for printing. Returns null if not found. */
 export interface InvoiceWithItems {
   invoice: {

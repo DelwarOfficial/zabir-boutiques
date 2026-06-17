@@ -31,7 +31,7 @@ const ALL: MenuItem[] = [
   { label: 'Create Order', href: '/staff/sales/new', roles: ['owner-tier', 'manager', 'salesman'] },
   { label: 'In-Store Order', href: '/staff/sales/instore', roles: ['owner-tier', 'manager', 'salesman'] },
   { label: 'POS Invoice', href: '/staff/sales/pos', roles: ['owner-tier', 'manager', 'salesman'] },
-  { label: 'POS History', href: '/staff/sales/pos-history', roles: ['owner-tier', 'manager', 'salesman', 'auditor'] },
+  { label: 'POS History', href: '/staff/sales/pos-history', roles: ['owner-tier', 'manager', 'salesman'] },
   { label: 'My Orders', href: '/staff/sales/orders', roles: ['salesman'] },
   { label: 'Product Search', href: '/staff/sales/search', roles: ['salesman'] },
   { label: 'Customer Notes', href: '/staff/sales/notes', roles: ['salesman'] },

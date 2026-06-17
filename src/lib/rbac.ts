@@ -21,6 +21,7 @@ import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
 import { safeLog } from './pii-scrubber';
 import { writeAuditLog } from './audit';
+import { readStaffSessionCookie } from './staff-cookies';
 
 export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
@@ -208,16 +209,6 @@ export function can(role: StaffRole, permission: Permission): boolean {
   return PERMISSION_MATRIX[role]?.has(permission) ?? false;
 }
 
-function readSessionCookie(request: Request): string | null {
-  const cookie = request.headers.get('Cookie') ?? '';
-  // P1-001 audit fix: accept only the __Host- prefixed session cookie.
-  // The legacy bare `session=` cookie was a temporary rollout
-  // compatibility shim; it has been removed. See middleware.ts for the
-  // same fix on the CSRF cookie path.
-  const match = cookie.match(/(?:^|;\s*)__Host-session=([^;]+)/);
-  return match ? decodeURIComponent(match[1]) : null;
-}
-
 /**
  * Resolve the current staff user from the session cookie.
  */
@@ -228,7 +219,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string };
   if (!env?.DB || !env.SESSION_SECRET) return null;
 
-  const sessionToken = readSessionCookie(context.request);
+  const sessionToken = readStaffSessionCookie(context.request);
   if (!sessionToken) return null;
 
   const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
