@@ -55,7 +55,7 @@ export interface ReconcileReport {
 
 export async function reconcileInventory(
   db: D1Database,
-  env?: { VARIANT_INVENTORY?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset },
+  env?: { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset },
 ): Promise<ReconcileReport> {
   const report: ReconcileReport = {
     variantsChecked: 0,
@@ -176,9 +176,9 @@ export async function reconcileInventory(
 
     // Resync the DO with the live D1 state. The DO is a cache, not
     // the source of truth; if D1 says X, the DO should also say X.
-    if (env?.VARIANT_INVENTORY) {
+    if (env?.VARIANT_INVENTORY_DO) {
       try {
-        await doSyncFromD1(env as { DB: D1Database; VARIANT_INVENTORY: DurableObjectNamespace }, row.variant_id, row.live_quantity, row.live_reserved);
+        await doSyncFromD1(env as { DB: D1Database; VARIANT_INVENTORY_DO: DurableObjectNamespace }, row.variant_id, row.live_quantity, row.live_reserved);
         report.dosResynced += 1;
       } catch (err) {
         safeLog.warn('[inventory-reconcile] doSyncFromD1 failed (non-fatal)', { variantId: row.variant_id, error: err instanceof Error ? err.message : String(err) });

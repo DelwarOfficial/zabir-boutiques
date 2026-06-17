@@ -79,7 +79,7 @@ export async function POST(context: APIContext): Promise<Response> {
         .bind(crypto.randomUUID(), it.variant_id, it.quantity, user.id, now)
         .run();
     }
-    if (env.VARIANT_INVENTORY) {
+    if (env.VARIANT_INVENTORY_DO) {
       for (const it of items) {
         const row = await env.DB
           .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")

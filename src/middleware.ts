@@ -9,7 +9,7 @@
  */
 import type { MiddlewareHandler } from 'astro';
 import { verifyCsrfToken, generateRandomHex } from './lib/security';
-import { getCurrentStaffUser } from './lib/rbac';
+import { getCurrentStaffUser, can, type Permission, type StaffRole } from './lib/rbac';
 import { getCspScriptHashes } from './lib/csp-hashes';
 import { safeLog } from './lib/pii-scrubber';
 import { env as cloudflareEnv } from 'cloudflare:workers';
@@ -59,6 +59,15 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
         return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }), cspNonce);
       }
       return withSecurityHeaders(context.redirect('/staff/login'), cspNonce);
+    }
+
+    // RBAC enforcement for /api/staff/* (Task 5). Extract role (cached in KV via login/getCurrent).
+    // Verify against required permission for route.
+    if (url.pathname.startsWith('/api/staff/')) {
+      const required = getRequiredStaffPermission(url.pathname, request.method);
+      if (required && !can(user.role, required)) {
+        return withSecurityHeaders(Response.json({ ok: false, code: 'FORBIDDEN_PERMISSION', error: `Missing permission: ${required}` }, { status: 403 }), cspNonce);
+      }
     }
   }
 
@@ -148,6 +157,28 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
     safeLog.warn('[rate-limit] fail-open', { error: err instanceof Error ? err.message : String(err) });
   }
 
+  return null;
+}
+
+// RBAC route -> permission map for /api/staff (Task 5). Extend as new protected endpoints added.
+function getRequiredStaffPermission(pathname: string, method: string): Permission | null {
+  const p = pathname.toLowerCase();
+  const isMut = !['GET', 'HEAD', 'OPTIONS'].includes(method);
+
+  if (p.includes('refund')) return 'payments.refund';
+  if (p.includes('/orders/') && p.includes('/confirm')) return 'orders.confirm';
+  if (p.includes('/returns/') && (p.includes('/approve') || p.includes('/reject'))) return 'orders.update';
+  if (p.includes('/fraud/override')) return 'fraud.override';
+  if (p.includes('/invoices/') && (p.includes('/void') || p.includes('/print'))) return 'payments.verify';
+  if (p.includes('/coupons')) return isMut ? 'staff.manage' : null;
+  if (p.includes('/api-keys')) return isMut ? 'api_keys.create' : 'api_keys.read';
+  if (p.includes('/uploads')) return 'media.upload';
+  if (p.includes('/ai/')) return 'products.manage';
+  if (p.includes('/roles')) return 'roles.manage';
+  if (p.includes('/users')) return 'staff.manage';
+  if (p.includes('/settings')) return 'settings.manage';
+  if (p.includes('/backups')) return 'backups.read';
+  // Default: authenticated role sufficient for most read/ops. Specifics above enforce Owner/Manager etc.
   return null;
 }
 

@@ -29,7 +29,7 @@ export async function enqueuePaymentWebhook(env: { PAYMENT_WEBHOOKS?: Queue }, i
 
 export async function handlePaymentWebhookBatch(
   batch: MessageBatch<PaymentWebhookMessage>,
-  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY?: DurableObjectNamespace },
+  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {

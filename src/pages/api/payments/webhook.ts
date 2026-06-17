@@ -3,7 +3,7 @@ export const prerender = false;
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { applyPaymentVerified, verifyUddoktaPayment } from '../../../lib/payments';
-import { timingSafeEqualHex } from '../../../lib/security';
+import { timingSafeEqualHex, hmacSha256Hex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 import { enqueuePaymentWebhook } from '../../../queues/consumers';
 
@@ -11,23 +11,52 @@ export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();
 
-  // Webhook authenticity: UddoktaPay sends the merchant API key in this header
-  // on every IPN. Reject anything that does not carry the correct key before
-  // doing any work (server-to-server verification below is the second gate).
+  // Webhook Security: verify HMAC-SHA256 signature BEFORE parsing payload.
+  // Use raw body for signature computation.
+  const rawBody = await context.request.text().catch(() => '');
+  const webhookSecret = env.UDDOKTAPAY_WEBHOOK_SECRET;
+  if (webhookSecret) {
+    const receivedSig = (context.request.headers.get('X-UddoktaPay-Signature')
+      || context.request.headers.get('X-Signature')
+      || context.request.headers.get('Signature')
+      || '').replace(/^sha256=/i, '').trim().toLowerCase();
+    if (!receivedSig) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+    const expected = await hmacSha256Hex(rawBody, webhookSecret);
+    if (!timingSafeEqualHex(receivedSig, expected)) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
+  }
+
+  // Legacy IPN key check retained as additional gate (server-to-server).
   const ipnKey = context.request.headers.get('RT-UDDOKTAPAY-API-KEY');
-  if (!ipnKey || !timingSafeEqualHex(ipnKey, env.UDDOKTAPAY_API_KEY)) {
+  if (ipnKey && env.UDDOKTAPAY_API_KEY && !timingSafeEqualHex(ipnKey, env.UDDOKTAPAY_API_KEY)) {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   let body: any;
   try {
-    body = await context.request.json();
+    body = rawBody ? JSON.parse(rawBody) : await context.request.json();
   } catch {
     return Response.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
   const invoiceId = body.invoice_id;
   if (!invoiceId) return Response.json({ error: 'Missing invoice_id' }, { status: 400 });
+
+  // Store event ID in payment_events immediately to prevent duplicate processing
+  // (applyPaymentVerified also guards with the same unique constraint).
+  const eventId = crypto.randomUUID();
+  try {
+    await env.DB
+      .prepare(
+        `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
+         VALUES (?1, 'pending', ?2, 'webhook', 'received', ?3, ?4)`
+      )
+      .bind(eventId, invoiceId, rawBody.slice(0, 4000), now)
+      .run();
+  } catch {}
 
   const { status, amountPaisa, metadata, rawResponse } = await verifyUddoktaPayment(
     invoiceId,

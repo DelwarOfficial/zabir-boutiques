@@ -18,6 +18,7 @@ import { releaseReservedVariants, reserveVariants } from '../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../lib/orders';
 import { nowSql } from '../../lib/dates';
 import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency, recordOrderInProgress } from '../../lib/idempotency';
+import { doClaim, doComplete, doFail } from '../../lib/do-client';
 import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../lib/money';
 import {
   assertNoClientMoneyTrust,
@@ -65,21 +66,33 @@ export async function POST(context: APIContext): Promise<Response> {
     }
   }
 
-  // 1. Validate idempotency key
-  const idempotencyKey = context.request.headers.get('Idempotency-Key') || body.idempotency_key;
+  // 1. Require Idempotency-Key header (processed via IdempotencyDO per Master Plan)
+  const idempotencyKey = context.request.headers.get('Idempotency-Key');
   if (!idempotencyKey || typeof idempotencyKey !== 'string') {
     return Response.json({ ok: false, code: 'MISSING_IDEMPOTENCY_KEY', message: 'Please try again.' }, { status: 400 });
   }
 
+  // Call IdempotencyDO to claim (serializes across Workers)
+  const doClaimRes = await doClaim(env, idempotencyKey);
+  if (doClaimRes.replay) {
+    if (doClaimRes.responseBody) {
+      try {
+        return Response.json(JSON.parse(doClaimRes.responseBody), { status: 200 });
+      } catch {}
+    }
+    return Response.json({ ok: false, code: 'DUPLICATE_CHECKOUT', message: 'Duplicate request.' }, { status: 409 });
+  }
+  if (!doClaimRes.ok) {
+    return Response.json({ ok: false, code: 'CHECKOUT_PROCESSING', message: 'Request is already processing.' }, { status: 409 });
+  }
+
+  // D1 mirror for crash-recovery of order_id during processing (kept for compatibility)
   const existing = await checkIdempotency(env.DB, idempotencyKey);
   if (existing.exists) {
     if (existing.status === 'complete') {
       return Response.json(JSON.parse(existing.responseBody ?? '{}'), { status: 200 });
     }
     if (existing.status === 'processing' && existing.orderId) {
-      // Worker crash recovery: the order was created in a previous invocation.
-      // Re-fetch its public-facing fields so the client can proceed without a
-      // duplicate order. Inventory has already been reserved.
       const order = await env.DB.prepare(
         `SELECT id AS order_id, order_number, status, advance_paisa, balance_paisa
          FROM orders WHERE id = ?1`
@@ -99,17 +112,23 @@ export async function POST(context: APIContext): Promise<Response> {
         }, { status: 200 });
       }
     }
-    return Response.json({ ok: false, code: 'CHECKOUT_PROCESSING', message: 'Request is already processing.' }, { status: 409 });
   }
 
-  // 2. Normalize phone
-  const phoneResult = normalizeBangladeshPhone(body.phone ?? '');
+  // 2. Normalize phone to E.164 (+880) via lib (server authoritative)
+  const phoneResult = normalizeBangladeshPhone(phoneInput);
   if (!phoneResult.ok) {
     return Response.json({ ok: false, code: 'INVALID_PHONE', message: 'Use a valid Bangladeshi mobile number.' }, { status: 400 });
   }
 
-  // 3. Parse cart — variant id + quantity ONLY. Client prices are ignored.
-  const rawItems: Array<{ variant_id?: string; variantId?: string; quantity?: number; qty?: number }> = body.items ?? [];
+  // 3. Strip body: only accept cart:[{variant_id, quantity}], customer:{name,phone,address}, payment_method.
+  // Client-supplied prices/totals are ignored (server authoritative).
+  const cust = (body.customer && typeof body.customer === 'object') ? body.customer : {};
+  const nameInput = (cust.name ?? body.name ?? '').toString().trim();
+  const phoneInput = (cust.phone ?? body.phone ?? '').toString();
+  const addressInput = (cust.address ?? body.address ?? '').toString().trim();
+
+  const rawItems: Array<{ variant_id?: string; variantId?: string; quantity?: number; qty?: number }> =
+    Array.isArray(body.cart) ? body.cart : (body.items ?? []);
   if (!Array.isArray(rawItems) || !rawItems.length) {
     return Response.json({ ok: false, code: 'EMPTY_CART', message: 'Cart is empty.' }, { status: 400 });
   }
@@ -118,8 +137,8 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   items = rawItems.map((item) => ({
-    variantId: item.variant_id ?? item.variantId ?? '',
-    qty: item.quantity ?? item.qty ?? 0
+    variantId: (item.variant_id ?? item.variantId ?? '').toString(),
+    qty: Number(item.quantity ?? item.qty ?? 0)
   }));
 
   if (items.some((item) => !item.variantId)) {
@@ -159,10 +178,11 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price your cart. Please try again.' }, { status: 409 });
   }
 
-  // Claim idempotency only after the request is well-formed and priced.
+  // D1 idempotency mirror (for recovery) after pricing. DO already claimed the key.
   const claimed = await claimIdempotency(env.DB, idempotencyKey, now);
+  // Non-fatal if D1 claim fails (DO gate is authoritative for duplicates)
   if (!claimed) {
-    return Response.json({ ok: false, code: 'DUPLICATE_CHECKOUT', message: 'Duplicate request.' }, { status: 409 });
+    // continue; recovery still works via DO replay or D1 order lookup
   }
 
   try {
@@ -172,6 +192,7 @@ export async function POST(context: APIContext): Promise<Response> {
       const couponResult = await applyCouponAtomic(env.DB, couponCode, subtotalPaisa, now);
       if (!couponResult.ok) {
         await failIdempotency(env.DB, idempotencyKey);
+        await doFail(env, idempotencyKey);
         return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
       }
       discountPaisa = assertPaisa(couponResult.discountPaisa, 'discount_paisa');
@@ -218,6 +239,7 @@ export async function POST(context: APIContext): Promise<Response> {
         couponClaimed = false;
       }
       await failIdempotency(env.DB, idempotencyKey);
+      await doFail(env, idempotencyKey);
       return Response.json({
         ok: false, code: 'FRAUD_BLOCKED',
         message: 'This order has been flagged. Please contact customer support.'
@@ -232,6 +254,7 @@ export async function POST(context: APIContext): Promise<Response> {
         couponClaimed = false;
       }
       await failIdempotency(env.DB, idempotencyKey);
+      await doFail(env, idempotencyKey);
       // Use a cart index rather than echoing the raw variant_id back to the
       // client (defense against variant-id enumeration probing).
       const failedIndex = items.findIndex(i => i.variantId === reserveResult.failedVariantId);
@@ -254,10 +277,10 @@ export async function POST(context: APIContext): Promise<Response> {
 
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
       phone: phoneResult.phone,
-      name: body.name,
-      address: body.address,
-      shipping_zone: body.shipping_zone,
-      note: body.note,
+      name: nameInput,
+      address: addressInput,
+      shipping_zone: typeof body.shipping_zone === 'string' ? body.shipping_zone : undefined,
+      note: typeof body.note === 'string' ? body.note : undefined,
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
       discount_paisa: discountPaisa,
@@ -281,6 +304,7 @@ export async function POST(context: APIContext): Promise<Response> {
       advance_paisa: advancePaisa, balance_paisa: balancePaisa
     };
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
+    await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
 
     return Response.json(response, { status: 201 });
   } catch (err) {
@@ -292,6 +316,7 @@ export async function POST(context: APIContext): Promise<Response> {
       await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
     }
     await failIdempotency(env.DB, idempotencyKey);
+    await doFail(env, idempotencyKey);
     safeLog.error('[checkout] Error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'CHECKOUT_FAILED', message: 'Internal checkout error.' }, { status: 500 });
   }

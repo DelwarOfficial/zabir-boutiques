@@ -18,8 +18,8 @@ export interface ReserveFail { ok: false; available: number; requested: number; 
 export type ReserveResult = ReserveOk | ReserveFail;
 
 interface DoEnv {
-  VARIANT_INVENTORY?: DurableObjectNamespace;
-  IDEMPOTENCY?: DurableObjectNamespace;
+  VARIANT_INVENTORY_DO?: DurableObjectNamespace;
+  IDEMPOTENCY_DO?: DurableObjectNamespace;
 }
 
 /** Call the VariantInventoryDO for a variant. */
@@ -28,9 +28,9 @@ export async function doReserve(
   variantId: VariantId,
   qty: number,
 ): Promise<ReserveResult> {
-  if (!env.VARIANT_INVENTORY) return d1OnlyReserve(env, variantId, qty);
-  const id = env.VARIANT_INVENTORY.idFromName(variantId);
-  const stub = env.VARIANT_INVENTORY.get(id);
+  if (!env.VARIANT_INVENTORY_DO) return d1OnlyReserve(env, variantId, qty);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/reserve", {
     method: "POST",
     body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
@@ -43,9 +43,9 @@ export async function doRelease(
   variantId: VariantId,
   qty: number,
 ): Promise<void> {
-  if (!env.VARIANT_INVENTORY) return;
-  const id = env.VARIANT_INVENTORY.idFromName(variantId);
-  const stub = env.VARIANT_INVENTORY.get(id);
+  if (!env.VARIANT_INVENTORY_DO) return;
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/release", {
     method: "POST",
     body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
@@ -58,9 +58,9 @@ export async function doConfirm(
   variantId: VariantId,
   qty: number,
 ): Promise<{ ok: boolean; error?: string }> {
-  if (!env.VARIANT_INVENTORY) return { ok: true };
-  const id = env.VARIANT_INVENTORY.idFromName(variantId);
-  const stub = env.VARIANT_INVENTORY.get(id);
+  if (!env.VARIANT_INVENTORY_DO) return { ok: true };
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/confirm", {
     method: "POST",
     body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
@@ -75,9 +75,9 @@ export async function doSyncFromD1(
   stock: number,
   reserved: number,
 ): Promise<void> {
-  if (!env.VARIANT_INVENTORY) return;
-  const id = env.VARIANT_INVENTORY.idFromName(variantId);
-  const stub = env.VARIANT_INVENTORY.get(id);
+  if (!env.VARIANT_INVENTORY_DO) return;
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/sync", {
     method: "POST",
     body: JSON.stringify({ stock, reserved, variantId, env: { DB: env.DB } }),
@@ -94,9 +94,9 @@ export interface ClaimResult {
 }
 
 export async function doClaim(env: DoEnv, key: string): Promise<ClaimResult> {
-  if (!env.IDEMPOTENCY) return { ok: true, claimed: true };
-  const id = env.IDEMPOTENCY.idFromName(key);
-  const stub = env.IDEMPOTENCY.get(id);
+  if (!env.IDEMPOTENCY_DO) return { ok: true, claimed: true };
+  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const stub = env.IDEMPOTENCY_DO.get(id);
   const res = await stub.fetch("https://do/claim", {
     method: "POST",
     body: JSON.stringify({ key }),
@@ -110,9 +110,9 @@ export async function doComplete(
   orderId: string,
   responseBody: string,
 ): Promise<void> {
-  if (!env.IDEMPOTENCY) return;
-  const id = env.IDEMPOTENCY.idFromName(key);
-  const stub = env.IDEMPOTENCY.get(id);
+  if (!env.IDEMPOTENCY_DO) return;
+  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const stub = env.IDEMPOTENCY_DO.get(id);
   await stub.fetch("https://do/complete", {
     method: "POST",
     body: JSON.stringify({ key, orderId, responseBody }),
@@ -120,9 +120,9 @@ export async function doComplete(
 }
 
 export async function doFail(env: DoEnv, key: string): Promise<void> {
-  if (!env.IDEMPOTENCY) return;
-  const id = env.IDEMPOTENCY.idFromName(key);
-  const stub = env.IDEMPOTENCY.get(id);
+  if (!env.IDEMPOTENCY_DO) return;
+  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const stub = env.IDEMPOTENCY_DO.get(id);
   await stub.fetch("https://do/fail", {
     method: "POST",
     body: JSON.stringify({ key }),

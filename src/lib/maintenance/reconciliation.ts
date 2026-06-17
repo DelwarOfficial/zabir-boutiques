@@ -30,7 +30,7 @@ export interface ReconcileResult {
 }
 
 export async function reconcilePendingPayments(
-  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY?: DurableObjectNamespace },
+  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
   now: string = nowSql(),
 ): Promise<ReconcileResult> {
   const result: ReconcileResult = { checked: 0, fixed: 0, abandoned: 0, errors: 0 };

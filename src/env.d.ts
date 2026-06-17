@@ -28,6 +28,7 @@ export type Env = {
   TINIFY_API_KEY: string;
   UDDOKTAPAY_API_KEY: string;
   UDDOKTAPAY_BASE_URL: string;
+  UDDOKTAPAY_WEBHOOK_SECRET?: string;
   FRAUDBD_API_KEY: string;
   DEEPSEEK_API_KEY: string;
   OPENAI_API_KEY: string;
@@ -38,8 +39,8 @@ export type Env = {
   PUBLIC_SITE_URL: string;
   PUBLIC_SITE_NAME: string;
   // Master_Prompt v7.0 §2.3, §3.4
-  VARIANT_INVENTORY?: DurableObjectNamespace;
-  IDEMPOTENCY?: DurableObjectNamespace;
+  VARIANT_INVENTORY_DO?: DurableObjectNamespace;
+  IDEMPOTENCY_DO?: DurableObjectNamespace;
   // Master_Prompt v7.0 §2.4
   PAYMENT_WEBHOOKS?: Queue;
   ORDER_EMAILS?: Queue;

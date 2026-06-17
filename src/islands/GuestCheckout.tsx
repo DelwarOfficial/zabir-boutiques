@@ -60,21 +60,18 @@ export function GuestCheckout() {
             "Idempotency-Key": crypto.randomUUID(),
           },
           body: JSON.stringify({
-            name: name.trim(),
-            phone: normalizedPhone.phone,
-            address: address.trim(),
-            shipping_zone: zone,
-            payment_method: paymentMethod,
-            subtotal_paisa: cart.subtotalPaisa,
-            delivery_paisa: shippingPaisa,
-            discount_paisa: 0,
-            total_paisa: totalPaisa,
-            items: cart.items.map((item) => ({
-              product_id: item.productId,
+            cart: cart.items.map((item) => ({
               variant_id: item.variantId,
               quantity: item.quantity,
-              unit_price_paisa: item.unitPricePaisa,
             })),
+            customer: {
+              name: name.trim(),
+              phone: normalizedPhone.phone,
+              address: address.trim(),
+            },
+            payment_method: paymentMethod,
+            shipping_zone: zone,
+            // note and coupon_code optional, server ignores client money fields
           }),
         });
 

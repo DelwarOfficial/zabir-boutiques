@@ -4,8 +4,8 @@ import ProductCard from "@/components/product/ProductCard.astro";
 import { CATALOG_CATEGORIES, CATALOG_PRODUCTS } from "@/data/catalog";
 
 export const prerender = true;
-const featured = CATALOG_PRODUCTS.slice(0, 8);
-const hot = CATALOG_PRODUCTS.filter(p => p.availableQuantity > 0).slice(0, 4);
+const featured = CATALOG_PRODUCTS.slice(0, 2);
+const hot = CATALOG_PRODUCTS.filter(p => p.availableQuantity > 0).slice(0, 1);
 const trust = [
   { icon: "truck", title: "Bangladesh-wide", subtitle: "Inside Dhaka ৳70 · Outside ৳130" },
   { icon: "shield", title: "Server-reserved stock", subtitle: "No overselling, ever." },

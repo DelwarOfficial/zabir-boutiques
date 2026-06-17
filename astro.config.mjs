@@ -6,7 +6,7 @@ import cspHashes from "./scripts/csp-hashes-plugin.mjs";
 
 export default defineConfig({
   site: "https://zabirboutiques.com",
-  output: "server",
+  output: "static",
   integrations: [react()],
   adapter: cloudflare({
     runtime: { mode: "advanced" },

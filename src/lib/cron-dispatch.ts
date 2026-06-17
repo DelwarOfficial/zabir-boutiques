@@ -64,7 +64,7 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
     await cleanExpiredIdempotencyKeys(env.DB);
     await recordAuditIntegrityCheck(env.DB);
     await writeAuditCheckpoint(env.DB);
-    await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
+    await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
   },
   // Every 6 hours — D1 backup via queue.
   "0 */6 * * *": async (env) => {

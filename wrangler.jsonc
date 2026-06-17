@@ -45,8 +45,8 @@
   },
   "durable_objects": {
     "bindings": [
-      { "name": "VARIANT_INVENTORY", "class_name": "VariantInventoryDO" },
-      { "name": "IDEMPOTENCY", "class_name": "IdempotencyDO" },
+      { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
+      { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
       { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
       { "name": "WAF_RULES", "class_name": "WafRules" }
     ]

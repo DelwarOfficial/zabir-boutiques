@@ -225,7 +225,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const locals = context.locals as App.Locals | undefined;
   if (locals?.staffUserResolved) return locals.staffUser ?? null;
 
-  const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string };
+  const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string; SESSION?: KVNamespace };
   if (!env?.DB || !env.SESSION_SECRET) return null;
 
   const sessionToken = readSessionCookie(context.request);
@@ -233,6 +233,15 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
 
   const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
   const now = nowSql();
+
+  // Extract from KV when available (Task 5). D1 is still used for authoritative revocation/idle checks.
+  let kvCachedRole: string | null = null;
+  if (env.SESSION) {
+    try {
+      const cached = await env.SESSION.get(`staff-session:${tokenHash}`, 'json') as any;
+      if (cached && cached.role && isValidStaffRole(cached.role)) kvCachedRole = cached.role;
+    } catch {}
+  }
 
   const row = await env.DB.prepare(
     `SELECT s.id AS session_id, s.staff_user_id, u.role, u.full_name, s.last_active_at
@@ -330,12 +339,23 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
     return null;
   }
 
-  return {
+  const staffUser: StaffUser = {
     id: row.staff_user_id,
     role: row.role,
     fullName: row.full_name,
     sessionId: row.session_id
   };
+
+  // Cache to KV for subsequent extractions (Task 5)
+  if (env.SESSION) {
+    env.SESSION.put(
+      `staff-session:${tokenHash}`,
+      JSON.stringify(staffUser),
+      { expirationTtl: 30 * 60 }
+    ).catch(() => {});
+  }
+
+  return staffUser;
 }
 
 export async function requireAuth(context: APIContext): Promise<StaffUser> {
