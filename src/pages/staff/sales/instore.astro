@@ -142,9 +142,8 @@ const rows = variants.results ?? [];
     }
 
     function getCsrf() {
-      const m = document.cookie.match(/(?:^|;\s*)__Host-csrf-token=([^;]+)/)
-        || document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
-      return m ? decodeURIComponent(m[1]) : '';
+      if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+      try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
     }
 
     form?.addEventListener('submit', async (e) => {

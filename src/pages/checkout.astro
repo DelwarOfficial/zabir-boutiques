@@ -7,7 +7,7 @@ export const prerender = false;
 ---
 
 <RootLayout title="Guest Checkout | Zabir Boutiques">
-  <GuestCheckout client:only="react">
+  <GuestCheckout client:load>
     <CheckoutSkeleton slot="fallback" />
   </GuestCheckout>
 </RootLayout>

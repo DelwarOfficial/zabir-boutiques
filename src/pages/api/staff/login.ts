@@ -10,6 +10,7 @@ import { normalizeBangladeshPhone } from '../../../lib/phone';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
+import type { StaffUser } from '../../../lib/rbac';
 
 export const prerender = false;
 
@@ -134,6 +135,21 @@ export async function POST(context: APIContext): Promise<Response> {
       ],
       { atomic: true },
     );
+
+    // Populate KV for fast RBAC extraction (Task 5). D1 remains source of truth.
+    if ((env as any).SESSION) {
+      const sessPayload: Partial<StaffUser> & { sessionId: string } = {
+        id: staff.id,
+        role: staff.role as any,
+        fullName: staff.full_name,
+        sessionId,
+      };
+      await (env as any).SESSION.put(
+        `staff-session:${tokenHash}`,
+        JSON.stringify(sessPayload),
+        { expirationTtl: 8 * 60 * 60 }
+      );
+    }
   } catch (err) {
     safeLog.error('[staff/login] session insert failed', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ error: 'Login service unavailable. Please try again.' }, { status: 503 });
@@ -161,7 +177,11 @@ export async function POST(context: APIContext): Promise<Response> {
     maxAge,
   });
 
-  return new Response(JSON.stringify({ ok: true, staff: { id: staff.id, name: staff.full_name, role: staff.role } }), {
+  return new Response(JSON.stringify({
+    ok: true,
+    csrf_token: csrfToken,
+    staff: { id: staff.id, name: staff.full_name, role: staff.role },
+  }), {
     status: 200,
     headers
   });

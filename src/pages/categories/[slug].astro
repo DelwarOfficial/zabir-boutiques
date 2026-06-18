@@ -22,6 +22,7 @@ const products = productsForCatalogCategory(activeFilter);
   </section>
 
   <section class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-    {(products.length ? products : productsForCatalogCategory(category.slug)).map((product) => <ProductCard product={product} />)}
+    {/* Island budget: max 3 cards (3×AddToCart + Header + BottomNav = 5) */}
+    {(products.length ? products : productsForCatalogCategory(category.slug)).slice(0, 3).map((product) => <ProductCard product={product} />)}
   </section>
 </RootLayout>

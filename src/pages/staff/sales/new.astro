@@ -85,8 +85,9 @@ const variants = await env.DB.prepare(
         address: formData.get('address'),
         items
       };
-      const csrfMatch = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
-      const csrf = csrfMatch ? decodeURIComponent(csrfMatch[1]) : '';
+      const csrf = (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__)
+        ? window.__ZB_CSRF__
+        : (function () { try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; } })();
       const res = await fetch('/api/staff/orders/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },

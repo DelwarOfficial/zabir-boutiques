@@ -1,5 +1,12 @@
 import { describe, it, expect } from 'vitest';
-import { timingSafeEqualHex } from '../src/lib/security';
+import { timingSafeEqualHex, createCsrfToken } from '../src/lib/security';
+import {
+  readCsrfCookie,
+  buildCsrfSetCookie,
+  buildCsrfClearCookie,
+  validateCsrfDoubleSubmit,
+  CSRF_COOKIE_NAME,
+} from '../src/lib/csrf';
 
 describe('CSRF Protection', () => {
   it('timingSafeEqualHex returns false for different lengths', () => {
@@ -60,5 +67,50 @@ describe('CSRF Protection', () => {
     const match = cookieHeader.match(new RegExp(`(?:^|;\\s*)${escaped}=([^;]+)`));
     expect(match).not.toBeNull();
     expect(match![1]).toBe('xyz');
+  });
+
+  it('buildCsrfSetCookie sets HttpOnly and SameSite=Strict', () => {
+    const cookie = buildCsrfSetCookie('nonce.sig', 3600);
+    expect(cookie).toContain(`${CSRF_COOKIE_NAME}=nonce.sig`);
+    expect(cookie).toContain('HttpOnly');
+    expect(cookie).toContain('SameSite=Strict');
+  });
+
+  it('buildCsrfClearCookie clears the HttpOnly cookie', () => {
+    expect(buildCsrfClearCookie()).toContain(`${CSRF_COOKIE_NAME}=`);
+    expect(buildCsrfClearCookie()).toContain('Max-Age=0');
+  });
+
+  it('readCsrfCookie reads __Host-csrf-token from Cookie header', () => {
+    const req = new Request('https://example.com', {
+      headers: { Cookie: `${CSRF_COOKIE_NAME}=abc.def; __Host-session=x` },
+    });
+    expect(readCsrfCookie(req)).toBe('abc.def');
+  });
+
+  it('validateCsrfDoubleSubmit accepts matching cookie and header', async () => {
+    const token = await createCsrfToken('csrf-secret');
+    const req = new Request('https://example.com', {
+      method: 'POST',
+      headers: {
+        Cookie: `${CSRF_COOKIE_NAME}=${token}`,
+        'X-CSRF-Token': token,
+      },
+    });
+    const result = await validateCsrfDoubleSubmit(req, 'csrf-secret');
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('validateCsrfDoubleSubmit rejects header mismatch', async () => {
+    const token = await createCsrfToken('csrf-secret');
+    const req = new Request('https://example.com', {
+      method: 'POST',
+      headers: {
+        Cookie: `${CSRF_COOKIE_NAME}=${token}`,
+        'X-CSRF-Token': 'other.sig',
+      },
+    });
+    const result = await validateCsrfDoubleSubmit(req, 'csrf-secret');
+    expect(result).toEqual({ ok: false, reason: 'token_mismatch' });
   });
 });

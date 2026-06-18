@@ -54,7 +54,9 @@ const { message = 'This section requires recent authentication for security.' } 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '')
+            'X-CSRF-Token': (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__)
+              ? window.__ZB_CSRF__
+              : (function () { try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; } })()
           },
           body: JSON.stringify({ password: pw })
         });

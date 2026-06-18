@@ -122,8 +122,8 @@ const rows = coupons.results ?? [];
 <script is:inline>
   (function () {
     function getCsrf() {
-      const m = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/);
-      return m ? decodeURIComponent(m[1]) : '';
+      if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+      try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
     }
     function stepUpHint(json) {
       return json && json.code === 'STEP_UP_REQUIRED'

@@ -102,6 +102,10 @@ async function loadKeys() {
   } catch { /* tbody stays as-is */ }
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function getCsrf() {
+  if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+  try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
+}
 function scopeText(k) {
   try {
     const scopes = JSON.parse(k.scopes_json || k.permissions || '[]');
@@ -117,7 +121,7 @@ async function createKey() {
   const scopes = Array.from(document.querySelectorAll('input[name="apiScope"]:checked')).map(input => input.value);
   if (!name) return;
   if (!scopes.length) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ name, scopes }) });
+  const res = await fetch('/api/staff/api-keys', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() }, body: JSON.stringify({ name, scopes }) });
   const data = await res.json();
   const resultDiv = document.getElementById('newKeyResult');
   if (data.ok) {
@@ -133,7 +137,7 @@ async function createKey() {
 }
 async function revokeKey(id) {
   if (!confirm('Revoke this API key? This cannot be undone.')) return;
-  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': decodeURIComponent((document.cookie.match(/(?:^|;\s*)csrf-token=([^;]+)/) || [])[1] || '') }, body: JSON.stringify({ id }) });
+  const res = await fetch('/api/staff/api-keys', { method: 'DELETE', headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() }, body: JSON.stringify({ id }) });
   const data = await res.json();
   if (data.ok) loadKeys();
 }

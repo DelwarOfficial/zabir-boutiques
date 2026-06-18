@@ -80,6 +80,10 @@ if (user) {
           body: JSON.stringify({ identifier: data.get('identifier'), password: data.get('password') })
         });
         if (res.ok) {
+          const body = await res.json().catch(() => ({}));
+          if (body.csrf_token) {
+            try { sessionStorage.setItem('zb-csrf', body.csrf_token); } catch (_) {}
+          }
           window.location.href = '/staff';
           return;
         }

@@ -1,38 +1,47 @@
 /**
- * Bangladesh Phone Normalization [v6.8A]
- * Canonical stored format: +8801XXXXXXXXX
- * Local validation format: 01XXXXXXXXX
- * All regex anchors use real ASCII caret (U+005E).
+ * Bangladesh Phone Normalization [Task 3 Remediation]
+ * Uses libphonenumber-js for E.164 (+880) canonical format.
+ * Stored: +8801XXXXXXXXX
+ * Local: 01XXXXXXXXX
  */
+import { parsePhoneNumberFromString } from 'libphonenumber-js';
+
 export type PhoneNormalizeResult =
   | { ok: true; phone: string; local: string }
   | { ok: false; reason: 'EMPTY' | 'INVALID_BD_MOBILE' };
 
-const PHONE_PATTERN = new RegExp('^01[3-9]\\d{8}$');
-
 export function normalizeBangladeshPhone(input: string): PhoneNormalizeResult {
-  const stripped = String(input ?? '').replace(/\D/g, '');
-  let local: string;
-
-  if (!stripped) {
+  const raw = String(input ?? '').trim();
+  if (!raw) {
     return { ok: false, reason: 'EMPTY' };
   }
 
-  if (stripped.length === 13 && stripped.startsWith('880')) {
-    local = '0' + stripped.slice(3);
-  } else if (stripped.length === 11 && stripped.startsWith('0')) {
-    local = stripped;
-  } else if (stripped.length === 10 && stripped.startsWith('1')) {
-    local = '0' + stripped;
-  } else {
+  // Try with BD region first, then as international.
+  let phoneNumber = parsePhoneNumberFromString(raw, 'BD');
+  if (!phoneNumber || !phoneNumber.isValid()) {
+    phoneNumber = parsePhoneNumberFromString(raw);
+  }
+
+  if (!phoneNumber || !phoneNumber.isValid()) {
     return { ok: false, reason: 'INVALID_BD_MOBILE' };
   }
 
-  if (!PHONE_PATTERN.test(local)) {
+  // Force BD numbers to +880...
+  const cc = phoneNumber.countryCallingCode;
+  if (cc !== '880') {
+    // Only accept Bangladeshi numbers per business rules.
     return { ok: false, reason: 'INVALID_BD_MOBILE' };
   }
 
-  return { ok: true, local, phone: '+88' + local };
+  const e164 = phoneNumber.format('E.164'); // +8801...
+  const local = '0' + phoneNumber.nationalNumber; // 01...
+
+  // Additional BD mobile pattern guard (13xx-19xx)
+  if (!/^01[3-9]\d{8}$/.test(local)) {
+    return { ok: false, reason: 'INVALID_BD_MOBILE' };
+  }
+
+  return { ok: true, phone: e164, local };
 }
 
 export function phoneHelperText(input: string) {

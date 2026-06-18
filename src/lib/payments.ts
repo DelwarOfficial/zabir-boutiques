@@ -141,7 +141,7 @@ export type ApplyPaymentResult =
  *      does not re-deduct.
  */
 export async function applyPaymentVerified(
-  env: { DB: D1Database; VARIANT_INVENTORY?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset },
+  env: { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset },
   invoiceId: string,
   verified: { amountPaisa: number | null; metadata: Record<string, unknown> | null; rawResponse: string },
   now: string

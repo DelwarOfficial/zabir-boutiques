@@ -76,6 +76,24 @@ export class IdempotencyDO implements DurableObject {
       return Response.json({ ok: true, status: "failed" });
     }
 
+    if (action === "peek") {
+      const peekExisting = this.cache.get(key);
+      if (peekExisting && peekExisting.expiresAt > Date.now()) {
+        if (peekExisting.status === "complete") {
+          return Response.json({
+            ok: true,
+            replay: true,
+            orderId: peekExisting.orderId,
+            responseBody: peekExisting.responseBody,
+          });
+        }
+        if (peekExisting.status === "processing") {
+          return Response.json({ ok: false, code: "PROCESSING" }, { status: 409 });
+        }
+      }
+      return Response.json({ ok: true, status: "absent" });
+    }
+
     // claim
     const now = Date.now();
     const existing = this.cache.get(key);

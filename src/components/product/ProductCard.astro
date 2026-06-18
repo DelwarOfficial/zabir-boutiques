@@ -1,6 +1,9 @@
 ---
 import { AddToCartButton } from "@/islands/AddToCartButton";
+import ProductImage from "@/components/product/ProductImage.astro";
 import { formatPaisa } from "@/lib/money";
+
+const siteOrigin = Astro.site?.origin;
 
 const { product } = Astro.props;
 const lowStock = product.availableQuantity > 0 && product.availableQuantity <= 3;
@@ -14,11 +17,11 @@ const outOfStock = product.availableQuantity <= 0;
     aria-label={`${product.title}, ${formatPaisa(product.pricePaisa)}`}
   >
     <div class="relative aspect-[4/5] overflow-hidden bg-[var(--surface-soft)]">
-      <img
-        src={product.imageUrl}
+      <ProductImage
+        imageUrl={product.imageUrl}
         alt={product.title}
-        width="512"
-        height="640"
+        layout="card"
+        siteOrigin={siteOrigin}
         loading="lazy"
         decoding="async"
         class="h-full w-full object-cover transition-transform duration-500 will-change-transform group-hover:scale-105"

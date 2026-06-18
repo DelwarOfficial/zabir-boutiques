@@ -5,40 +5,37 @@
  * D1 remains the source of truth; the DO serializes "is there enough
  * available stock right now?" across Worker isolates.
  *
- * Lifecycle:
- *  - On first request, the DO loads its {stock, reserved} from D1 (sync).
- *  - reserve(qty) decrements available; if available < qty returns ok:false.
- *  - release(qty) increments available.
- *  - syncFromD1(stock, reserved) is called after every successful D1 commit
- *    (and on first hit, and from the inventory cron).
- *  - The DO is best-effort: if a sync fails, the next D1 commit re-syncs.
- *
- * Concurrency guarantee: a single DO instance is single-threaded by
- * Cloudflare's runtime, so all reserve/release calls for the same
- * variant_id are serialized. No two Workers can both observe available
- * >= qty and both commit.
+ * available = stock - reserved - sold (migration 0017)
  */
 export class VariantInventoryDO implements DurableObject {
   private state: DurableObjectState;
   private stock = 0;
   private reserved = 0;
+  private sold = 0;
   private initialized = false;
 
   constructor(state: DurableObjectState, _env: unknown) {
     this.state = state;
   }
 
+  private available(): number {
+    return this.stock - this.reserved - this.sold;
+  }
+
   private async ensureInitialized(env: { DB?: D1Database }, variantId: string): Promise<void> {
     if (this.initialized) return;
     if (env?.DB) {
-      // Pull canonical state from D1.
       const row = await env.DB
-        .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+        .prepare(
+          `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
+           FROM inventory_items WHERE variant_id = ?1`,
+        )
         .bind(variantId)
-        .first<{ quantity: number; reserved_quantity: number }>();
+        .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
       if (row) {
         this.stock = row.quantity;
         this.reserved = row.reserved_quantity;
+        this.sold = row.sold_quantity;
       }
     }
     this.initialized = true;
@@ -51,6 +48,7 @@ export class VariantInventoryDO implements DurableObject {
       qty?: number;
       stock?: number;
       reserved?: number;
+      sold?: number;
       variantId?: string;
       env?: { DB?: D1Database };
     };
@@ -61,8 +59,9 @@ export class VariantInventoryDO implements DurableObject {
     if (action === "sync") {
       if (typeof body.stock === "number") this.stock = body.stock;
       if (typeof body.reserved === "number") this.reserved = body.reserved;
-      await this.state.storage.put({ stock: this.stock, reserved: this.reserved });
-      return Response.json({ ok: true, stock: this.stock, reserved: this.reserved });
+      if (typeof body.sold === "number") this.sold = body.sold;
+      await this.state.storage.put({ stock: this.stock, reserved: this.reserved, sold: this.sold });
+      return Response.json({ ok: true, stock: this.stock, reserved: this.reserved, sold: this.sold });
     }
 
     const qty = Number(body.qty ?? 0);
@@ -71,30 +70,30 @@ export class VariantInventoryDO implements DurableObject {
     }
 
     if (action === "reserve") {
-      const available = this.stock - this.reserved;
+      const available = this.available();
       if (qty > available) {
         return Response.json({ ok: false, available, requested: qty });
       }
       this.reserved += qty;
-      await this.state.storage.put({ stock: this.stock, reserved: this.reserved });
-      return Response.json({ ok: true, available: this.stock - this.reserved });
+      await this.state.storage.put({ stock: this.stock, reserved: this.reserved, sold: this.sold });
+      return Response.json({ ok: true, available: this.available() });
     }
 
     if (action === "release") {
       this.reserved = Math.max(0, this.reserved - qty);
-      await this.state.storage.put({ stock: this.stock, reserved: this.reserved });
-      return Response.json({ ok: true, available: this.stock - this.reserved });
+      await this.state.storage.put({ stock: this.stock, reserved: this.reserved, sold: this.sold });
+      return Response.json({ ok: true, available: this.available() });
     }
 
     if (action === "confirm") {
-      // Move qty from reserved → sold: decrement both stock and reserved.
-      if (this.reserved < qty || this.stock < qty) {
+      if (this.reserved < qty || this.available() < qty) {
         return Response.json({ ok: false, error: "OVER_ALLOCATED" }, { status: 409 });
       }
       this.stock -= qty;
       this.reserved -= qty;
-      await this.state.storage.put({ stock: this.stock, reserved: this.reserved });
-      return Response.json({ ok: true, stock: this.stock, reserved: this.reserved });
+      this.sold += qty;
+      await this.state.storage.put({ stock: this.stock, reserved: this.reserved, sold: this.sold });
+      return Response.json({ ok: true, stock: this.stock, reserved: this.reserved, sold: this.sold });
     }
 
     return Response.json({ ok: false, error: "UNKNOWN_ACTION" }, { status: 400 });

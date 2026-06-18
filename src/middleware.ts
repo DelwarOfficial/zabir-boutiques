@@ -1,18 +1,20 @@
 /**
- * Astro Middleware [v6.8A + Master_Prompt v7.0 §9.5]
+ * Astro Middleware [v6.8A + Master_Prompt v7.0]
  * CSRF Protection: All non-GET staff/admin mutations must pass CSRF.
  * Includes /api/staff/*, /staff/* SSR form posts, and Astro actions that
  * mutate product, order, payment, fraud, or staff state.
  *
- * Also issues a per-request CSP nonce (Master_Prompt v7.0 §9.5) and
- * sets strict-dynamic + nonce-X CSP for script-src.
+ * Also issues a per-request CSP nonce and sets strict-dynamic + nonce CSP
+ * for script-src.
  */
 import type { MiddlewareHandler } from 'astro';
-import { verifyCsrfToken, generateRandomHex } from './lib/security';
-import { getCurrentStaffUser } from './lib/rbac';
+import { generateRandomHex } from './lib/security';
+import { getCurrentStaffUser, can } from './lib/rbac';
 import { getCspScriptHashes } from './lib/csp-hashes';
 import { safeLog } from './lib/pii-scrubber';
-import { isLocalHttpDev, readStaffCsrfCookie } from './lib/staff-cookies';
+import { isLocalHttpDev } from './lib/staff-cookies';
+import { validateCsrfDoubleSubmit } from './lib/csrf';
+import { getRequiredStaffPermission } from './lib/staff-route-rbac';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
@@ -36,8 +38,8 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   const url = new URL(request.url);
   const runtimeEnv = cloudflareEnv as { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string };
 
-  // Per-request CSP nonce (Master_Prompt v7.0 §9.5). Available on
-  // context.locals.cspNonce so pages can stamp <script nonce={...}>.
+  // Per-request CSP nonce. Available on context.locals.cspNonce so pages
+  // can stamp inline scripts.
   const cspNonce = generateRandomHex(16);
   context.locals.cspNonce = cspNonce;
 
@@ -48,9 +50,8 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   const limited = await rateLimit(context, url.pathname);
   if (limited) return withSecurityHeaders(limited, cspNonce, request);
 
-  // Central authentication guard (defense-in-depth). Resolves the staff session
-  // exactly once and caches it on locals so getCurrentStaffUser does not re-query
-  // D1 on the same request. A page that forgets its own check stays protected.
+  // Central authentication guard. Resolves the staff session exactly once and
+  // caches it on locals so getCurrentStaffUser does not re-query D1.
   if (STAFF_PROTECTED.test(url.pathname) && !AUTH_EXEMPT_PATHS.has(url.pathname)) {
     const user = await getCurrentStaffUser(context);
     context.locals.staffUser = user;
@@ -61,35 +62,31 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
       }
       return withSecurityHeaders(context.redirect('/staff/login'), cspNonce, request);
     }
+
+    // RBAC enforcement for /api/staff/*.
+    if (url.pathname.startsWith('/api/staff/')) {
+      const required = getRequiredStaffPermission(url.pathname, request.method);
+      if (required && !can(user.role, required)) {
+        return withSecurityHeaders(Response.json({ ok: false, code: 'FORBIDDEN_PERMISSION', error: `Missing permission: ${required}` }, { status: 403 }), cspNonce, request);
+      }
+    }
   }
 
   if (STAFF_MUTATION_PATHS.test(url.pathname) && !SAFE_METHODS.has(request.method) && !CSRF_EXEMPT_PATHS.has(url.pathname)) {
-    // P1-001 audit fix: read only the __Host- prefixed CSRF cookie. The
-    // bare csrf-token fallback has been removed.
-    const cookieToken = getCsrfCookie(request);
-    const headerToken = request.headers.get('X-CSRF-Token');
-
-    if (!cookieToken || !headerToken || cookieToken !== headerToken) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token' }, { status: 403 }), cspNonce, request);
-    }
-
-    const secret = runtimeEnv?.SESSION_SECRET;
-    if (!secret || !(await verifyCsrfToken(cookieToken, secret))) {
-      return withSecurityHeaders(Response.json({ error: 'Invalid CSRF token signature' }, { status: 403 }), cspNonce, request);
+    const csrf = await validateCsrfDoubleSubmit(request, runtimeEnv?.SESSION_SECRET);
+    if (!csrf.ok) {
+      const message = csrf.reason === 'invalid_signature' ? 'Invalid CSRF token signature' : 'Invalid CSRF token';
+      return withSecurityHeaders(Response.json({ error: message }, { status: 403 }), cspNonce, request);
     }
   }
 
   return withSecurityHeaders(await next(), cspNonce, request);
 };
 
-function getCsrfCookie(request: Request): string | null {
-  return readStaffCsrfCookie(request);
-}
-
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
   const origin = request.headers.get('Origin');
-  // For state-changing login requests a same-origin browser always sends Origin.
-  // A missing Origin on a non-safe method is treated as disallowed (fail closed).
+  // For state-changing login requests a same-origin browser always sends
+  // Origin. A missing Origin on a non-safe method is treated as disallowed.
   if (!origin) return false;
 
   const requestOrigin = new URL(request.url).origin;
@@ -120,7 +117,7 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
     if (current >= rule.limit) {
       return Response.json(
         { error: 'Rate limit exceeded' },
-        { status: 429, headers: { 'Retry-After': String(rule.windowSeconds) } }
+        { status: 429, headers: { 'Retry-After': String(rule.windowSeconds) } },
       );
     }
     await cache.put(key, String(current + 1), { expirationTtl: rule.windowSeconds * 2 });
@@ -137,24 +134,9 @@ function withSecurityHeaders(response: Response, nonce: string, request: Request
   if (!localDev) {
     headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   }
-  // Master_Prompt v7.0 §9.5: per-request nonce + build-time SHA-256
-  // hashes for any script the app generated (loaded from
-  // src/generated/csp-hashes.ts, written by scripts/csp-hashes-plugin.mjs).
-  // The plugin walks both dist/client/_astro (Astro build output) and
-  // src/{pages,components,layouts,islands} for <script> blocks. Every
-  // emitted script — Astro-internal, inline, or external — has a
-  // matching hash, so the per-page nonce + 'strict-dynamic' allow the
-  // browser to load them all without 'unsafe-inline' in script-src.
-  //
-  // style-src 'self' 'unsafe-inline' is intentional: Astro's scoped
-  // styles inject inline style attributes for hash-scoped classnames
-  // and CSS-in-JS. Removing 'unsafe-inline' here would break the
-  // build. The risk is bounded because style attributes cannot
-  // execute JavaScript (no XSS via style). See docs/csp.md.
-  // CSP hashes are generated at production build time. Astro dev serves
-  // inline script bodies with different whitespace, so hash-only CSP blocks
-  // login and other is:inline handlers on http://localhost. Relax script-src
-  // for local HTTP dev only; production keeps nonce + strict-dynamic + hashes.
+
+  // Astro dev serves inline script bodies with different whitespace, so
+  // hash-only CSP blocks login and inline handlers on http://localhost.
   const scriptSrc = localDev
     ? "'self' 'unsafe-inline'"
     : [
@@ -167,7 +149,7 @@ function withSecurityHeaders(response: Response, nonce: string, request: Request
     "default-src 'self'",
     `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' data: blob:",
+    "img-src 'self' https://cdn.zabirboutiques.com data: blob:",
     "font-src 'self'",
     "connect-src 'self'",
     "frame-ancestors 'none'",
@@ -180,8 +162,6 @@ function withSecurityHeaders(response: Response, nonce: string, request: Request
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   headers.set('X-Content-Type-Options', 'nosniff');
   headers.set('X-Frame-Options', 'DENY');
-  // Expose the nonce so Astro pages can read it and stamp is:inline
-  // <script> tags. This is a one-time hook until we migrate the pages.
   headers.set('x-csp-nonce', nonce);
 
   return new Response(response.body, {

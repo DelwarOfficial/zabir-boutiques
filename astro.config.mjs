@@ -6,7 +6,10 @@ import cspHashes from "./scripts/csp-hashes-plugin.mjs";
 
 export default defineConfig({
   site: "https://zabirboutiques.com",
-  output: "server",
+  // Master Plan §2.1 hybrid mode: Astro 6 uses `static` (prerender by default)
+  // with per-route `export const prerender = false` for server routes — equivalent
+  // to the deprecated `output: "hybrid"` from Astro 4. Do not use `server` here.
+  output: "static",
   integrations: [react()],
   adapter: cloudflare({
     runtime: { mode: "advanced" },

@@ -19,6 +19,7 @@ import { getEnv } from "../../../../lib/env";
 import { nowSql } from "../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../lib/rbac";
 import { createInvoice, type InvoicePaymentMethod } from "../../../../lib/invoices";
+import type { Env } from "../../../../env";
 import { writeAuditLog, clientIp, userAgent } from "../../../../lib/audit";
 import { safeLog } from "../../../../lib/pii-scrubber";
 import { normalizeBangladeshPhone } from "../../../../lib/phone";
@@ -122,7 +123,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const result = await createInvoice(
-    env,
+    env as any,
     {
       idempotencyKey: body.idempotency_key,
       cashierId: user.id,

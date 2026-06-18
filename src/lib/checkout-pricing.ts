@@ -13,6 +13,61 @@ export type CheckoutCartItem = {
   qty: number;
 };
 
+const MAX_CART_LINE_ITEMS = 10;
+
+export type ParsedCheckoutCart = {
+  items: CheckoutCartItem[];
+  shippingZone: string | undefined;
+  note: string | undefined;
+  couponCode: string;
+  paymentMethod: 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store';
+};
+
+/**
+ * Strict checkout payload parse (Master Plan §6.1 step 3).
+ * Extracts ONLY variant_id + quantity from cart lines. All client
+ * money fields are ignored by design.
+ */
+export function parseCheckoutCart(body: Record<string, unknown>): ParsedCheckoutCart | { error: string; code: string } {
+  const rawItems: Array<{ variant_id?: string; variantId?: string; quantity?: number; qty?: number }> =
+    Array.isArray(body.cart) ? body.cart : (Array.isArray(body.items) ? body.items : []);
+
+  if (!rawItems.length) {
+    return { error: 'Cart is empty.', code: 'EMPTY_CART' };
+  }
+  if (rawItems.length > MAX_CART_LINE_ITEMS) {
+    return { error: 'Please place a smaller order.', code: 'CART_TOO_LARGE' };
+  }
+
+  const items: CheckoutCartItem[] = rawItems.map((item) => ({
+    variantId: (item.variant_id ?? item.variantId ?? '').toString(),
+    qty: Number(item.quantity ?? item.qty ?? 0),
+  }));
+
+  if (items.some((item) => !item.variantId)) {
+    return { error: 'Cart contains an invalid item.', code: 'INVALID_CART' };
+  }
+  if (items.some((item) => !Number.isSafeInteger(item.qty) || item.qty < 1)) {
+    return { error: 'Each item needs a valid quantity.', code: 'INVALID_QUANTITY' };
+  }
+
+  const paymentRaw = (body.payment_method ?? 'cod').toString();
+  const paymentMethod =
+    paymentRaw === 'uddoktapay' || paymentRaw === 'partial_prepay' || paymentRaw === 'in_store'
+      ? paymentRaw
+      : 'cod';
+
+  const couponCode = typeof body.coupon_code === 'string' ? body.coupon_code.trim() : '';
+
+  return {
+    items,
+    shippingZone: typeof body.shipping_zone === 'string' ? body.shipping_zone : undefined,
+    note: typeof body.note === 'string' ? body.note : undefined,
+    couponCode,
+    paymentMethod,
+  };
+}
+
 export type VariantSnapshot = {
   variant_id: string;
   product_id: string;

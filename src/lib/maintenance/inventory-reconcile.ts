@@ -9,7 +9,7 @@
  *   1. Reads `inventory_baseline` (seeded by migration 0014 from the
  *      current `inventory_items` state at deploy time).
  *   2. Compares the live `inventory_items` row against the baseline
- *      `{quantity, reserved_quantity}`.
+ *      `{quantity, reserved_quantity, sold_quantity}`.
  *   3. On drift > threshold, writes a `low_stock_alerts` row AND
  *      re-syncs the `VariantInventoryDO` with the live D1 state.
  *   4. Refreshes the baseline row with the new (corrected) state, so
@@ -24,6 +24,8 @@
  *   - `reserved_quantity` going *up* without a corresponding
  *     `stock_reservations` row that is still `active` is the classic
  *     "leaked reservation" bug. We log it.
+ *   - `sold_quantity` drift without a matching fulfilled order is
+ *     suspicious (post-0017 sold tracking).
  *
  * The reconciliation is bounded to 500 variants per invocation to keep
  * the daily cron under D1's per-DB write limit. Subsequent runs
@@ -45,8 +47,11 @@ export interface ReconcileReport {
     liveQuantity: number;
     baselineReserved: number;
     liveReserved: number;
+    baselineSold: number;
+    liveSold: number;
     quantityDelta: number;
     reservedDelta: number;
+    soldDelta: number;
     severity: "soft" | "hard";
   }>;
   dosResynced: number;
@@ -55,7 +60,7 @@ export interface ReconcileReport {
 
 export async function reconcileInventory(
   db: D1Database,
-  env?: { VARIANT_INVENTORY?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset },
+  env?: { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset },
 ): Promise<ReconcileReport> {
   const report: ReconcileReport = {
     variantsChecked: 0,
@@ -71,24 +76,14 @@ export async function reconcileInventory(
   // guards against variants added after the seed.
   await db
     .prepare(
-      `INSERT OR IGNORE INTO inventory_baseline (variant_id, quantity, reserved_quantity, baseline_hash, set_at, set_by, reconciliation_count)
-       SELECT variant_id, quantity, reserved_quantity, 'pending-first-reconcile', ?1, NULL, 0
+      `INSERT OR IGNORE INTO inventory_baseline (variant_id, quantity, reserved_quantity, sold_quantity, baseline_hash, set_at, set_by, reconciliation_count)
+       SELECT variant_id, quantity, reserved_quantity, sold_quantity, 'pending-first-reconcile', ?1, NULL, 0
        FROM inventory_items
        WHERE variant_id NOT IN (SELECT variant_id FROM inventory_baseline)`,
     )
     .bind(now)
     .run();
 
-  // Read the live + baseline rows together. Bounded to MAX_VARIANTS_PER_RUN
-  // so the daily cron does not exceed D1's per-DB write limit. The cron
-  // is registered in src/lib/cron-dispatch.ts at `0 3 * * *`.
-  //
-  // P0-005 audit fix: `IN (subquery ... ORDER BY ... LIMIT ...)` does NOT
-  // guarantee that the outer query returns rows in the subquery's order.
-  // The previous query rotated through random variants under a 500-cap,
-  // missing drift on the oldest baselines. The CTE form materializes
-  // the candidates with explicit ordering, then the outer JOIN preserves
-  // that order.
   const rows = await db
     .prepare(
       `WITH candidates AS (
@@ -103,8 +98,10 @@ export async function reconcileInventory(
          iv.variant_id,
          iv.quantity      AS live_quantity,
          iv.reserved_quantity AS live_reserved,
+         iv.sold_quantity AS live_sold,
          b.quantity      AS baseline_quantity,
          b.reserved_quantity AS baseline_reserved,
+         b.sold_quantity AS baseline_sold,
          b.baseline_hash,
          b.set_at        AS baseline_set_at,
          b.reconciliation_count AS baseline_recon_count
@@ -118,8 +115,10 @@ export async function reconcileInventory(
       variant_id: string;
       live_quantity: number;
       live_reserved: number;
+      live_sold: number;
       baseline_quantity: number;
       baseline_reserved: number;
+      baseline_sold: number;
       baseline_hash: string;
       baseline_set_at: string;
       baseline_recon_count: number;
@@ -129,26 +128,27 @@ export async function reconcileInventory(
     report.variantsChecked += 1;
     const quantityDelta = row.live_quantity - row.baseline_quantity;
     const reservedDelta = row.live_reserved - row.baseline_reserved;
+    const soldDelta = row.live_sold - row.baseline_sold;
 
-    // On first reconcile (`pending-first-reconcile` hash), we just
-    // adopt the live state as the new baseline. No drift, no alert.
     if (row.baseline_hash === "pending-first-reconcile") {
-      await refreshBaseline(db, row.variant_id, row.live_quantity, row.live_reserved, now);
+      await refreshBaseline(db, row.variant_id, row.live_quantity, row.live_reserved, row.live_sold, now);
       report.baselinesRefreshed += 1;
       continue;
     }
 
-    if (Math.abs(quantityDelta) <= DISCREPANCY_THRESHOLD && Math.abs(reservedDelta) <= DISCREPANCY_THRESHOLD) {
-      // Within tolerance — no drift. Refresh the baseline so the
-      // next reconcile only flags *new* drift.
-      await refreshBaseline(db, row.variant_id, row.live_quantity, row.live_reserved, now);
+    const withinTolerance =
+      Math.abs(quantityDelta) <= DISCREPANCY_THRESHOLD &&
+      Math.abs(reservedDelta) <= DISCREPANCY_THRESHOLD &&
+      Math.abs(soldDelta) <= DISCREPANCY_THRESHOLD;
+
+    if (withinTolerance) {
+      await refreshBaseline(db, row.variant_id, row.live_quantity, row.live_reserved, row.live_sold, now);
       report.baselinesRefreshed += 1;
       continue;
     }
 
-    // Drift detected. Determine severity.
-    const severity: "soft" | "hard" =
-      Math.abs(quantityDelta) > 10 || Math.abs(reservedDelta) > 10 ? "hard" : "soft";
+    const maxDelta = Math.max(Math.abs(quantityDelta), Math.abs(reservedDelta), Math.abs(soldDelta));
+    const severity: "soft" | "hard" = maxDelta > 10 ? "hard" : "soft";
 
     report.drift.push({
       variantId: row.variant_id,
@@ -156,8 +156,11 @@ export async function reconcileInventory(
       liveQuantity: row.live_quantity,
       baselineReserved: row.baseline_reserved,
       liveReserved: row.live_reserved,
+      baselineSold: row.baseline_sold,
+      liveSold: row.live_sold,
       quantityDelta,
       reservedDelta,
+      soldDelta,
       severity,
     });
 
@@ -169,30 +172,24 @@ export async function reconcileInventory(
       .bind(
         crypto.randomUUID(),
         row.variant_id,
-        `inventory_reconcile: drift severity=${severity} qty=${row.baseline_quantity}->${row.live_quantity} (${quantityDelta >= 0 ? "+" : ""}${quantityDelta}) reserved=${row.baseline_reserved}->${row.live_reserved} (${reservedDelta >= 0 ? "+" : ""}${reservedDelta})`,
+        `inventory_reconcile: drift severity=${severity} qty=${row.baseline_quantity}->${row.live_quantity} (${quantityDelta >= 0 ? "+" : ""}${quantityDelta}) reserved=${row.baseline_reserved}->${row.live_reserved} (${reservedDelta >= 0 ? "+" : ""}${reservedDelta}) sold=${row.baseline_sold}->${row.live_sold} (${soldDelta >= 0 ? "+" : ""}${soldDelta})`,
         now,
       )
       .run();
 
-    // Resync the DO with the live D1 state. The DO is a cache, not
-    // the source of truth; if D1 says X, the DO should also say X.
-    if (env?.VARIANT_INVENTORY) {
+    if (env?.VARIANT_INVENTORY_DO) {
       try {
-        await doSyncFromD1(env as { DB: D1Database; VARIANT_INVENTORY: DurableObjectNamespace }, row.variant_id, row.live_quantity, row.live_reserved);
+        await doSyncFromD1(env as { DB: D1Database; VARIANT_INVENTORY_DO: DurableObjectNamespace }, row.variant_id, row.live_quantity, row.live_reserved);
         report.dosResynced += 1;
       } catch (err) {
         safeLog.warn('[inventory-reconcile] doSyncFromD1 failed (non-fatal)', { variantId: row.variant_id, error: err instanceof Error ? err.message : String(err) });
       }
     }
 
-    // After emitting the alert, refresh the baseline so the *next*
-    // reconcile only flags *new* drift. Otherwise the same drift
-    // would alert every night.
-    await refreshBaseline(db, row.variant_id, row.live_quantity, row.live_reserved, now);
+    await refreshBaseline(db, row.variant_id, row.live_quantity, row.live_reserved, row.live_sold, now);
     report.baselinesRefreshed += 1;
   }
 
-  // Audit the run summary.
   await writeAuditLog(db, {
     actorStaffId: null,
     actorRole: null,
@@ -216,6 +213,7 @@ async function refreshBaseline(
   variantId: string,
   quantity: number,
   reservedQuantity: number,
+  soldQuantity: number,
   now: string,
 ): Promise<void> {
   await db
@@ -223,8 +221,9 @@ async function refreshBaseline(
       `UPDATE inventory_baseline
        SET quantity = ?2,
            reserved_quantity = ?3,
-           baseline_hash = ?4,
-           set_at = ?5,
+           sold_quantity = ?4,
+           baseline_hash = ?5,
+           set_at = ?6,
            reconciliation_count = reconciliation_count + 1
        WHERE variant_id = ?1`,
     )
@@ -232,7 +231,8 @@ async function refreshBaseline(
       variantId,
       quantity,
       reservedQuantity,
-      `v1:${quantity}:${reservedQuantity}`,
+      soldQuantity,
+      `v1:${quantity}:${reservedQuantity}:${soldQuantity}`,
       now,
     )
     .run();
