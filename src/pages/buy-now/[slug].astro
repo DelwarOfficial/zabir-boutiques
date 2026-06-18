@@ -6,8 +6,6 @@
  * Everything on one scroll: hero offer, image gallery, product benefits,
  * trust signals, order form, support CTA.
  */
-export const prerender = false;
-
 import RootLayout from "@/layouts/RootLayout.astro";
 import { BuyNowLandingForm } from "@/islands/BuyNowLandingForm";
 import { formatPaisa } from "@/lib/money";
@@ -27,7 +25,13 @@ if (!env?.DIRECT_CHECKOUT_DO) {
 
 const doId = env.DIRECT_CHECKOUT_DO.idFromName(sid);
 const stub = env.DIRECT_CHECKOUT_DO.get(doId);
-const sessionRes = await stub.fetch("https://do/get", { method: "POST", body: "{}" });
+const sessionRes = await stub.fetch("https://do/get", {
+  method: "POST",
+  body: JSON.stringify({
+    origin: Astro.request.headers.get("Origin") ?? Astro.url.origin,
+    userAgent: Astro.request.headers.get("User-Agent") ?? "",
+  }),
+});
 const sessionData = (await sessionRes.json().catch(() => null)) as {
   ok?: boolean;
   session?: {

@@ -14,8 +14,6 @@
  *  - payments.status is updated to 'refunded' (or 'partially_refunded')
  *    alongside the gateway call.
  */
-export const prerender = false;
-
 import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { nowSql } from "../../../../../lib/dates";

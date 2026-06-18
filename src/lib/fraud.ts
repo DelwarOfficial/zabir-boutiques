@@ -79,7 +79,7 @@ export async function checkFraudBD(
   if (env?.PROVIDER_HEALTH_DO) {
     const health = await doCheckProviderHealth(env, 'fraudbd');
     if (!health.canProceed) {
-      return { score: null, rawResponse: '{"error":"circuit_open"}' };
+      return { score: 50, rawResponse: '{"error":"circuit_open","fallback_score":50}' };
     }
   }
 

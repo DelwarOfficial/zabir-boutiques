@@ -27,10 +27,10 @@ export interface CartState {
 
 export class CartDO implements DurableObject {
   private state: DurableObjectState;
-  private env: { CART_ACTIVITY?: Queue };
+  private env: { CART_ACTIVITY?: Queue; DB?: D1Database };
   private cart: CartState | null = null;
 
-  constructor(state: DurableObjectState, env: { CART_ACTIVITY?: Queue }) {
+  constructor(state: DurableObjectState, env: { CART_ACTIVITY?: Queue; DB?: D1Database }) {
     this.state = state;
     this.env = env;
   }
@@ -51,6 +51,12 @@ export class CartDO implements DurableObject {
   private async persist(): Promise<void> {
     if (!this.cart) return;
     await this.state.storage.put('cart', this.cart);
+  }
+
+  private async persistMutation(cart: CartState): Promise<void> {
+    await this.persist();
+    await this.publishActivity(cart);
+    await this.state.storage.setAlarm(Date.now() + 5 * 60 * 1000);
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -95,8 +101,7 @@ export class CartDO implements DurableObject {
         }
         cart.lastUpdatedAt = now;
         cart.cartVersion++;
-        await this.persist();
-        await this.publishActivity(cart);
+        await this.persistMutation(cart);
         return Response.json({ ok: true, cart, currentVersion: cart.cartVersion });
       }
 
@@ -107,8 +112,7 @@ export class CartDO implements DurableObject {
         cart.items = cart.items.filter((i) => i.variantId !== body.variantId);
         cart.lastUpdatedAt = now;
         cart.cartVersion++;
-        await this.persist();
-        await this.publishActivity(cart);
+        await this.persistMutation(cart);
         return Response.json({ ok: true, cart, currentVersion: cart.cartVersion });
       }
 
@@ -124,8 +128,7 @@ export class CartDO implements DurableObject {
         item.updatedAt = now;
         cart.lastUpdatedAt = now;
         cart.cartVersion++;
-        await this.persist();
-        await this.publishActivity(cart);
+        await this.persistMutation(cart);
         return Response.json({ ok: true, cart, currentVersion: cart.cartVersion });
       }
 
@@ -134,8 +137,7 @@ export class CartDO implements DurableObject {
         cart.couponCode = null;
         cart.lastUpdatedAt = now;
         cart.cartVersion++;
-        await this.persist();
-        await this.publishActivity(cart);
+        await this.persistMutation(cart);
         return Response.json({ ok: true, cart, currentVersion: cart.cartVersion });
       }
 
@@ -143,14 +145,14 @@ export class CartDO implements DurableObject {
         cart.couponCode = body.couponCode ?? null;
         cart.lastUpdatedAt = now;
         cart.cartVersion++;
-        await this.persist();
+        await this.persistMutation(cart);
         return Response.json({ ok: true, cart, currentVersion: cart.cartVersion });
       }
 
       case 'contact': {
         cart.customerContact = body.customerContact ?? null;
         cart.lastUpdatedAt = now;
-        await this.persist();
+        await this.persistMutation(cart);
         return Response.json({ ok: true, cart, currentVersion: cart.cartVersion });
       }
 
@@ -188,10 +190,56 @@ export class CartDO implements DurableObject {
     const lastUpdate = new Date(cart.lastUpdatedAt).getTime();
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
 
+    await this.upsertCartActivity(cart);
+
     if (Date.now() - lastUpdate > thirtyDaysMs) {
-      // Publish final activity state before cleanup
       await this.publishActivity(cart);
       await this.state.storage.deleteAll();
+      return;
     }
+  }
+
+  private async upsertCartActivity(cart: CartState): Promise<void> {
+    if (!this.env.DB) return;
+    const now = new Date().toISOString();
+    const contact = parseContact(cart.customerContact);
+    await this.env.DB.prepare(
+      `INSERT INTO cart_activity (
+        session_id, customer_phone, customer_email, customer_name, item_count,
+        total_quantity, subtotal_paisa, last_cart_update_at, consent_status, updated_at
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0, ?7, 'unknown', ?8)
+      ON CONFLICT(session_id) DO UPDATE SET
+        customer_phone = COALESCE(excluded.customer_phone, cart_activity.customer_phone),
+        customer_email = COALESCE(excluded.customer_email, cart_activity.customer_email),
+        customer_name = COALESCE(excluded.customer_name, cart_activity.customer_name),
+        item_count = excluded.item_count,
+        total_quantity = excluded.total_quantity,
+        subtotal_paisa = excluded.subtotal_paisa,
+        last_cart_update_at = excluded.last_cart_update_at,
+        updated_at = excluded.updated_at`,
+    ).bind(
+      this.state.id.toString(),
+      contact.phone,
+      contact.email,
+      contact.name,
+      cart.items.length,
+      cart.items.reduce((sum, i) => sum + i.quantity, 0),
+      cart.lastUpdatedAt,
+      now,
+    ).run();
+  }
+}
+
+function parseContact(value: string | null): { phone: string | null; email: string | null; name: string | null } {
+  if (!value) return { phone: null, email: null, name: null };
+  try {
+    const parsed = JSON.parse(value) as { phone?: string; email?: string; name?: string };
+    return {
+      phone: typeof parsed.phone === 'string' ? parsed.phone : null,
+      email: typeof parsed.email === 'string' ? parsed.email : null,
+      name: typeof parsed.name === 'string' ? parsed.name : null,
+    };
+  } catch {
+    return { phone: value, email: null, name: null };
   }
 }

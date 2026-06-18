@@ -20,6 +20,8 @@ export interface DirectCheckoutSession {
   landingVersion: number;
   sourcePage: string | null;
   utmParams: Record<string, string> | null;
+  origin: string;
+  userAgentHash: string;
   formDraft: {
     name?: string;
     phone?: string;
@@ -54,6 +56,9 @@ export class DirectCheckoutSessionDO implements DurableObject {
       sourcePage?: string;
       utmParams?: Record<string, string>;
       formDraft?: DirectCheckoutSession['formDraft'];
+      sessionId?: string;
+      origin?: string;
+      userAgent?: string;
     };
 
     switch (action) {
@@ -62,7 +67,7 @@ export class DirectCheckoutSessionDO implements DurableObject {
           return Response.json({ ok: false, error: 'INVALID_INPUT' }, { status: 400 });
         }
 
-        const sessionId = crypto.randomUUID();
+        const sessionId = body.sessionId || crypto.randomUUID();
         const now = new Date();
         const expiresAt = new Date(now.getTime() + 30 * 60 * 1000); // 30 minutes
 
@@ -77,6 +82,8 @@ export class DirectCheckoutSessionDO implements DurableObject {
           landingVersion: 1,
           sourcePage: body.sourcePage ?? null,
           utmParams: body.utmParams ?? null,
+          origin: body.origin ?? '',
+          userAgentHash: await sha256(body.userAgent ?? ''),
           formDraft: null,
         };
 
@@ -99,6 +106,13 @@ export class DirectCheckoutSessionDO implements DurableObject {
           return Response.json({ ok: false, error: 'SESSION_EXPIRED' }, { status: 410 });
         }
 
+        const verification = await verifySessionBinding(session, body.origin, body.userAgent);
+        if (verification) {
+          await this.state.storage.deleteAll();
+          this.session = null;
+          return Response.json({ ok: false, error: verification }, { status: 403 });
+        }
+
         return Response.json({ ok: true, session });
       }
 
@@ -106,6 +120,13 @@ export class DirectCheckoutSessionDO implements DurableObject {
         const session = await this.ensureLoaded();
         if (!session) {
           return Response.json({ ok: false, error: 'SESSION_NOT_FOUND' }, { status: 404 });
+        }
+
+        const verification = await verifySessionBinding(session, body.origin, body.userAgent);
+        if (verification) {
+          await this.state.storage.deleteAll();
+          this.session = null;
+          return Response.json({ ok: false, error: verification }, { status: 403 });
         }
 
         session.formDraft = body.formDraft ?? null;
@@ -116,6 +137,15 @@ export class DirectCheckoutSessionDO implements DurableObject {
       }
 
       case 'clear': {
+        const session = await this.ensureLoaded();
+        if (session) {
+          const verification = await verifySessionBinding(session, body.origin, body.userAgent);
+          if (verification) {
+            await this.state.storage.deleteAll();
+            this.session = null;
+            return Response.json({ ok: false, error: verification }, { status: 403 });
+          }
+        }
         await this.state.storage.deleteAll();
         this.session = null;
         return Response.json({ ok: true });
@@ -140,4 +170,20 @@ export class DirectCheckoutSessionDO implements DurableObject {
       await this.state.storage.deleteAll();
     }
   }
+}
+
+async function sha256(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function verifySessionBinding(
+  session: DirectCheckoutSession,
+  origin: string | undefined,
+  userAgent: string | undefined,
+): Promise<'ORIGIN_MISMATCH' | 'USER_AGENT_MISMATCH' | null> {
+  if (session.origin && origin !== session.origin) return 'ORIGIN_MISMATCH';
+  const userAgentHash = await sha256(userAgent ?? '');
+  if (session.userAgentHash && userAgentHash !== session.userAgentHash) return 'USER_AGENT_MISMATCH';
+  return null;
 }

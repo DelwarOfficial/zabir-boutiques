@@ -7,8 +7,6 @@
  * RBAC: Owner_Tier (super_admin, owner)
  * CSRF: Required for POST
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertOwnerOnly, RbacError } from '../../../../lib/rbac';

@@ -4,11 +4,17 @@
  * Creates a short-lived DirectCheckoutSessionDO for a Buy Now flow.
  * Does NOT mutate the normal cart.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { safeLog } from '../../../lib/pii-scrubber';
+
+async function createHmacSessionId(secret: string): Promise<string> {
+  const random = crypto.getRandomValues(new Uint8Array(32));
+  const payload = `${Date.now()}:${Array.from(random, b => b.toString(16).padStart(2, '0')).join('')}`;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  return Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
+}
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -61,7 +67,7 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, error: 'Service unavailable' }, { status: 503 });
   }
 
-  const sessionId = crypto.randomUUID();
+  const sessionId = await createHmacSessionId(env.SESSION_SECRET);
   const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
   const stub = env.DIRECT_CHECKOUT_DO.get(id);
   const res = await stub.fetch('https://do/create', {
@@ -73,6 +79,9 @@ export async function POST(context: APIContext): Promise<Response> {
       selectedOptions,
       sourcePage,
       utmParams,
+      sessionId,
+      origin: context.request.headers.get('Origin') ?? new URL(context.request.url).origin,
+      userAgent: context.request.headers.get('User-Agent') ?? '',
     }),
   });
 

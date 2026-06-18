@@ -12,8 +12,6 @@
  *
  * RBAC: requires `orders.view` (any staff role).
  */
-export const prerender = false;
-
 import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";

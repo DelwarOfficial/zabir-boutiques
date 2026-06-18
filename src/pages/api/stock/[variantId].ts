@@ -3,8 +3,6 @@
  * CDN cache, rate limit, zero KV write.
  * Public stock badge must NOT write KV. Use CDN-cached D1 response.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 

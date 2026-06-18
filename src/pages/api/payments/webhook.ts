@@ -1,5 +1,3 @@
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { timingSafeEqualHex } from '../../../lib/security';

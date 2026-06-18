@@ -16,9 +16,6 @@ import type { APIContext } from "astro";
 import { getEnv } from "../../lib/env";
 import { formatPaisa } from "../../lib/money";
 import { autocomplete } from "../../lib/autocomplete-index";
-
-export const prerender = false;
-
 type Result = {
   id: string;
   slug: string;

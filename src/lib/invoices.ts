@@ -30,7 +30,7 @@
 import { nowSql } from "./dates";
 import { assertPaisa } from "./money";
 import { writeAuditLog } from "./audit";
-import { doSyncFromD1, doDirectSale } from "./do-client";
+import { doSyncFromD1, doDirectSale, doReverseDirectSale } from "./do-client";
 
 /** Generate a Bangladesh NBR-style receipt number.
  *  Format: ZB-INV-YYYYMMDD-NNNN. The NNNN is the count of paid
@@ -153,6 +153,32 @@ export async function createInvoice(
 ): Promise<CreateInvoiceResult | CreateInvoiceFailure> {
   const db = env.DB;
 
+  const existingInvoice = await db
+    .prepare(
+      `SELECT id, receipt_no, total_paisa, amount_paid_paisa, change_due_paisa
+       FROM invoices WHERE idempotency_key = ?1`,
+    )
+    .bind(input.idempotencyKey)
+    .first<{
+      id: string;
+      receipt_no: string;
+      total_paisa: number;
+      amount_paid_paisa: number;
+      change_due_paisa: number;
+    }>();
+  if (existingInvoice) {
+    return {
+      ok: true,
+      invoiceId: existingInvoice.id,
+      receiptNo: existingInvoice.receipt_no,
+      totalPaisa: existingInvoice.total_paisa,
+      amountPaidPaisa: existingInvoice.amount_paid_paisa,
+      changeDuePaisa: existingInvoice.change_due_paisa,
+      status: "paid",
+      alreadyProcessed: true,
+    };
+  }
+
   if (!input.items?.length) return { ok: false, code: "EMPTY_CART" };
   if (input.items.length > 50) return { ok: false, code: "EMPTY_CART" };
   if (input.items.some((it) => !Number.isSafeInteger(it.quantity) || it.quantity < 1)) {
@@ -256,6 +282,7 @@ export async function createInvoice(
   if (!receiptNo) return { ok: false, code: "DUPLICATE_IDEMPOTENCY" };
 
   const invoiceId = crypto.randomUUID();
+  const directSales: Array<{ variantId: string; quantity: number }> = [];
 
   // Build the full atomic batch. The idempotency_key UNIQUE is the
   // primary guard against double-creation. If the cashier's
@@ -332,22 +359,12 @@ export async function createInvoice(
     for (const l of lines) {
       const doResult = await doDirectSale(env as any, l.variantId, l.quantity, invoiceId, input.cashierId);
       if (!doResult.ok) {
+        await compensateDirectSales(env, directSales, invoiceId, input.cashierId, "direct_sale_partial_failure");
         return { ok: false, code: "OUT_OF_STOCK" };
       }
+      directSales.push({ variantId: l.variantId, quantity: l.quantity });
     }
   }
-  // D1 stock deducts (authoritative). The WHERE guard `quantity >= ?1` makes the
-  // over-allocation case fail at the statement level (meta.changes=0),
-  // which causes the atomic batch to roll back.
-  const deductStmts = lines.map((l) =>
-    db
-      .prepare(
-        `UPDATE inventory_items
-         SET quantity = quantity - ?1, updated_at = ?2
-         WHERE variant_id = ?3 AND quantity >= ?1`,
-      )
-      .bind(l.quantity, now, l.variantId),
-  );
 
   // Audit row. Same pattern as the platform-wide audit_log.
   const insertAudit = db
@@ -375,22 +392,28 @@ export async function createInvoice(
 
   // P0-002 / P0-003 style: every statement is in one atomic batch.
   // Either all commit or all roll back.
-  const batchResult = await db.batch(
-    [
-      insertInvoice,
-      ...insertItemStmts,
-      ...insertPaymentStmts,
-      ...deductStmts,
-      insertAudit,
-    ],
-    { atomic: true },
-  );
+  let batchResult: D1Result[];
+  try {
+    batchResult = await db.batch(
+      [
+        insertInvoice,
+        ...insertItemStmts,
+        ...insertPaymentStmts,
+        insertAudit,
+      ],
+      { atomic: true },
+    );
+  } catch (err) {
+    await compensateDirectSales(env, directSales, invoiceId, input.cashierId, "d1_invoice_write_failed");
+    throw err;
+  }
 
   // The idempotency_key UNIQUE is the only mechanism that detects a
   // double-create. INSERT OR IGNORE returns meta.changes=0 for the
   // second call.
   const invoiceInsert = batchResult[0];
   if (invoiceInsert.meta.changes === 0) {
+    await compensateDirectSales(env, directSales, invoiceId, input.cashierId, "d1_invoice_write_failed");
     // Replay: the same idempotency_key already created this invoice.
     // Return the original row so the cashier UI doesn't double-post.
     const existing = await db
@@ -444,6 +467,51 @@ export async function createInvoice(
     status: "paid",
     alreadyProcessed: false,
   };
+}
+
+async function compensateDirectSales(
+  env: { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
+  directSales: Array<{ variantId: string; quantity: number }>,
+  invoiceId: string,
+  staffId: string,
+  reason: string,
+): Promise<void> {
+  if (!env.VARIANT_INVENTORY_DO || directSales.length === 0) return;
+  for (const sale of directSales) {
+    try {
+      const reversal = await doReverseDirectSale(env, sale.variantId, sale.quantity, invoiceId, reason);
+      await writeAuditLog(env.DB, {
+        actorStaffId: staffId,
+        actorRole: null,
+        action: reversal.ok && reversal.reversed ? "pos_compensating_transaction" : "pos_compensating_transaction_failed",
+        entityType: "invoice",
+        entityId: invoiceId,
+        metadata: {
+          severity: reversal.ok && reversal.reversed ? "P1" : "P0",
+          variant_id: sale.variantId,
+          quantity: sale.quantity,
+          reason,
+          reversal_audit_event_id: reversal.auditEventId ?? null,
+          reversal_message: reversal.message ?? reversal.error ?? null,
+        },
+      });
+    } catch (err) {
+      await writeAuditLog(env.DB, {
+        actorStaffId: staffId,
+        actorRole: null,
+        action: "pos_compensating_transaction_failed",
+        entityType: "invoice",
+        entityId: invoiceId,
+        metadata: {
+          severity: "P0",
+          variant_id: sale.variantId,
+          quantity: sale.quantity,
+          reason,
+          error: err instanceof Error ? err.message : String(err),
+        },
+      }).catch(() => {});
+    }
+  }
 }
 
 /** Void a paid invoice. Restores stock and writes a voided_reason.

@@ -181,7 +181,7 @@ export function assertNoClientMoneyTrust(
   env?: { DB?: D1Database; ANALYTICS?: AnalyticsEngineDataset; CACHE?: KVNamespace },
   context?: { ip?: string | null; now?: string },
 ): void {
-  const clientMoneyFields = ['unit_price_paisa', 'subtotal_paisa', 'discount_paisa', 'delivery_paisa', 'total_paisa'];
+  const clientMoneyFields = ['unit_price_paisa', 'subtotal_paisa', 'discount_paisa', 'delivery_paisa', 'vat_paisa', 'total_paisa'];
   const present: string[] = [];
 
   if (Array.isArray(body.items)) {

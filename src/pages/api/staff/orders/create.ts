@@ -8,8 +8,6 @@
  * RBAC: Sales_Tier (super_admin, owner, manager, salesman)
  * CSRF: Required (non-GET staff mutation)
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertSalesAccess, isOwnerTier, RbacError } from '../../../../lib/rbac';

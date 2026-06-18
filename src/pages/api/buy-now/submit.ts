@@ -4,8 +4,6 @@
  * Validates the Buy Now form and submits through the same secure checkout engine.
  * Must NOT implement a separate weak order creation path.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
@@ -26,6 +24,12 @@ import { verifyTurnstile } from '../../../lib/turnstile';
 import { clientIp } from '../../../lib/audit';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { enqueueOrderEmail } from '../../../queues/consumers';
+
+function calculateVatPaisa(subtotalPaisa: number, rawRate: unknown): number {
+  const rate = Number(rawRate ?? 0);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return assertPaisa(Math.round((subtotalPaisa * rate) / 100), 'vat_paisa');
+}
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -51,7 +55,11 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
   const stub = env.DIRECT_CHECKOUT_DO.get(id);
-  const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: '{}' });
+  const sessionBinding = {
+    origin: context.request.headers.get('Origin') ?? new URL(context.request.url).origin,
+    userAgent: context.request.headers.get('User-Agent') ?? '',
+  };
+  const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify(sessionBinding) });
   const sessionData = (await sessionRes.json().catch(() => null)) as {
     ok?: boolean;
     session?: { productId: string; variantId: string; quantity: number; expiresAt: string };
@@ -63,7 +71,7 @@ export async function POST(context: APIContext): Promise<Response> {
       ok: false,
       code: sessionData?.error === 'SESSION_EXPIRED' ? 'SESSION_EXPIRED' : 'SESSION_NOT_FOUND',
       message: 'Session expired or invalid. Please try again.',
-    }, { status: 410 });
+    }, { status: sessionData?.error === 'ORIGIN_MISMATCH' || sessionData?.error === 'USER_AGENT_MISMATCH' ? 403 : 410 });
   }
 
   const session = sessionData.session;
@@ -144,7 +152,8 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price your order.' }, { status: 409 });
   }
 
-  const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa), 'total_paisa');
+  const vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
+  const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa), 'total_paisa');
 
   // COD quantity rule [Master Plan §11.1 step 10]
   const totalQuantity = session.quantity;
@@ -217,6 +226,7 @@ export async function POST(context: APIContext): Promise<Response> {
       variantId: item.variantId,
       quantity: item.qty,
       unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
+      vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
     }));
 
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
@@ -228,6 +238,7 @@ export async function POST(context: APIContext): Promise<Response> {
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
       discount_paisa: 0,
+      vat_paisa: vatPaisa,
       total_paisa: totalPaisa,
       payment_method: paymentMethod,
       fraud_decision: fraudDecision,
@@ -240,7 +251,7 @@ export async function POST(context: APIContext): Promise<Response> {
     ).bind(orderId, advancePaisa, balancePaisa, now).run();
 
     // Clear the direct checkout session
-    await stub.fetch('https://do/clear', { method: 'POST', body: '{}' });
+    await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) });
 
     const response = {
       ok: true,

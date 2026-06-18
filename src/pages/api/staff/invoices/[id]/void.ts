@@ -5,8 +5,6 @@
  * `orders.cancel` (owner / super_admin / manager). Salesman cannot
  * void — that's a manager's call.
  */
-export const prerender = false;
-
 import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { nowSql } from "../../../../../lib/dates";

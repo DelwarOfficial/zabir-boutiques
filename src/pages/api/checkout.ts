@@ -5,8 +5,6 @@
  * Stock reservations serialize through VariantInventoryDO (G7).
  * Idempotency claims via IdempotencyDO before cart mutations (G4).
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../lib/env';
 import { normalizeBangladeshPhone } from '../../lib/phone';
@@ -46,6 +44,12 @@ function processingResponse(): Response {
     { ok: false, code: 'CHECKOUT_PROCESSING', message: 'Request is already processing.' },
     { status: 202, headers: { 'Retry-After': RETRY_AFTER_SECONDS } },
   );
+}
+
+function calculateVatPaisa(subtotalPaisa: number, rawRate: unknown): number {
+  const rate = Number(rawRate ?? 0);
+  if (!Number.isFinite(rate) || rate <= 0) return 0;
+  return assertPaisa(Math.round((subtotalPaisa * rate) / 100), 'vat_paisa');
 }
 
 async function releaseClaim(env: ReturnType<typeof getEnv>, idempotencyKey: string): Promise<void> {
@@ -173,6 +177,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let subtotalPaisa: number;
   let deliveryPaisa: number;
   let discountPaisa = 0;
+  let vatPaisa = 0;
   let totalPaisa: number;
   let snapshots: Awaited<ReturnType<typeof loadVariantSnapshots>>;
 
@@ -223,9 +228,11 @@ export async function POST(context: APIContext): Promise<Response> {
       couponClaimed = true;
     }
 
-    totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
+    vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
+    totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa - discountPaisa), 'total_paisa');
 
-    const prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
+    const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
+    const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
     if (prepayment.required && paymentMethod === 'cod') {
       if (couponClaimed && couponClaim) {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
@@ -249,7 +256,7 @@ export async function POST(context: APIContext): Promise<Response> {
       advancePaisa = totalPaisa;
       balancePaisa = 0;
     } else if (paymentMethod === 'partial_prepay') {
-      const split = calculatePrepayment(items.length, totalPaisa, paymentMethod);
+      const split = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
       advancePaisa = split.advancePaisa;
       balancePaisa = split.balancePaisa;
     }
@@ -293,6 +300,7 @@ export async function POST(context: APIContext): Promise<Response> {
       variantId: item.variantId,
       quantity: item.qty,
       unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
+      vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
     }));
 
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
@@ -304,6 +312,7 @@ export async function POST(context: APIContext): Promise<Response> {
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
       discount_paisa: discountPaisa,
+      vat_paisa: vatPaisa,
       total_paisa: totalPaisa,
       payment_method: paymentMethod,
       fraud_decision: fraudDecision,

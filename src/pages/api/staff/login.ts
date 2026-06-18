@@ -12,9 +12,6 @@ import { verifyTotpCode } from '../../../lib/totp';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 import type { StaffUser } from '../../../lib/rbac';
-
-export const prerender = false;
-
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();

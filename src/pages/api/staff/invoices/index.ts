@@ -12,8 +12,6 @@
  * invoice with `alreadyProcessed: true` so the cashier UI does not
  * double-post.
  */
-export const prerender = false;
-
 import type { APIContext } from "astro";
 import { getEnv } from "../../../../lib/env";
 import { nowSql } from "../../../../lib/dates";

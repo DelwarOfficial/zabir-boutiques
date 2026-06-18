@@ -10,7 +10,7 @@
  *   half-open — testing if provider has recovered
  */
 
-export type CircuitState = 'closed' | 'open' | 'half-open';
+export type CircuitState = 'closed' | 'open' | 'half_open';
 
 export interface ProviderHealth {
   provider: string;
@@ -21,6 +21,7 @@ export interface ProviderHealth {
   lastSuccessAt: string | null;
   openedAt: string | null;
   halfOpenAt: string | null;
+  failureTimestamps: number[];
   failureThreshold: number;
   recoveryTimeMs: number;
   halfOpenMaxAttempts: number;
@@ -46,9 +47,10 @@ export class ProviderHealthDO implements DurableObject {
       lastSuccessAt: null,
       openedAt: null,
       halfOpenAt: null,
+      failureTimestamps: [],
       failureThreshold: 5,
-      recoveryTimeMs: 60000, // 1 minute
-      halfOpenMaxAttempts: 3,
+      recoveryTimeMs: 5 * 60 * 1000,
+      halfOpenMaxAttempts: 1,
     };
     return this.health;
   }
@@ -75,7 +77,7 @@ export class ProviderHealthDO implements DurableObject {
         if (health.state === 'open' && health.openedAt) {
           const openedAt = new Date(health.openedAt).getTime();
           if (Date.now() - openedAt > health.recoveryTimeMs) {
-            health.state = 'half-open';
+            health.state = 'half_open';
             health.halfOpenAt = new Date().toISOString();
             health.successCount = 0;
             await this.persist();
@@ -98,10 +100,11 @@ export class ProviderHealthDO implements DurableObject {
           health.successCount++;
           health.lastSuccessAt = now;
 
-          if (health.state === 'half-open') {
+          if (health.state === 'half_open') {
             if (health.successCount >= health.halfOpenMaxAttempts) {
               health.state = 'closed';
               health.failureCount = 0;
+              health.failureTimestamps = [];
               health.openedAt = null;
               health.halfOpenAt = null;
             }
@@ -111,14 +114,17 @@ export class ProviderHealthDO implements DurableObject {
         } else {
           health.failureCount++;
           health.lastFailureAt = now;
+          const failureAt = Date.now();
+          const windowStart = failureAt - 60 * 1000;
+          health.failureTimestamps = [...(health.failureTimestamps ?? []), failureAt].filter(ts => ts >= windowStart);
 
-          if (health.state === 'half-open') {
+          if (health.state === 'half_open') {
             health.state = 'open';
             health.openedAt = now;
             health.halfOpenAt = null;
             health.successCount = 0;
           } else if (health.state === 'closed') {
-            if (health.failureCount >= health.failureThreshold) {
+            if (health.failureTimestamps.length >= health.failureThreshold) {
               health.state = 'open';
               health.openedAt = now;
             }
@@ -132,6 +138,7 @@ export class ProviderHealthDO implements DurableObject {
       case 'reset': {
         health.state = 'closed';
         health.failureCount = 0;
+        health.failureTimestamps = [];
         health.successCount = 0;
         health.openedAt = null;
         health.halfOpenAt = null;

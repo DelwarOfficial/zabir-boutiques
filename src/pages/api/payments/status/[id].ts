@@ -2,8 +2,6 @@
  * GET /api/payments/status/[id] — Payment Status [v6.8A]
  * D1 read, optional provider verification.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 

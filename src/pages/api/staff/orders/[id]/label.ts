@@ -9,8 +9,6 @@
  * RBAC: Requires orders.view permission.
  * No external dependencies — pure HTML/SVG rendering.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../../lib/env';
 import { requireAuth, requirePermission, RbacError } from '../../../../../lib/rbac';

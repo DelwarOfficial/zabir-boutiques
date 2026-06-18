@@ -4,8 +4,6 @@
  * Owner-tier only. FraudBD remains a risk signal; D1 order state is the source
  * of truth, and every override requires a reason plus fail-closed audit.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertOwnerOnly, RbacError } from '../../../../lib/rbac';

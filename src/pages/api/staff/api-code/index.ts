@@ -3,8 +3,6 @@
  * Enforces assertOwnerOnly + system.api_code.manage permission.
  * Never renders secret VALUES; only key names / summaries.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';

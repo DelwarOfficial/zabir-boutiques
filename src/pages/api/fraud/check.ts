@@ -3,8 +3,6 @@
  * Manager or Owner only. Staff override / manual recheck.
  * FraudBD is a risk signal only; raw response is summarized for non-owner viewers.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { checkFraudBD, decideFraudRisk } from '../../../lib/fraud';

@@ -18,6 +18,7 @@ export interface ReserveFail { ok: false; available: number; requested: number; 
 export type ReserveResult = ReserveOk | ReserveFail;
 
 export interface DirectSaleResult { ok: boolean; stock?: number; reserved?: number; sold?: number; available?: number; error?: string; }
+export interface ReverseDirectSaleResult { ok: boolean; reversed?: boolean; auditEventId?: string; message?: string; error?: string; }
 export interface AvailabilityResult { ok: true; stock: number; reserved: number; sold: number; available: number; }
 
 interface DoEnv {
@@ -90,6 +91,23 @@ export async function doDirectSale(
     body: JSON.stringify({ qty, variantId, invoiceId, staffId, channel: 'pos', env: { DB: env.DB } }),
   });
   return (await res.json()) as DirectSaleResult;
+}
+
+export async function doReverseDirectSale(
+  env: DoEnv & { DB: D1Database },
+  variantId: VariantId,
+  qty: number,
+  invoiceId: string,
+  reason: string,
+): Promise<ReverseDirectSaleResult> {
+  if (!env.VARIANT_INVENTORY_DO) return { ok: false, error: 'DO_NOT_BOUND' };
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
+  const res = await stub.fetch("https://do/reverseDirectSale", {
+    method: "POST",
+    body: JSON.stringify({ qty, variantId, invoiceId, reason, env: { DB: env.DB } }),
+  });
+  return (await res.json()) as ReverseDirectSaleResult;
 }
 
 /** Read-only availability check [Master_Prompt v7.0 §12.2] */
@@ -295,7 +313,7 @@ export async function doGetDirectSession(
 
 // ─── ProviderHealthDO helpers ───────────────────────────────────────────
 
-export type CircuitState = 'closed' | 'open' | 'half-open';
+export type CircuitState = 'closed' | 'open' | 'half_open';
 
 /** Check if a provider's circuit breaker allows a request. */
 export async function doCheckProviderHealth(

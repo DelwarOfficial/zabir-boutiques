@@ -27,6 +27,7 @@ type OrderInsertData = {
   subtotal_paisa: number;
   delivery_paisa: number;
   discount_paisa: number;
+  vat_paisa?: number;
   total_paisa: number;
   payment_method: 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store';
   fraud_decision: string;
@@ -37,6 +38,7 @@ export type ReservedOrderItem = {
   variantId: string;
   quantity: number;
   unitPricePaisa: number;
+  vatPaisa?: number;
 };
 
 type VariantSnapshot = {
@@ -102,14 +104,14 @@ export async function insertReservedOrderWithRetry(
     const orderStmt = db.prepare(
       `INSERT INTO orders (
         id, order_number, phone, name, address, note, shipping_zone,
-        subtotal_paisa, delivery_paisa, discount_paisa, total_paisa,
+        subtotal_paisa, delivery_paisa, discount_paisa, vat_paisa, total_paisa,
         payment_method, fraud_decision, status, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?15)`
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)`
     ).bind(
       orderId, orderNumber, orderData.phone, orderData.name, orderData.address,
       orderData.note ?? null, orderData.shipping_zone ?? null,
       orderData.subtotal_paisa, orderData.delivery_paisa,
-      orderData.discount_paisa, orderData.total_paisa, orderData.payment_method,
+      orderData.discount_paisa, orderData.vat_paisa ?? 0, orderData.total_paisa, orderData.payment_method,
       orderData.fraud_decision, orderData.status ?? 'pending_review', now
     );
 
@@ -118,12 +120,12 @@ export async function insertReservedOrderWithRetry(
       return db.prepare(
         `INSERT INTO order_items (
           id, order_id, variant_id, product_name, variant_label,
-          quantity, unit_price_paisa, total_price_paisa, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
+          quantity, unit_price_paisa, total_price_paisa, vat_paisa, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
       ).bind(
         crypto.randomUUID(), orderId, item.variantId, snapshot.product_name,
         variantLabel(snapshot), item.quantity, item.unitPricePaisa,
-        item.unitPricePaisa * item.quantity, now
+        item.unitPricePaisa * item.quantity, item.vatPaisa ?? 0, now
       );
     });
 

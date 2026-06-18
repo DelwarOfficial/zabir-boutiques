@@ -6,8 +6,6 @@
  * Does NOT create a new session — just proves recent identity.
  * CSRF required.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { requireAuth, RbacError } from '../../../lib/rbac';

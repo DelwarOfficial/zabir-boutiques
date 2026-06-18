@@ -1,0 +1,1 @@
+-- ROLLBACK_EXCEPTION: additive VAT columns left in place; preserving order data is safer than rebuilding tables.

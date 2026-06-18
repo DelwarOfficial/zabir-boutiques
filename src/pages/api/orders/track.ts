@@ -2,8 +2,6 @@
  * POST /api/orders/track — Order Tracking [v6.8A]
  * Rate limit, phone normalization.
  */
-export const prerender = false;
-
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { normalizeBangladeshPhone } from '../../../lib/phone';

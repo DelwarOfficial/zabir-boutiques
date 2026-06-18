@@ -75,6 +75,7 @@ export class VariantInventoryDO implements DurableObject {
       invoiceId?: string;
       staffId?: string;
       channel?: string;
+      reason?: string;
       env?: { DB?: D1Database };
     };
     const env = body.env ?? {};
@@ -155,6 +156,19 @@ export class VariantInventoryDO implements DurableObject {
       }
       this.stock -= qty;
       this.sold += qty;
+      if (env.DB && body.invoiceId) {
+        const updated = await env.DB.prepare(
+          `UPDATE inventory_items
+           SET quantity = quantity - ?1, sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
+           WHERE variant_id = ?2 AND quantity >= ?1`,
+        ).bind(qty, variantId).run();
+        if (updated.meta.changes !== 1) {
+          this.stock += qty;
+          this.sold = Math.max(0, this.sold - qty);
+          await this.persistState();
+          return Response.json({ ok: false, error: "CONFLICT", available: this.available() }, { status: 409 });
+        }
+      }
       await this.persistState();
       return Response.json({
         ok: true,
@@ -163,6 +177,36 @@ export class VariantInventoryDO implements DurableObject {
         sold: this.sold,
         available: this.available(),
       });
+    }
+
+    if (action === "reverseDirectSale") {
+      const auditEventId = crypto.randomUUID();
+      const reversalKey = `pos_reversal:${body.invoiceId}:${variantId}:${qty}`;
+      const existing = await this.state.storage.get<string>(reversalKey);
+      if (existing) {
+        return Response.json({ ok: true, reversed: false, auditEventId: existing, message: "already_reversed" });
+      }
+
+      this.stock += qty;
+      this.sold = Math.max(0, this.sold - qty);
+
+      if (env.DB) {
+        await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE inventory_items
+             SET quantity = quantity + ?1, sold_quantity = MAX(COALESCE(sold_quantity, 0) - ?1, 0), updated_at = datetime('now')
+             WHERE variant_id = ?2`,
+          ).bind(qty, variantId),
+          env.DB.prepare(
+            `INSERT INTO stock_adjustments (id, variant_id, delta, reason, adjusted_by, created_at)
+             VALUES (?1, ?2, ?3, 'pos_reversal', NULL, datetime('now'))`,
+          ).bind(auditEventId, variantId, qty),
+        ], { atomic: true });
+      }
+
+      await this.state.storage.put(reversalKey, auditEventId);
+      await this.persistState();
+      return Response.json({ ok: true, reversed: true, auditEventId });
     }
 
     return Response.json({ ok: false, error: "UNKNOWN_ACTION" }, { status: 400 });
