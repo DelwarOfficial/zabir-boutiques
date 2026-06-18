@@ -13,9 +13,12 @@
 
 export type VariantId = string;
 
-export interface ReserveOk { ok: true; available: number; }
+export interface ReserveOk { ok: true; reservationId: string; available: number; }
 export interface ReserveFail { ok: false; available: number; requested: number; }
 export type ReserveResult = ReserveOk | ReserveFail;
+
+export interface DirectSaleResult { ok: boolean; stock?: number; reserved?: number; sold?: number; available?: number; error?: string; }
+export interface AvailabilityResult { ok: true; stock: number; reserved: number; sold: number; available: number; }
 
 interface DoEnv {
   VARIANT_INVENTORY_DO?: DurableObjectNamespace;
@@ -66,6 +69,48 @@ export async function doConfirm(
     body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
   });
   return (await res.json()) as { ok: boolean; error?: string };
+}
+
+/** Direct sale for POS: deduct stock without reservation [Master_Prompt v7.0 §15.1] */
+export async function doDirectSale(
+  env: DoEnv & { DB: D1Database },
+  variantId: VariantId,
+  qty: number,
+  invoiceId?: string,
+  staffId?: string,
+): Promise<DirectSaleResult> {
+  if (!env.VARIANT_INVENTORY_DO) return { ok: true };
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
+  const res = await stub.fetch("https://do/directSale", {
+    method: "POST",
+    body: JSON.stringify({ qty, variantId, invoiceId, staffId, channel: 'pos', env: { DB: env.DB } }),
+  });
+  return (await res.json()) as DirectSaleResult;
+}
+
+/** Read-only availability check [Master_Prompt v7.0 §12.2] */
+export async function doGetAvailability(
+  env: DoEnv & { DB: D1Database },
+  variantId: VariantId,
+): Promise<AvailabilityResult> {
+  if (!env.VARIANT_INVENTORY_DO) {
+    const row = await env.DB
+      .prepare(`SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1`)
+      .bind(variantId)
+      .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
+    const stock = row?.quantity ?? 0;
+    const reserved = row?.reserved_quantity ?? 0;
+    const sold = row?.sold_quantity ?? 0;
+    return { ok: true, stock, reserved, sold, available: stock - reserved - sold };
+  }
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
+  const res = await stub.fetch("https://do/availability", {
+    method: "POST",
+    body: JSON.stringify({ variantId, env: { DB: env.DB } }),
+  });
+  return (await res.json()) as AvailabilityResult;
 }
 
 /** Sync the DO with the canonical D1 state (called after every D1 commit). */

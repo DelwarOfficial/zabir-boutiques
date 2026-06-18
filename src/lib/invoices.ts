@@ -30,7 +30,7 @@
 import { nowSql } from "./dates";
 import { assertPaisa } from "./money";
 import { writeAuditLog } from "./audit";
-import { doSyncFromD1 } from "./do-client";
+import { doSyncFromD1, doDirectSale } from "./do-client";
 
 /** Generate a Bangladesh NBR-style receipt number.
  *  Format: ZB-INV-YYYYMMDD-NNNN. The NNNN is the count of paid
@@ -325,7 +325,18 @@ export async function createInvoice(
       ),
   );
 
-  // Stock deducts. The WHERE guard `quantity >= ?1` makes the
+  // Stock deducts via VariantInventoryDO [Master_Prompt v7.0 §15.1]
+  // POS must use VariantInventoryDO.directSale() for cross-channel consistency.
+  // We do DO deduction first, then D1 update in the atomic batch.
+  if (env.VARIANT_INVENTORY_DO) {
+    for (const l of lines) {
+      const doResult = await doDirectSale(env as any, l.variantId, l.quantity, invoiceId, input.cashierId);
+      if (!doResult.ok) {
+        return { ok: false, code: "OUT_OF_STOCK" };
+      }
+    }
+  }
+  // D1 stock deducts (authoritative). The WHERE guard `quantity >= ?1` makes the
   // over-allocation case fail at the statement level (meta.changes=0),
   // which causes the atomic batch to roll back.
   const deductStmts = lines.map((l) =>
@@ -450,12 +461,19 @@ export async function voidInvoice(
   }
   const db = env.DB;
   const invoice = await db
-    .prepare(`SELECT id, status FROM invoices WHERE id = ?1`)
+    .prepare(`SELECT id, status, created_at FROM invoices WHERE id = ?1`)
     .bind(invoiceId)
-    .first<{ id: string; status: string }>();
+    .first<{ id: string; status: string; created_at: string }>();
   if (!invoice) return { ok: false, code: "NOT_FOUND" };
   if (invoice.status === "voided") return { ok: false, code: "ALREADY_VOIDED" };
   if (invoice.status !== "paid" && invoice.status !== "issued") {
+    return { ok: false, code: "ALREADY_VOIDED" };
+  }
+
+  // Master_Prompt v7.0 §15.4: Same-day void only.
+  const invoiceDate = invoice.created_at.slice(0, 10);
+  const today = now.slice(0, 10);
+  if (invoiceDate !== today) {
     return { ok: false, code: "ALREADY_VOIDED" };
   }
 

@@ -93,4 +93,20 @@ export function listAllowedTransitions(from: OrderStatus): OrderStatus[] {
   return (TRANSITIONS[from] ?? []).map((r) => r.to);
 }
 
+/**
+ * Execute an order status transition with side effects.
+ * This is the canonical way to change order status [Master_Prompt v7.0 §13.1].
+ * Returns the transition rule with effects to execute, or null if invalid.
+ */
+export function transitionOrder(
+  from: OrderStatus,
+  to: OrderStatus,
+): { ok: true; effects: SideEffect[] } | { ok: false; error: string } {
+  const rule = getTransition(from, to);
+  if (!rule) {
+    return { ok: false, error: `INVALID_TRANSITION: ${from} → ${to}` };
+  }
+  return { ok: true, effects: rule.effects };
+}
+
 export { TRANSITIONS };

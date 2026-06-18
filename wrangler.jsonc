@@ -40,6 +40,9 @@
       "bucket_name": "zabir-backups"
     }
   ],
+  "ai": {
+    "binding": "AI"
+  },
   "vars": {
     "PUBLIC_SITE_URL": "https://zabirboutiques.com",
     "PUBLIC_SITE_NAME": "Zabir Boutiques"
@@ -49,12 +52,14 @@
       { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
       { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
       { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-      { "name": "WAF_RULES", "class_name": "WafRules" }
+      { "name": "WAF_RULES", "class_name": "WafRules" },
+      { "name": "CART_DO", "class_name": "CartDO" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+    { "tag": "v3", "new_classes": ["CartDO"] }
   ],
   "queues": {
     "producers": [
@@ -120,6 +125,9 @@
       "analytics_engine_datasets": [
         { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
       ],
+      "ai": {
+        "binding": "AI"
+      },
       "vars": {
         "PUBLIC_SITE_URL": "https://zabirboutiques.com",
         "PUBLIC_SITE_NAME": "Zabir Boutiques"

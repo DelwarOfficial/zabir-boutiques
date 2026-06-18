@@ -17,6 +17,7 @@ import { nowSql } from "../lib/dates";
 import { writeAuditLog } from "../lib/audit";
 import { trackMetric } from "../lib/analytics";
 import { safeLog } from "../lib/pii-scrubber";
+import { sendTransactionalEmail } from "../lib/email";
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
@@ -91,16 +92,75 @@ export async function handleOrderEmailBatch(
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {
-      // Email rendering + send is implemented in src/lib/email.ts (Phase 4).
-      // For now, record a row in email_log so Phase 4 can replay.
-      const now = nowSql();
-      await env.DB
+      const { orderId, emailType } = msg.body;
+
+      // Load order details for the email template
+      const order = await env.DB
         .prepare(
-          `INSERT OR IGNORE INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message)
-           VALUES (?1, ?2, ?3, ?4, 'queued', ?5, NULL)`,
+          `SELECT o.id, o.name, o.phone, o.address, o.total_paisa, o.payment_method,
+                  o.email, o.status
+           FROM orders o WHERE o.id = ?1`
         )
-        .bind(crypto.randomUUID(), msg.body.orderId, msg.body.emailType, "", now)
-        .run();
+        .bind(orderId)
+        .first<{
+          id: string;
+          name: string;
+          phone: string;
+          address: string;
+          total_paisa: number;
+          payment_method: string;
+          email: string | null;
+          status: string;
+        }>();
+
+      if (!order) {
+        msg.ack();
+        continue;
+      }
+
+      // Load order items for the template
+      const itemsResult = await env.DB
+        .prepare(
+          `SELECT oi.product_name, oi.variant_label, oi.quantity, oi.total_price_paisa
+           FROM order_items oi WHERE oi.order_id = ?1`
+        )
+        .bind(orderId)
+        .all<{ product_name: string; variant_label: string; quantity: number; total_price_paisa: number }>();
+
+      const orderLike = {
+        order_number: orderId.slice(0, 8).toUpperCase(),
+        name: order.name,
+        phone: order.phone,
+        address: order.address,
+        total_paisa: order.total_paisa,
+        payment_method: order.payment_method,
+        items: itemsResult.results ?? [],
+      };
+
+      // Determine recipient email
+      const recipient = order.email || `${order.phone}@sms.placeholder`;
+      if (!order.email) {
+        // No email on file — log and skip
+        await env.DB
+          .prepare(
+            `INSERT OR IGNORE INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message)
+             VALUES (?1, ?2, ?3, ?4, 'failed', NULL, 'no-email-on-file')`,
+          )
+          .bind(crypto.randomUUID(), orderId, emailType, recipient)
+          .run();
+        msg.ack();
+        continue;
+      }
+
+      // Send via Resend adapter
+      const result = await sendTransactionalEmail(env, order.email, emailType as any, orderLike);
+
+      if (!result.ok) {
+        safeLog.error("[order-email-consumer] send failed", { orderId, emailType, error: result.error });
+        msg.retry({ delaySeconds: 30 });
+        continue;
+      }
+
       msg.ack();
     } catch (err) {
       safeLog.error("[order-email-consumer] failed", { error: err instanceof Error ? err.message : String(err) });

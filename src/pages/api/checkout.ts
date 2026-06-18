@@ -29,6 +29,7 @@ import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../lib/prepayment';
 import { verifyTurnstile } from '../../lib/turnstile';
 import { clientIp } from '../../lib/audit';
 import { safeLog } from '../../lib/pii-scrubber';
+import { enqueueOrderEmail } from '../../queues/consumers';
 
 const RETRY_AFTER_SECONDS = '5';
 
@@ -309,6 +310,9 @@ export async function POST(context: APIContext): Promise<Response> {
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
     await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
     claimHeld = false;
+
+    // Enqueue order confirmation email [Master_Prompt v7.0 §17.2]
+    await enqueueOrderEmail(env, orderId, 'order_confirmed').catch(() => {});
 
     return Response.json(response, { status: 201 });
   } catch (err) {

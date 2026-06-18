@@ -1,5 +1,5 @@
 /**
- * Cloudflare Cache API [Master_Prompt v7.0 §2.6, §10.1]
+ * Cloudflare Cache API [Master_Prompt v7.0 §19.1]
  *
  * Wraps `caches.default` with stale-while-revalidate semantics for the
  * main public content types. Purging is via the Cloudflare API using
@@ -14,6 +14,15 @@ const CACHE_TTL: Record<string, { maxAge: number; staleWhileRevalidate: number; 
 };
 
 export type CacheType = keyof typeof CACHE_TTL;
+
+/** Generate dynamic cache tags for products and categories [Master_Prompt v7.0 §19.2] */
+export function productCacheTag(productId: string): string {
+  return `product-${productId}`;
+}
+
+export function categoryCacheTag(categoryId: string): string {
+  return `category-${categoryId}`;
+}
 
 export async function cachedFetch(request: Request, type: CacheType): Promise<Response> {
   const cache = (caches as unknown as { default: Cache }).default;

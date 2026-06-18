@@ -6,6 +6,7 @@ import { CATALOG_CATEGORIES, CATALOG_PRODUCTS } from "@/data/catalog";
 
 export const prerender = true;
 const siteOrigin = Astro.site?.origin;
+const site = siteOrigin ?? 'https://zabirboutiques.com';
 const featured = CATALOG_PRODUCTS.slice(0, 2);
 const hot = CATALOG_PRODUCTS.filter(p => p.availableQuantity > 0).slice(0, 1);
 const trust = [
@@ -13,9 +14,47 @@ const trust = [
   { icon: "shield", title: "Server-reserved stock", subtitle: "No overselling, ever." },
   { icon: "star", title: "4.9 on Facebook", subtitle: "Local boutique since 2024." },
 ];
+
+// JSON-LD Organization + WebSite schema [Master_Prompt v7.0 §20.2]
+const organizationSchema = {
+  "@context": "https://schema.org",
+  "@type": "Organization",
+  "name": "Zabir Boutiques",
+  "url": site,
+  "logo": `${site}/assets/zabir-logo.jpg`,
+  "sameAs": ["https://www.facebook.com/zabirboutiques"],
+  "address": {
+    "@type": "PostalAddress",
+    "streetAddress": "10 (Ground Floor), A.K Famous Tower, Rankin Street, Wari",
+    "addressLocality": "Dhaka",
+    "addressCountry": "BD"
+  },
+  "contactPoint": {
+    "@type": "ContactPoint",
+    "telephone": "+880-1985-516000",
+    "contactType": "customer service",
+    "availableLanguage": ["Bengali", "English"]
+  }
+};
+
+const websiteSchema = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  "name": "Zabir Boutiques",
+  "url": site,
+  "potentialAction": {
+    "@type": "SearchAction",
+    "target": `${site}/api/search?q={search_term_string}`,
+    "query-input": "required name=search_term_string"
+  }
+};
 ---
 
 <RootLayout title="Zabir Boutiques | Wari Boutique Fashion">
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(organizationSchema)} />
+    <script type="application/ld+json" set:html={JSON.stringify(websiteSchema)} />
+  </Fragment>
   <!-- Hero -->
   <section class="relative grid gap-8 md:grid-cols-[1fr_1.1fr] md:gap-12 md:items-center py-4 md:py-10 fade-up">
     <div>

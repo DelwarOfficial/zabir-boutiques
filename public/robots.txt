@@ -1,0 +1,14 @@
+User-agent: *
+Allow: /
+Allow: /products/
+Allow: /categories/
+Allow: /blog/
+Disallow: /api/
+Disallow: /staff/
+Disallow: /checkout
+Disallow: /buy-now/
+Disallow: /cart
+Disallow: /order-track
+Disallow: /orders
+
+Sitemap: https://zabirboutiques.com/sitemap.xml

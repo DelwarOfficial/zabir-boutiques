@@ -3,6 +3,7 @@ export const prerender = false;
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
+import { writeAuditLog } from "../../../lib/audit";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
@@ -10,6 +11,17 @@ if (!can(user.role, "orders.view")) return new Response("Forbidden", { status: 4
 
 const env = getEnv(Astro);
 const { id } = Astro.params;
+
+// PII access audit logging [Master_Prompt v7.0 §18.2]
+await writeAuditLog(env.DB, {
+  actorStaffId: user.id,
+  actorRole: user.role,
+  action: 'customer.pii.viewed',
+  entityType: 'order',
+  entityId: id ?? 'unknown',
+  ipAddress: Astro.clientAddress ?? null,
+  userAgent: Astro.request.headers.get('user-agent') ?? null,
+}).catch(() => {});
 
 const order = await env.DB.prepare(
   `SELECT o.*, s.full_name as created_by_name

@@ -94,10 +94,11 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const imageId = crypto.randomUUID();
   const contentHash = await sha256Hex(storedBuffer);
+  const altText = (formData.get('alt_text') as string | null)?.trim() || null;
   await env.DB.prepare(
-    `INSERT INTO product_images (id, product_id, r2_key, is_compressed, sort_order, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, 0, ?5, ?5)`
-  ).bind(imageId, productId, r2Key, isCompressed, now).run();
+    `INSERT INTO product_images (id, product_id, r2_key, is_compressed, alt_text, sort_order, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6, ?6)`
+  ).bind(imageId, productId, r2Key, isCompressed, altText, now).run();
 
   await recordMediaObject(env.DB, {
     id: imageId,

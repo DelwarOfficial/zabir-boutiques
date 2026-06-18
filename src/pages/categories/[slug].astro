@@ -12,9 +12,49 @@ export function getStaticPaths() {
 const { category } = Astro.props;
 const activeFilter = Astro.url.searchParams.get("filter") || category.slug;
 const products = productsForCatalogCategory(activeFilter);
+
+// JSON-LD ItemList schema [Master_Prompt v7.0 §20.2]
+const site = Astro.site?.origin ?? 'https://zabirboutiques.com';
+const itemListSchema = {
+  "@context": "https://schema.org",
+  "@type": "ItemList",
+  "name": category.name,
+  "description": `${category.name} collection at Zabir Boutiques`,
+  "numberOfItems": products.length,
+  "itemListElement": products.slice(0, 20).map((product, index) => ({
+    "@type": "ListItem",
+    "position": index + 1,
+    "item": {
+      "@type": "Product",
+      "name": product.title,
+      "url": `${site}/products/${product.slug}`,
+      "image": product.imageUrl,
+      "offers": {
+        "@type": "Offer",
+        "price": Math.floor(product.pricePaisa / 100),
+        "priceCurrency": "BDT",
+        "availability": product.availableQuantity > 0 ? "https://schema.org/InStock" : "https://schema.org/OutOfStock",
+      }
+    }
+  }))
+};
+
+const breadcrumbSchema = {
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    { "@type": "ListItem", "position": 1, "name": "Home", "item": site },
+    { "@type": "ListItem", "position": 2, "name": category.name, "item": `${site}/categories/${category.slug}` }
+  ]
+};
 ---
 
 <RootLayout title={`${category.name} | Zabir Boutiques`} activeCategory={activeFilter}>
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={JSON.stringify(itemListSchema)} />
+    <script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} />
+  </Fragment>
+
   <section class="py-2">
     <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Category</p>
     <h1 class="mt-1 text-3xl font-black">{category.name}</h1>

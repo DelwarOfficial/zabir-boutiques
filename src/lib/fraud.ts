@@ -1,13 +1,13 @@
 /**
- * FraudBD Risk Routing [v6.8A]
+ * FraudBD Risk Routing [Master_Prompt v7.0 §11.2]
  * FraudBD is an external risk signal only.
  * D1 stores the raw response and internal decision; FraudBD never becomes the order source of truth.
  *
- * Risk Routing:
- * 0-30:  approved — Allow COD and normal staff workflow.
- * 31-79: review   — Create order but require manager review before courier confirmation.
- * 80-100: blocked — Disable COD, request prepaid UddoktaPay or manager override.
- * Timeout/error: review — Do not block automatically; create manager review queue.
+ * Risk Routing (canonical thresholds):
+ * 0-40:  approved — Auto-approve, allow COD and normal staff workflow.
+ * 41-70: review   — Create order with pending_review; staff must confirm before fulfillment.
+ * 71-100: blocked — Reject before reservation/order creation.
+ * Timeout/error: review — Allow with pending_review flag; do not block automatically.
  */
 import { nowSql } from './dates';
 
@@ -15,8 +15,8 @@ export type FraudDecision = 'approved' | 'review' | 'blocked';
 
 export function decideFraudRisk(score: number | null): FraudDecision {
   if (score === null) return 'review';
-  if (score <= 30) return 'approved';
-  if (score <= 79) return 'review';
+  if (score <= 40) return 'approved';
+  if (score <= 70) return 'review';
   return 'blocked';
 }
 
@@ -73,7 +73,7 @@ export function deriveRiskScore(data: any): number | null {
 export async function checkFraudBD(
   localPhone: string,
   apiKey: string,
-  timeoutMs = 3000,
+  timeoutMs = 1500,
   baseUrl = 'https://fraudbd.com'
 ): Promise<{ score: number | null; rawResponse: string }> {
   const controller = new AbortController();

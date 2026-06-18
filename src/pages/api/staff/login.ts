@@ -37,23 +37,25 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Email/phone and password required' }, { status: 400 });
   }
 
-  // Turnstile bot protection on staff login (Master_Prompt v7.0 §9.3)
+  // Turnstile bot protection on staff login (Master_Prompt v7.0 §18.5)
+  // Token is REQUIRED when TURNSTILE_SECRET_KEY is set.
   if (env.TURNSTILE_SECRET_KEY) {
     const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
-    if (token) {
-      const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
-      if (!r.ok) {
-        await writeAuditLog(env.DB, {
-          actorStaffId: null,
-          actorRole: null,
-          action: "staff.login.turnstile_failed",
-          entityType: "staff_session",
-          entityId: identifier,
-          ipAddress: clientIp(context.request),
-          userAgent: userAgent(context.request),
-        });
-        return Response.json({ error: "Bot check failed." }, { status: 403 });
-      }
+    if (!token) {
+      return Response.json({ error: "Bot check required." }, { status: 403 });
+    }
+    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+    if (!r.ok) {
+      await writeAuditLog(env.DB, {
+        actorStaffId: null,
+        actorRole: null,
+        action: "staff.login.turnstile_failed",
+        entityType: "staff_session",
+        entityId: identifier,
+        ipAddress: clientIp(context.request),
+        userAgent: userAgent(context.request),
+      });
+      return Response.json({ error: "Bot check failed." }, { status: 403 });
     }
   }
 
@@ -114,9 +116,34 @@ export async function POST(context: APIContext): Promise<Response> {
   const sessionToken = generateSessionToken();
   const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
   const sessionId = crypto.randomUUID();
-  // Master_Prompt v7.0 §9.1: 30-min idle + 8-hour absolute timeout.
+  // Master_Prompt v7.0 §18.1: 30-min idle + 8-hour absolute timeout.
   const expiresAt = nowSql(new Date(Date.now() + 30 * 60 * 1000));
   const absoluteExpiresAt = nowSql(new Date(Date.now() + 8 * 60 * 60 * 1000));
+
+  // Master_Prompt v7.0 §18.1: Max 2 concurrent sessions per user.
+  // Revoke the oldest session if limit exceeded.
+  const activeSessions = await env.DB.prepare(
+    `SELECT id FROM staff_sessions WHERE staff_user_id = ?1 AND is_revoked = 0 AND absolute_expires_at > ?2 ORDER BY created_at ASC`
+  ).bind(staff.id, now).all<{ id: string }>();
+  if (activeSessions.results && activeSessions.results.length >= 2) {
+    const oldestId = activeSessions.results[0].id;
+    await env.DB.prepare(
+      `UPDATE staff_sessions SET is_revoked = 1 WHERE id = ?1 AND is_revoked = 0`
+    ).bind(oldestId).run();
+    // Also blacklist in KV if available
+    if ((env as any).SESSION) {
+      await (env as any).SESSION.put(`session:blacklist:${oldestId}`, '1', { expirationTtl: 8 * 60 * 60 });
+    }
+    await writeAuditLog(env.DB, {
+      actorStaffId: staff.id,
+      actorRole: staff.role,
+      action: 'staff.session.limit_enforced',
+      entityType: 'staff_session',
+      entityId: oldestId,
+      ipAddress: clientIp(context.request),
+      userAgent: userAgent(context.request),
+    });
+  }
 
   // Atomic session creation. If any statement fails, the batch rolls
   // back the session row and the user does not get a half-created
