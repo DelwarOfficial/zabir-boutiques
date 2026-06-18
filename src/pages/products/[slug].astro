@@ -1,6 +1,7 @@
 ---
 import RootLayout from "@/layouts/RootLayout.astro";
 import { AddToCartButton } from "@/islands/AddToCartButton";
+import { BuyNowButton } from "@/islands/BuyNowButton";
 import { CATALOG_PRODUCTS } from "@/data/catalog";
 import { formatPaisa } from "@/lib/money";
 import ProductImage from "@/components/product/ProductImage.astro";
@@ -87,17 +88,28 @@ const breadcrumbJsonLd = JSON.stringify({
       </p>
 
       <div class="mt-5 hidden md:block max-w-sm">
-        <AddToCartButton
-          client:idle
-          productId={product.id}
-          variantId={product.variantId}
-          title={product.title}
-          imageUrl={product.imageUrl}
-          variantLabel={product.variantLabel}
-          unitPricePaisa={product.pricePaisa}
-          availableQuantity={product.availableQuantity}
-          variant="sticky"
-        />
+        <div class="grid grid-cols-2 gap-3">
+          <AddToCartButton
+            client:idle
+            productId={product.id}
+            variantId={product.variantId}
+            title={product.title}
+            imageUrl={product.imageUrl}
+            variantLabel={product.variantLabel}
+            unitPricePaisa={product.pricePaisa}
+            availableQuantity={product.availableQuantity}
+            variant="sticky"
+          />
+          <BuyNowButton
+            client:idle
+            productId={product.id}
+            variantId={product.variantId}
+            slug={product.slug}
+            quantity={1}
+            disabled={outOfStock}
+            variant="sticky"
+          />
+        </div>
       </div>
 
       <div class="mt-6 grid gap-3 text-sm leading-6 text-[var(--muted)] stagger">
@@ -123,18 +135,31 @@ const breadcrumbJsonLd = JSON.stringify({
         <p class="line-clamp-1 text-[11px] font-semibold text-[var(--muted)]">{product.title}</p>
         <p class="text-base font-extrabold tabular">{formatPaisa(product.pricePaisa)}</p>
       </div>
-      <div class="w-44">
-        <AddToCartButton
-          client:idle
-          productId={product.id}
-          variantId={product.variantId}
-          title={product.title}
-          imageUrl={product.imageUrl}
-          variantLabel={product.variantLabel}
-          unitPricePaisa={product.pricePaisa}
-          availableQuantity={product.availableQuantity}
-          variant="sticky"
-        />
+      <div class="flex gap-2">
+        <div class="w-32">
+          <AddToCartButton
+            client:idle
+            productId={product.id}
+            variantId={product.variantId}
+            title={product.title}
+            imageUrl={product.imageUrl}
+            variantLabel={product.variantLabel}
+            unitPricePaisa={product.pricePaisa}
+            availableQuantity={product.availableQuantity}
+            variant="sticky"
+          />
+        </div>
+        <div class="w-32">
+          <BuyNowButton
+            client:idle
+            productId={product.id}
+            variantId={product.variantId}
+            slug={product.slug}
+            quantity={1}
+            disabled={outOfStock}
+            variant="sticky"
+          />
+        </div>
       </div>
     </div>
   </div>

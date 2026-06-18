@@ -15,8 +15,8 @@ Every implementation, prompt, ticket, PR, and agent instruction must follow thes
 
 | Area | Canonical Decision | Why |
 |---|---|---|
-| Astro output mode | Use `output: 'static'` with `@astrojs/cloudflare`; dynamic routes export `prerender = false`. Never use `output: 'hybrid'`. | Astro v6 supports `static` and `server`; old hybrid behavior is now achieved by static-first on-demand rendering. |
-| Rendering model | Static-first hybrid behavior: public pages are prerendered; checkout, staff, auth, payment, API, POS, and webhooks are dynamic. | Fast SEO pages with safe server-side commerce logic. |
+| Astro output mode | Use `output: 'server'` with `@astrojs/cloudflare`; routes are dynamic by default unless opted into prerendering with `export const prerender = true`. | Astro v6 uses `server` for on-demand rendering; static pages opt in via `prerender = true`. |
+| Rendering model | Server-first with selective prerendering: public pages use `prerender = true`; checkout, staff, auth, payment, API, POS, and webhooks are dynamic by default. | Fast SEO pages with safe server-side commerce logic. |
 | Cart source of truth | `CartDO` is the only active cart source of truth. KV must not store authoritative cart JSON. | Cart requires strong consistency and concurrent tab safety. |
 | Abandoned cart detection | D1 stores a searchable `cart_activity` index updated by CartDO. Cron queries D1 and enqueues emails. | Durable Objects and KV cannot be globally queried for old carts. |
 | FraudBD | Checkout-time fraud decision is a direct HTTP call with 1.5s timeout and circuit breaker. Queue is used only for post-checkout audit/enrichment. | Queue-based async work cannot block checkout and return a score reliably. |
@@ -239,10 +239,10 @@ import cloudflare from '@astrojs/cloudflare';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  // Astro v6 supports static and server. Static is used to keep public pages fast.
-  output: 'static',
+  // Astro v6 uses 'server' for on-demand rendering.
+  // Routes are dynamic by default unless opted into prerendering.
+  output: 'server',
 
-  // Required because some pages and endpoints opt out of prerendering.
   adapter: cloudflare(),
 
   integrations: [react()],
@@ -255,15 +255,15 @@ export default defineConfig({
 
 ### 3.2 Dynamic Route Rule
 
-Any route that reads cookies, handles authentication, writes to D1/R2/KV/DO, checks live inventory, creates orders, verifies payments, or returns user-specific data must include:
-
-```ts
-export const prerender = false;
-```
+Routes are dynamic by default with `output: 'server'`. Any route that reads cookies, handles authentication, writes to D1/R2/KV/DO, checks live inventory, creates orders, verifies payments, or returns user-specific data does not need any special opt-in — it is dynamic by default.
 
 ### 3.3 Static Route Rule
 
-The following routes should remain static by default:
+Public-facing routes that benefit from prerendering should opt in with:
+
+```ts
+export const prerender = true;
+```
 
 - `/`
 - `/products/[slug]` when built from product snapshots
@@ -1685,8 +1685,8 @@ Do not collect unnecessary date of birth, NID, gender, or payment card details.
 
 These rules are mandatory.
 
-1. Never use `output: 'hybrid'`.
-2. Use `output: 'static'` with dynamic routes marked `prerender = false`.
+1. Use `output: 'server'` with `@astrojs/cloudflare`; routes are dynamic by default.
+2. Static pages opt in with `export const prerender = true`.
 3. Never move pricing authority to the browser.
 4. Never trust browser-supplied totals, delivery fees, discounts, or stock.
 5. Never use floating-point money.
@@ -1730,7 +1730,7 @@ When an AI coding agent works on this repository, it must follow this order:
 
 1. Read this Master Plan first.
 2. Treat this document as higher priority than AGENTS.md, taste files, or generated implementation notes.
-3. If another file says `output: 'hybrid'`, update that file to this canonical rule.
+3. If another file says `output: 'hybrid'`, update that file to use `output: 'server'`.
 4. If another file says cart lives in KV, update it to CartDO source of truth.
 5. If implementing checkout, include reservation rollback tests.
 6. If implementing abandoned cart, create D1 cart_activity index and cart-activity queue flow.
@@ -1741,8 +1741,8 @@ When an AI coding agent works on this repository, it must follow this order:
 
 ### Agent Conflict Checklist
 
-- [ ] No `output: 'hybrid'` exists.
-- [ ] Dynamic routes export `prerender = false`.
+- [ ] `output: 'server'` is used in astro.config.mjs.
+- [ ] Static pages export `prerender = true`.
 - [ ] Cart authoritative state is in CartDO.
 - [ ] KV cart JSON is not used.
 - [ ] Checkout ignores client price/totals.
@@ -1774,7 +1774,7 @@ This matrix confirms that the V7 plan includes the required business, technical,
 
 | Feature | V7 Coverage |
 |---|---|
-| Astro 6 | Included, corrected to v6 static-first model |
+| Astro 6 | Included, using `output: 'server'` with selective prerendering |
 | Cloudflare Pages + Workers | Included |
 | React 19 Islands | Included |
 | Tailwind CSS design tokens | Included |

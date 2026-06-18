@@ -83,11 +83,13 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 │                                                                   │
 │   ┌──────────────────┐  ┌──────────────────┐  ┌──────────────┐  │
 │   │ Durable Objects  │  │ Queues           │  │ Cron Jobs    │  │
-│   │ VariantInvDO     │  │ payment-webhooks │  │ 9 schedules  │  │
-│   │ IdempotencyDO    │  │ order-emails     │  │ (see Ops)    │  │
-│   │ BudgetCounterDO  │  │ image-processing │  │              │  │
-│   │ WafRulesDO       │  │ fraud-scoring    │  │              │  │
-│   │                  │  │ d1-backup        │  │              │  │
+│   │ CartDO           │  │ payment-webhooks │  │ 9 schedules  │  │
+│   │ VariantInvDO     │  │ order-emails     │  │ (see Ops)    │  │
+│   │ IdempotencyDO    │  │ image-processing │  │              │  │
+│   │ BudgetCounterDO  │  │ fraud-audit      │  │              │  │
+│   │ DirectCheckoutDO │  │ cart-activity    │  │              │  │
+│   │ ProviderHealthDO │  │ sitemap-gen      │  │              │  │
+│   │ WafRulesDO       │  │ d1-backup        │  │              │  │
 │   └──────────────────┘  └──────────────────┘  └──────────────┘  │
 │                                                                   │
 └────────┬─────────────────┬─────────────────┬───────────────────────┘
@@ -103,7 +105,7 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
          ▼
    ┌────────────────────────────────────────────────────────────┐
    │ External: UddoktaPay · FraudBD · Turnstile · Resend        │
-   │          · Workers AI · DeepSeek · Tinify · Cloudflare API │
+   │          · Workers AI · DeepSeek · Imagify · Cloudflare API │
    └────────────────────────────────────────────────────────────┘
 ```
 
@@ -112,8 +114,8 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 | **Framework** | Astro 6.4.4 (`output: "server"`) | Per-page `prerender = true/false` opt-in |
 | **Adapter** | `@astrojs/cloudflare` 13.6.1 | Advanced runtime, DOs, Queues, Cron |
 | **Database** | Cloudflare D1 (SQLite) | Source of truth — 22 tables |
-| **Concurrency** | Durable Objects | Per-variant inventory gate, idempotency, AI budget, WAF observability |
-| **Async** | Cloudflare Queues | Webhooks, emails, image processing, fraud, backups |
+| **Concurrency** | Durable Objects | Cart, per-variant inventory gate, idempotency, AI budget, direct checkout, provider health, WAF observability |
+| **Async** | Cloudflare Queues | Webhooks, emails, image processing, fraud audit, cart activity, sitemap, backups |
 | **Media** | Cloudflare R2 | Product images + D1 backup archives |
 | **Cache** | Cloudflare KV | Cache API SWR, rate limits, session blacklist, autocomplete prefix index |
 | **Images** | Cloudflare Image Resizing | On-the-fly variants via `/cdn-cgi/image/` |
@@ -124,7 +126,7 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 | **Email** | Resend | Transactional + abandoned cart |
 | **Bot defense** | Cloudflare Turnstile | Checkout + staff login |
 | **Observability** | Workers Analytics Engine | Business metrics; Logpush to R2 |
-| **Image comp** | Tinify | Upload-time compression |
+| **Image comp** | Imagify | Upload-time optimization adapter |
 
 ---
 
@@ -155,15 +157,35 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 - **`paid_over_allocated` fallback** — graceful handling when stock runs out between checkout and payment
 
 ### Fraud Prevention
-- **FraudBD risk scoring** — 3-second timeout
-- **Risk routing** — 0-30 approved · 31-79 review · 80-100 blocked
+- **FraudBD risk scoring** — 1.5-second timeout with circuit breaker
+- **Risk routing** — 0-40 auto-approve · 41-70 pending_review · 71-100 blocked
 - **Timeout/error = review** — never auto-blocks on API failure
-- **Async fraud polling** — `fraud_polls` table + `fraud-scoring` queue
+- **Async fraud polling** — `fraud_polls` table + `fraud-audit` queue
 
 ### Returns
 - **Order state machine** with explicit `returned` → `refunded` transitions
 - **Auto-restock on approved returns** — `stock_adjustments` audit row per item
 - **UddoktaPay refund API** for prepaid orders
+- **7-day return window** after delivery (configurable by feature flag)
+
+### Buy Now Direct Guest Order
+- **DirectCheckoutSessionDO** — short-lived 30-minute session with alarm-based cleanup
+- **Separate from cart** — Buy Now does not mutate normal CartDO cart
+- **Conversion-focused landing page** — product offer, gallery, order form, trust points
+- **Same secure checkout engine** — server pricing, FraudBD, stock reservation, idempotency
+- **Campaign-ready** — canonical URLs, optional noindex for campaign-only pages
+
+### POS (Point of Sale)
+- **Dedicated invoice ledger** — separate from online orders (`invoices`, `invoice_items`, `invoice_payments`)
+- **Thermal receipt** — 80mm format with BIN/TIN, QR code, void stamp
+- **Stock deduction via VariantInventoryDO** — `directSale()` method for POS
+- **Split payments** — cash, card, bKash, Nagad, Rocket, bank transfer
+- **Same-day void** — Manager/Owner only, atomic stock restore
+
+### Staff-Assisted Orders
+- **Phone/Messenger/WhatsApp orders** — use guest checkout pipeline with staff identity
+- **Same risk controls** — FraudBD, COD threshold, partial prepay, reservation, idempotency
+- **Staff override** — Manager/Owner can override COD prepayment with audit log
 
 ### Staff Operations
 - **RBAC** — 6 roles (owner, super_admin, manager, salesman, packing, support) with 30+ permissions
@@ -202,7 +224,7 @@ Nine cron schedules, routed by `src/lib/cron-dispatch.ts` and listed in `wrangle
 | `*/15 * * * *` | Every 15 min | Payment reconciliation (UddoktaPay status check) |
 | `0 * * * *` | Hourly | FraudBD poll sweep |
 | `0 0 * * *` | Daily 00:00 UTC | Inventory reconciliation |
-| `0 2 * * *` | Daily 02:00 UTC | Session cleanup, idempotency expiry, Tinify retry |
+| `0 2 * * *` | Daily 02:00 UTC | Session cleanup, idempotency expiry, image optimization retry |
 | `0 3 * * *` | Daily 03:00 UTC | Archive old events/logs to R2 |
 | `0 */6 * * *` | Every 6 hours | D1 backup to R2 |
 | `0 9 * * 0` | Weekly Sun 09:00 | Backup verification + autocomplete index rebuild |
@@ -287,12 +309,15 @@ zabir-boutiques/
 │   │       ├── fraud/check.ts
 │   │       └── staff/            # login, orders, returns, api-keys, ...
 │   ├── do/                       # Durable Objects
+│   │   ├── cart-do.ts
 │   │   ├── variant-inventory-do.ts
+│   │   ├── direct-checkout-session-do.ts
 │   │   ├── idempotency-do.ts
 │   │   ├── budget-counter-do.ts
+│   │   ├── provider-health-do.ts
 │   │   └── waf-rules.ts
 │   ├── queues/
-│   │   └── consumers.ts          # 5 queue handlers
+│   │   └── consumers.ts          # 7 queue handlers
 │   ├── lib/                      # Business logic
 │   │   ├── env.ts · dates.ts · phone.ts · money.ts
 │   │   ├── checkout-pricing.ts   # Server-authoritative pricing
@@ -375,6 +400,8 @@ Migrations are applied in order; each has a paired rollback in `db/migrations/ro
 | Method | Path | Purpose | Auth |
 |--------|------|---------|------|
 | `POST` | `/api/checkout` | Guest checkout (idempotent, server-authoritative pricing) | Turnstile |
+| `POST` | `/api/buy-now/session` | Create direct checkout session for Buy Now | — |
+| `POST` | `/api/buy-now/submit` | Submit direct guest order | Turnstile |
 | `POST` | `/api/orders/track` | Order lookup by phone + number | — |
 | `GET` | `/api/stock/:variantId` | Stock badge (CDN-cached) | — |
 | `GET` | `/api/search?q=…` | FTS5 product search with snippets | — |
@@ -386,7 +413,10 @@ Migrations are applied in order; each has a paired rollback in `db/migrations/ro
 | `POST` | `/api/staff/logout` | Session invalidation | staff |
 | `GET` `POST` | `/api/staff/api-keys` | Owner-only dev key registry | owner |
 | `POST` | `/api/staff/orders/:id/confirm` | Order confirmation | staff |
-| `POST` | `/api/staff/uploads` | Image upload (R2 + Tinify) | staff |
+| `POST` | `/api/staff/invoices` | Create POS invoice | `invoices.create` |
+| `POST` | `/api/staff/invoices/:id/void` | Void POS invoice | `invoices.void` |
+| `GET` | `/api/staff/invoices/:id/print` | Print thermal receipt | `invoices.view` |
+| `POST` | `/api/staff/uploads` | Image upload (R2 + Imagify) | staff |
 | `POST` | `/api/staff/returns` | Create return request | `orders.update` |
 | `POST` | `/api/staff/returns/:id/approve` | Approve + restock + refund | `payments.refund` |
 | `POST` | `/api/staff/returns/:id/reject` | Reject return | `orders.update` |
@@ -419,9 +449,9 @@ Migrations are applied in order; each has a paired rollback in `db/migrations/ro
    - D1 database `zabir-db`
    - KV namespaces `CACHE` and `SESSION`
    - R2 buckets `zabir-media` and `zabir-backups`
-   - Queues: `payment-webhooks`, `order-emails`, `image-processing`, `fraud-scoring`, `d1-backup`
-   - Durable Object migrations: `v1` (VariantInventoryDO + IdempotencyDO) and `v2` (BudgetCounterDO + WafRules)
-2. External accounts: UddoktaPay, FraudBD, Tinify, Resend, Turnstile, DeepSeek, OpenAI-compatible endpoint
+   - Queues: `payment-webhooks`, `order-emails`, `image-processing`, `fraud-audit`, `cart-activity`, `sitemap-generation`, `d1-backup`
+   - Durable Object migrations: `v1` (CartDO + VariantInventoryDO + IdempotencyDO), `v2` (DirectCheckoutSessionDO + BudgetCounterDO + ProviderHealthDO + WafRules)
+2. External accounts: UddoktaPay, FraudBD, Imagify, Resend, Turnstile, DeepSeek, OpenAI-compatible endpoint
 
 ### Secrets
 
@@ -431,7 +461,7 @@ Set via `wrangler secret put` (never commit):
 |--------|-------------|
 | `SESSION_SECRET` | HMAC for sessions + CSRF |
 | `PASSWORD_PEPPER` | PBKDF2 password pepper |
-| `TINIFY_API_KEY` | Image compression |
+| `IMAGIFY_API_KEY` | Image optimization |
 | `UDDOKTAPAY_API_KEY` | Payment gateway |
 | `UDDOKTAPAY_BASE_URL` | e.g. `https://sandbox.uddoktapay.com` |
 | `FRAUDBD_API_KEY` | Fraud scoring |
@@ -593,6 +623,13 @@ These are non-negotiable:
 - All non-GET staff mutations require CSRF
 - Every state-mutating staff action goes through `writeAuditLog`
 - Durable Objects hold concurrency state only — D1 is the source of truth
+- CartDO is the active cart source of truth — KV must not store authoritative cart JSON
+- Buy Now creates DirectCheckoutSessionDO and must not mutate the normal cart
+- Buy Now submit uses the same secure checkout engine as normal checkout
+- POS stock deduction must pass through `VariantInventoryDO.directSale()`
+- POS must never write inventory directly to D1
+- FraudBD direct checkout call timeout is 1.5 seconds with pending_review fallback
+- All external APIs must use provider adapters — no direct third-party fetch from route handlers
 
 ---
 
