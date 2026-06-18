@@ -12,7 +12,7 @@
 
 export type PaymentStatus = 'created' | 'pending' | 'processing' | 'paid' | 'partially_paid' | 'failed' | 'cancelled' | 'expired' | 'refunded' | 'partially_refunded';
 
-import { doCheckProviderHealth, doRecordProviderResult } from './do-client';
+import { UddoktaPayClient } from './integrations/uddoktapay';
 
 export interface VerifiedPayment {
   status: PaymentStatus;
@@ -41,58 +41,9 @@ export async function verifyUddoktaPayment(
   invoiceId: string,
   apiKey: string,
   baseUrl: string,
-  env?: { PROVIDER_HEALTH_DO?: DurableObjectNamespace },
+  env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace },
 ): Promise<VerifiedPayment> {
-  // Circuit breaker check [Master_Prompt v7.0 §6.6]
-  if (env?.PROVIDER_HEALTH_DO) {
-    const health = await doCheckProviderHealth(env, 'uddoktapay');
-    if (!health.canProceed) {
-      return { status: 'failed', amountPaisa: null, verifiedInvoiceId: null, metadata: null, rawResponse: '{"error":"circuit_open"}' };
-    }
-  }
-
-  const empty: VerifiedPayment = { status: 'failed', amountPaisa: null, verifiedInvoiceId: null, metadata: null, rawResponse: '' };
-
-  try {
-    const res = await fetch(`${baseUrl}/api/verify-payment`, {
-      method: 'POST',
-      headers: {
-        'RT-UDDOKTAPAY-API-KEY': apiKey,
-        'accept': 'application/json',
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({ invoice_id: invoiceId })
-    });
-
-    const data = await res.json().catch(() => ({})) as any;
-    const rawResponse = JSON.stringify(data);
-
-    if (!res.ok || !data || !data.status) {
-      if (env?.PROVIDER_HEALTH_DO) await doRecordProviderResult(env, 'uddoktapay', false);
-      return { ...empty, rawResponse };
-    }
-
-    const statusMap: Record<string, PaymentStatus> = {
-      'COMPLETED': 'paid',
-      'PENDING': 'pending',
-      'PROCESSING': 'processing',
-      'CANCELLED': 'cancelled',
-      'EXPIRED': 'expired'
-    };
-
-    if (env?.PROVIDER_HEALTH_DO) await doRecordProviderResult(env, 'uddoktapay', true);
-
-    return {
-      status: statusMap[data.status] ?? 'failed',
-      amountPaisa: takaStringToPaisa(data.amount),
-      verifiedInvoiceId: typeof data.invoice_id === 'string' ? data.invoice_id : null,
-      metadata: data.metadata && typeof data.metadata === 'object' ? data.metadata as Record<string, unknown> : null,
-      rawResponse
-    };
-  } catch {
-    if (env?.PROVIDER_HEALTH_DO) await doRecordProviderResult(env, 'uddoktapay', false);
-    return { ...empty, rawResponse: '{"error":"timeout_or_network_error"}' };
-  }
+  return new UddoktaPayClient({ ...env, UDDOKTAPAY_API_KEY: apiKey, UDDOKTAPAY_BASE_URL: baseUrl }).verifyPayment(invoiceId);
 }
 
 /**

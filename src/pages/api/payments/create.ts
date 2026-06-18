@@ -2,6 +2,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { nowSql } from '../../../lib/dates';
 import { safeLog } from '../../../lib/pii-scrubber';
+import { UddoktaPayClient } from '../../../lib/integrations/uddoktapay';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -47,29 +48,19 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const invoiceId = crypto.randomUUID();
-  const checkoutRes = await fetch(`${env.UDDOKTAPAY_BASE_URL}/api/checkout`, {
-    method: 'POST',
-    headers: {
-      'RT-UDDOKTAPAY-API-KEY': env.UDDOKTAPAY_API_KEY,
-      'accept': 'application/json',
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      invoice_id: invoiceId,
-      amount: (paymentAmountPaisa / 100).toFixed(2),
-      currency: 'BDT',
-      customer_name: body.customer_name ?? '',
-      customer_phone: body.customer_phone ?? '',
-      // Bind the invoice to this order so the webhook can reconcile it.
-      metadata: { order_id: orderId, type: order.payment_method === 'partial_prepay' ? 'partial_prepay' : 'full' },
-      redirect_url: `${body.redirect_url ?? env.PUBLIC_SITE_URL}/order-track`,
-      cancel_url: `${body.cancel_url ?? env.PUBLIC_SITE_URL}/checkout`
-    })
+  const checkout = await new UddoktaPayClient(env).createCheckout({
+    invoiceId,
+    amountPaisa: paymentAmountPaisa,
+    customerName: body.customer_name ?? '',
+    customerPhone: body.customer_phone ?? '',
+    orderId,
+    type: order.payment_method === 'partial_prepay' ? 'partial_prepay' : 'full',
+    redirectUrl: `${body.redirect_url ?? env.PUBLIC_SITE_URL}/order-track`,
+    cancelUrl: `${body.cancel_url ?? env.PUBLIC_SITE_URL}/checkout`,
   });
 
-  const checkoutData = await checkoutRes.json().catch(() => ({})) as any;
-  if (!checkoutRes.ok || !checkoutData?.payment_url) {
-    safeLog.error('[payments/create] provider error', { status: checkoutRes.status, body: JSON.stringify(checkoutData) });
+  if (!checkout.ok || !checkout.paymentUrl) {
+    safeLog.error('[payments/create] provider error', { body: checkout.rawResponse, errorCode: checkout.errorCode });
     return Response.json({ error: 'Payment provider error' }, { status: 502 });
   }
 
@@ -77,11 +68,11 @@ export async function POST(context: APIContext): Promise<Response> {
   await env.DB.prepare(
     `INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, created_at, updated_at)
      VALUES (?1, ?2, ?3, 'uddoktapay', ?4, 'pending', ?5, ?6, ?6)`
-  ).bind(paymentId, orderId, invoiceId, paymentAmountPaisa, checkoutData.payment_url, now).run();
+  ).bind(paymentId, orderId, invoiceId, paymentAmountPaisa, checkout.paymentUrl, now).run();
 
   await env.DB.prepare(
     `UPDATE orders SET payment_status = 'pending', updated_at = ?2 WHERE id = ?1`
   ).bind(orderId, now).run();
 
-  return Response.json({ ok: true, payment_id: paymentId, checkout_url: checkoutData.payment_url, invoice_id: invoiceId }, { status: 201 });
+  return Response.json({ ok: true, payment_id: paymentId, checkout_url: checkout.paymentUrl, invoice_id: invoiceId }, { status: 201 });
 }

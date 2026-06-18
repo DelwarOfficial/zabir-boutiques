@@ -16,8 +16,8 @@
 | GAP-P1-002 | FraudBD circuit breaker does not yet persist all state transitions and external-call audit rows to `api_audit_logs`. | Add audit writes for failure, success, open, half-open, close, timeout, malformed response, and circuit-open fallback. |
 | GAP-P1-003 | FraudBD queue naming/config still has older `fraud-scoring` paths in `wrangler.jsonc` and consumers. | Rename/wire canonical `fraud-audit` queue and keep it async-only for post-checkout enrichment. |
 | GAP-P1-004 | Payment, image, AI, and courier external APIs are not all behind canonical `src/lib/integrations/{provider}/` adapters. | Move direct API calls into provider adapters with timeout, retry, circuit breaker, schema validation, PII redaction, mock, and audit logging. |
-| GAP-P1-005 | `src/lib/ai-content.ts` still calls DeepSeek/OpenAI directly. | Add `src/lib/integrations/deepseek/` and `src/lib/integrations/workers_ai/`; remove OpenAI unless explicitly approved by the Master Plan. |
-| GAP-P1-006 | DeepSeek fallback flow is incomplete: staff AI actions do not fully preflight `canUseDeepSeek()`, fallback to Workers AI on timeout, and `recordUsage()` after success. | Wire BudgetCounterDO into staff AI generation flow and add fallback tests. |
+| GAP-P1-005 | Completed. `src/lib/ai-content.ts` now uses canonical `src/lib/integrations/deepseek/` and `src/lib/integrations/workers_ai/` adapters; OpenAI path was removed. | Add adapter-level timeout/mock/audit tests to strengthen coverage. |
+| GAP-P1-006 | Completed for the staff product-content path. Staff AI now preflights DeepSeek budget, falls back to Workers AI when DeepSeek budget/preflight is unavailable, and records DeepSeek usage after success. | Add explicit fallback tests for timeout/DO failure branches. |
 | GAP-P1-007 | `BudgetCounterDO` has required methods but does not yet read durable config from D1 `ai_budget_limits`. | Load provider limits from D1 on first call per period, cache in DO, and enforce owner override semantics. |
 | GAP-P1-008 | Checkout/payment creation does not fully initiate/reconcile UddoktaPay/SSLCommerz through canonical payment provider adapters. | Formalize payment provider contracts under integrations and ensure redirects/webhooks/reconciliation never trust redirect-only success. |
 | GAP-P1-009 | POS same-day void restores D1 inventory directly instead of using `VariantInventoryDO.reverseDirectSale()` for stock restoration. | Route POS void stock restoration through `reverseDirectSale()` and keep invoice ledger immutable. |
@@ -29,8 +29,8 @@
 
 | ID | Gap | Fix |
 |---|---|---|
-| GAP-P2-001 | Static legal/info pages are missing: `/about`, `/privacy`, `/terms`, `/return-policy`, `/size-guide`. | Add prerendered Astro pages with `export const prerender = true`. |
-| GAP-P2-002 | Full Section 36 contracts directory is incomplete; only email contract was added. | Add contracts for VariantInventoryDO, BudgetCounterDO, DirectCheckoutSessionDO, CartDO, IdempotencyDO, ProviderHealthDO, PaymentProvider, AIProvider. |
+| GAP-P2-001 | Completed. Added `/about`, `/privacy`, `/terms`, `/return-policy`, and `/size-guide` as prerendered Astro pages. | Expand launch-copy/legal copy if business wording changes. |
+| GAP-P2-002 | Completed at stub/contract level. Added Section 36 contract files for VariantInventoryDO, BudgetCounterDO, DirectCheckoutSessionDO, CartDO, IdempotencyDO, ProviderHealthDO, PaymentProvider, and AIProvider. | Concrete classes still need `implements` adoption where practical. |
 | GAP-P2-003 | Drift audit script from Section 38 is not implemented. | Add `scripts/audit/audit-drift.ts` with all 35 checks and CI completeness guard. |
 | GAP-P2-004 | Guardrail operational docs and dashboard are not complete. | Add `docs/guardrail-owners.md`, `docs/audit/` templates, and `/staff/guardrails` read-only dashboard if in current milestone scope. |
 | GAP-P2-005 | Full provider adapter test matrix is missing for email/payment/fraud/image/AI/courier. | Add mocked schema validation, timeout, retry, circuit-breaker, sandbox/mock tests per adapter. |

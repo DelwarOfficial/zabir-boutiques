@@ -100,7 +100,9 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Build cart items from session
-  const items = [{ variantId: session.variantId, qty: session.quantity }];
+  const items: Array<{ variantId: string; qty: number; reservationId?: string }> = [
+    { variantId: session.variantId, qty: session.quantity },
+  ];
 
   // Idempotency
   const headerKey = context.request.headers.get('Idempotency-Key');

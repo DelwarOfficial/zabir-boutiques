@@ -1,3 +1,5 @@
+import { TinifyClient } from './integrations/tinify';
+
 export type CompressOk = {
   ok: true;
   compressed: ArrayBuffer;
@@ -30,65 +32,14 @@ function nowSql(): string {
 
 export async function compressImage(
   imageBuffer: ArrayBuffer,
-  apiKey: string
+  apiKey: string,
+  env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }
 ): Promise<CompressResult> {
-  const inputSize = imageBuffer.byteLength;
-  try {
-    const res = await fetch('https://api.tinify.com/shrink', {
-      method: 'POST',
-      headers: {
-        Authorization: basicAuth(apiKey),
-        'Content-Type': 'application/octet-stream',
-      },
-      body: imageBuffer,
-    });
-
-    if (!res.ok) {
-      const body = await res.json().catch(() => ({})) as Record<string, unknown>;
-      return { ok: false, error: `Tinify HTTP ${res.status}: ${(body as any)?.message ?? res.statusText}` };
-    }
-
-    const locationUrl = res.headers.get('Location');
-    if (!locationUrl) return { ok: false, error: 'No Location header from Tinify' };
-
-    const data = (await res.json()) as {
-      input?: { size?: number };
-      output?: { size?: number; type?: string };
-    };
-
-    return {
-      ok: true,
-      compressed: imageBuffer,
-      locationUrl,
-      inputSize: data.input?.size ?? inputSize,
-      outputSize: data.output?.size ?? inputSize,
-      contentType: data.output?.type ?? 'application/octet-stream',
-    };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Unknown Tinify error' };
-  }
+  return new TinifyClient(env).compressImage(imageBuffer, apiKey);
 }
 
-export async function downloadCompressed(locationUrl: string, apiKey: string): Promise<CompressResult> {
-  try {
-    const res = await fetch(locationUrl, {
-      headers: { Authorization: basicAuth(apiKey) },
-    });
-    if (!res.ok) {
-      return { ok: false, error: `Tinify download HTTP ${res.status}` };
-    }
-    const compressed = await res.arrayBuffer();
-    return {
-      ok: true,
-      compressed,
-      locationUrl,
-      inputSize: 0,
-      outputSize: compressed.byteLength,
-      contentType: res.headers.get('Content-Type') ?? 'application/octet-stream',
-    };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Unknown Tinify download error' };
-  }
+export async function downloadCompressed(locationUrl: string, apiKey: string, env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }): Promise<CompressResult> {
+  return new TinifyClient(env).downloadCompressed(locationUrl, apiKey);
 }
 
 export async function processImage(
@@ -97,38 +48,10 @@ export async function processImage(
   options: {
     resize?: ResizeOptions;
     convert?: ConvertTarget | ConvertTarget[] | '*/*';
-  } = {}
+  } = {},
+  env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }
 ): Promise<{ ok: true; data: ArrayBuffer; contentType: string } | { ok: false; error: string }> {
-  const body: Record<string, unknown> = {};
-  if (options.resize) {
-    body.resize = options.resize;
-  }
-  if (options.convert) {
-    body.convert = { type: options.convert };
-  }
-
-  try {
-    const res = await fetch(locationUrl, {
-      method: 'POST',
-      headers: {
-        Authorization: basicAuth(apiKey),
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      return { ok: false, error: `Tinify process HTTP ${res.status}` };
-    }
-
-    return {
-      ok: true,
-      data: await res.arrayBuffer(),
-      contentType: res.headers.get('Content-Type') ?? 'image/webp',
-    };
-  } catch (err) {
-    return { ok: false, error: err instanceof Error ? err.message : 'Unknown Tinify process error' };
-  }
+  return new TinifyClient(env).processImage(locationUrl, apiKey, options);
 }
 
 export const THUMBNAIL_SUFFIX = '_thumb.webp';
@@ -142,12 +65,13 @@ export function thumbnailR2Key(fullR2Key: string): string {
 
 export async function generateThumbnail(
   locationUrl: string,
-  apiKey: string
+  apiKey: string,
+  env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }
 ): Promise<{ ok: true; data: ArrayBuffer; contentType: string } | { ok: false; error: string }> {
   return processImage(locationUrl, apiKey, {
     resize: { method: 'cover', width: THUMBNAIL_WIDTH, height: THUMBNAIL_HEIGHT },
     convert: 'image/webp',
-  });
+  }, env);
 }
 
 export async function retryUncompressedImages(
@@ -169,10 +93,10 @@ export async function retryUncompressedImages(
     if (!obj) continue;
 
     const original = await obj.arrayBuffer();
-    const result = await compressImage(original, apiKey);
+    const result = await compressImage(original, apiKey, { DB: db });
 
     if (result.ok) {
-      const downloaded = await downloadCompressed(result.locationUrl, apiKey);
+      const downloaded = await downloadCompressed(result.locationUrl, apiKey, { DB: db });
       if (downloaded.ok) {
         await media.put(img.r2_key, downloaded.compressed);
         const now = nowSql();

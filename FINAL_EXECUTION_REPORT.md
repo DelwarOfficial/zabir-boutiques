@@ -17,6 +17,8 @@
 | Abandoned cart | Added 24h eligible scan, customer-email dedup, claim-before-enqueue, and consumer conversion re-check guard. |
 | Email | Added canonical `src/lib/integrations/email/{provider}/` adapter layout and `EMAIL_PROVIDER` provider selection; routed transactional email through the factory. |
 | BudgetCounterDO | Added `recordUsage`, `canUseDeepSeek`, `canUseWorkersAI`, and `canUseImagify` methods with strictest-limit-wins defaults. |
+| AI adapters | Added canonical DeepSeek and Workers AI adapter layout, removed direct OpenAI usage, and wired product-content generation through adapters with staff-route budget preflight/fallback/usage recording. |
+| Static pages and contracts | Added prerendered legal/info pages and filled the missing Section 36 contract stub files under `src/lib/contracts/`. |
 | Tests | Added `tests/master-plan-v7-guardrails.test.ts` covering rendering, migrations, checkout, POS, FraudBD constants, Buy Now, abandoned cart, budget, and email provider selection. |
 
 ## Tests Run
@@ -25,7 +27,7 @@
 |---|---|---|
 | `npx vitest run tests/master-plan-v7-guardrails.test.ts` | PASS | 14 tests passed. |
 | `npm test` | PASS | 33 files, 303 tests passed. |
-| `npx tsc --noEmit` | PASS | Required `npm install` first because declared dependency `web-vitals` was missing from `node_modules`. |
+| `npx tsc --noEmit` | PASS | Passing after the latest AI/provider and Buy Now typing changes; required `npm install` first because declared dependency `web-vitals` was missing from `node_modules`. |
 | `npm run typecheck` | FAIL/BLOCKED | `astro check` starts Wrangler remote proxy and fails Cloudflare auth: `Failed to fetch auth token: 400 Bad Request`. `tsc` passes separately. |
 | `npm run lint` | FAIL/BLOCKED | No `lint` script exists in `package.json`. |
 | `npm run db:migrate:local` | FAIL/BLOCKED | Runner works, but existing local D1 state fails at old migration `0003_staff_operations_v2.sql` with `duplicate column name: created_by`; local DB appears already partially migrated. |
@@ -36,10 +38,9 @@
 | Severity | Risk |
 |---|---|
 | P1 | Full FraudBD adapter audit logging to `api_audit_logs` and the complete 25-test Section 37 suite are not fully implemented; current fix aligns core thresholds/fallback behavior. |
-| P1 | AI provider adapters for DeepSeek/Workers AI are still not fully canonical; direct AI fetches remain in `src/lib/ai-content.ts`. BudgetCounterDO surface exists, but the full Workers AI fallback path still needs integration hardening. |
+| P1 | AI adapters now exist and the staff product-content path is wired, but adapter-level timeout/mock/audit tests and broader AI route coverage are still incomplete. |
 | P1 | Payment/courier/image external APIs still need full canonical adapter/audit/circuit-breaker coverage beyond email. |
 | P1 | Migration dry-run needs a clean local D1 state or idempotent repair for old migrations before it can validate all migrations end-to-end. |
-| P2 | Legal/info static pages (`about`, `privacy`, `terms`, `return-policy`, `size-guide`) are still absent. |
 | P2 | `stock_reservations` reservation IDs are still not fully threaded through checkout release/confirm calls; new schema constraint is present, but a deeper reservation lifecycle refactor remains. |
 
 ## Files Changed
@@ -68,14 +69,28 @@
 - `src/do/variant-inventory-do.ts`
 - `src/lib/checkout-pricing.ts`
 - `src/lib/cron-dispatch.ts`
+- `src/lib/ai-content.ts`
 - `src/lib/do-client.ts`
 - `src/lib/email.ts`
 - `src/lib/invoices.ts`
 - `src/lib/maintenance/abandoned-cart.ts`
 - `src/lib/orders.ts`
 - `src/lib/fraud.ts`
+- `src/lib/contracts/ai-provider.ts`
+- `src/lib/contracts/budget-counter-do.ts`
+- `src/lib/contracts/cart-do.ts`
+- `src/lib/contracts/direct-checkout-session-do.ts`
 - `src/lib/contracts/email-provider.ts`
+- `src/lib/contracts/idempotency-do.ts`
 - `src/lib/contracts/index.ts`
+- `src/lib/contracts/payment-provider.ts`
+- `src/lib/contracts/provider-health-do.ts`
+- `src/lib/contracts/variant-inventory-do.ts`
+- `src/lib/integrations/deepseek/client.ts`
+- `src/lib/integrations/deepseek/errors.ts`
+- `src/lib/integrations/deepseek/index.ts`
+- `src/lib/integrations/deepseek/mock.ts`
+- `src/lib/integrations/deepseek/types.ts`
 - `src/lib/integrations/email/index.ts`
 - `src/lib/integrations/email/types.ts`
 - `src/lib/integrations/email/resend/client.ts`
@@ -88,10 +103,21 @@
 - `src/lib/integrations/email/cloudflare_email/index.ts`
 - `src/lib/integrations/email/cloudflare_email/mock.ts`
 - `src/lib/integrations/email/cloudflare_email/types.ts`
+- `src/lib/integrations/workers_ai/client.ts`
+- `src/lib/integrations/workers_ai/errors.ts`
+- `src/lib/integrations/workers_ai/index.ts`
+- `src/lib/integrations/workers_ai/mock.ts`
+- `src/lib/integrations/workers_ai/types.ts`
+- `src/pages/about.astro`
 - `src/pages/api/buy-now/session.ts`
 - `src/pages/api/buy-now/submit.ts`
 - `src/pages/api/checkout.ts`
+- `src/pages/api/staff/ai/generate-product-content.ts`
 - `src/pages/api/staff/orders/create.ts`
+- `src/pages/privacy.astro`
+- `src/pages/return-policy.astro`
+- `src/pages/size-guide.astro`
+- `src/pages/terms.astro`
 - `src/pages/buy-now/[slug].astro`
 - `src/pages/products/[slug].astro`
 - `src/queues/consumers.ts`
@@ -102,7 +128,7 @@
 | Check | Result |
 |---|---|
 | `output: 'server'` in Astro config | PASS |
-| Static pages export `prerender = true` | PARTIAL: homepage/product/category pass; legal/info pages missing. |
+| Static pages export `prerender = true` | PASS for homepage, product/category pages, and added legal/info pages. |
 | Cart authoritative state is CartDO; no KV cart JSON | PASS for active code paths audited. |
 | Checkout ignores client money/VAT/stock | PASS for checkout parser/tamper detection; VAT now recomputed. |
 | Money uses integer paisa | PASS for changed commerce paths; existing non-money `REAL priority` remains documented risk. |
@@ -119,7 +145,7 @@
 | Buy Now isolated from CartDO and binding-verified | PASS for audited paths. |
 | Staff routes RBAC | Existing tests pass. |
 | Webhooks verify HMAC | Existing webhook tests pass. |
-| External APIs use adapters only | PARTIAL: email fixed; AI/payment/image/courier need continued adapter hardening. |
+| External APIs use adapters only | PARTIAL: email and product-content AI paths are adapterized; payment/image/courier and broader AI coverage still need continued hardening. |
 | Required D1 tables exist via migrations | PASS |
 | BudgetCounterDO exposes required methods | PASS |
 | No `output: 'static'` in non-Markdown source | PASS |
