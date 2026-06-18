@@ -23,7 +23,7 @@ import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../../lib/prepayment
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { clientIp } from '../../../lib/audit';
 import { safeLog } from '../../../lib/pii-scrubber';
-import { enqueueOrderEmail } from '../../../queues/consumers';
+import { enqueueFraudAudit, enqueueOrderEmail } from '../../../queues/consumers';
 
 function calculateVatPaisa(subtotalPaisa: number, rawRate: unknown): number {
   const rate = Number(rawRate ?? 0);
@@ -227,6 +227,7 @@ export async function POST(context: APIContext): Promise<Response> {
       quantity: item.qty,
       unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
       vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
+      reservationId: item.reservationId,
     }));
 
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
@@ -267,6 +268,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // Enqueue order confirmation email
     await enqueueOrderEmail(env, orderId, 'order_confirmed').catch(() => {});
+    await enqueueFraudAudit(env, orderId, phoneResult.local, score === 50 ? 'fraud_check_review' : 'post_checkout_audit').catch(() => {});
 
     return Response.json(response, { status: 201 });
   } catch (err) {

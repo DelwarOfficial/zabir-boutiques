@@ -190,7 +190,7 @@ CREATE TABLE IF NOT EXISTS stock_reservations (
   variant_id TEXT NOT NULL REFERENCES product_variants(id) ON DELETE RESTRICT,
   quantity INTEGER NOT NULL CHECK (quantity > 0),
   status TEXT NOT NULL DEFAULT 'active'
-    CHECK (status IN ('active','confirmed','released','expired')),
+    CHECK (status IN ('active','release_requested','confirmed','released','expired')),
   expires_at TEXT NOT NULL,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL

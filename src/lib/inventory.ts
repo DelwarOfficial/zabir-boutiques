@@ -24,15 +24,16 @@
  * - Never call reserveVariants() outside src/lib/inventory.ts.
  */
 import { nowSql } from "./dates";
-import { doReserve, doRelease, doSyncFromD1 } from "./do-client";
+import { doConfirm, doReserve, doRelease, doSyncFromD1 } from "./do-client";
 
 type Env = { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace };
+type ReservableItem = { variantId: string; qty: number; reservationId?: string };
 
 export async function reserveVariants(
   env: Env,
-  items: Array<{ variantId: string; qty: number }>,
+  items: ReservableItem[],
   now: string,
-): Promise<{ ok: true } | { ok: false; failedVariantId: string }> {
+): Promise<{ ok: true; reservations: Array<{ variantId: string; reservationId: string; quantity: number }> } | { ok: false; failedVariantId: string }> {
   const db = env.DB;
   if (items.length === 0) return { ok: false, failedVariantId: "EMPTY_CART" };
 
@@ -51,10 +52,11 @@ export async function reserveVariants(
         // Compensating release for any items that already reserved.
         for (const prev of items) {
           if (prev.variantId === item.variantId) break;
-          await doRelease(env, prev.variantId, prev.qty);
+          await doRelease(env, prev.variantId, prev.qty, prev.reservationId);
         }
         return { ok: false, failedVariantId: item.variantId };
       }
+      item.reservationId = r.reservationId;
     }
   }
 
@@ -88,7 +90,14 @@ export async function reserveVariants(
         if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
       }));
     }
-    return { ok: true };
+    return {
+      ok: true,
+      reservations: items.map((item) => ({
+        variantId: item.variantId,
+        reservationId: item.reservationId ?? `d1-${item.variantId}-${now}`,
+        quantity: item.qty,
+      })),
+    };
   }
 
   // Compensating release: D1 rejected this item. Release it from the DO
@@ -104,12 +113,12 @@ export async function reserveVariants(
     );
     await db.batch(releaseStmts, { atomic: true });
     if (env.VARIANT_INVENTORY_DO) {
-      await Promise.all(successfulItems.map(item => doRelease(env, item.variantId, item.qty)));
+      await Promise.all(successfulItems.map(item => doRelease(env, item.variantId, item.qty, item.reservationId)));
     }
   }
   // Always release the failing item from the DO too.
   if (env.VARIANT_INVENTORY_DO) {
-    await doRelease(env, items[failedIndex].variantId, items[failedIndex].qty);
+    await doRelease(env, items[failedIndex].variantId, items[failedIndex].qty, items[failedIndex].reservationId);
   }
 
   return { ok: false, failedVariantId: items[failedIndex].variantId };
@@ -117,7 +126,7 @@ export async function reserveVariants(
 
 export async function releaseReservedVariants(
   env: Env,
-  items: Array<{ variantId: string; qty: number }>,
+  items: ReservableItem[],
   now: string,
 ): Promise<void> {
   if (items.length === 0) return;
@@ -131,13 +140,13 @@ export async function releaseReservedVariants(
   );
   await db.batch(releaseStmts, { atomic: true });
   if (env.VARIANT_INVENTORY_DO) {
-    await Promise.all(items.map(item => doRelease(env, item.variantId, item.qty)));
+    await Promise.all(items.map(item => doRelease(env, item.variantId, item.qty, item.reservationId)));
   }
 }
 
 /**
- * Release expired active reservations and mark them expired.
- * Called by the every-5-minute cron job (Master_Prompt v7.0 §6.3).
+ * Release expired active reservations and mark them released.
+ * Called by the hourly cron job (Master Plan V7 §12.3).
  *
  * Bounded + chunked: processes at most `maxRows` reservations per invocation
  * and splits D1 writes into chunks that stay well under the statement limit.
@@ -148,9 +157,11 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
 
   const expired = await db.prepare(
     `SELECT id, variant_id, quantity FROM stock_reservations
-     WHERE status = 'active' AND expires_at < ?1
-     LIMIT ?2`
-  ).bind(now, maxRows).all<{ id: string; variant_id: string; quantity: number }>();
+     WHERE status = 'active'
+       AND created_at < datetime('now', '-15 minutes')
+       AND release_requested_at IS NULL
+      LIMIT ?1`
+  ).bind(maxRows).all<{ id: string; variant_id: string; quantity: number }>();
 
   const rows = expired.results ?? [];
   if (rows.length === 0) return;
@@ -164,18 +175,29 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
     const stmts = [
       ...chunk.map(row =>
         db.prepare(
-          `UPDATE inventory_items
-           SET reserved_quantity = reserved_quantity - ?1, updated_at = ?3
-           WHERE variant_id = ?2 AND reserved_quantity >= ?1`
-        ).bind(row.quantity, row.variant_id, now)
-      ),
-      ...chunk.map(row =>
-        db.prepare(
-          `UPDATE stock_reservations SET status = 'expired', updated_at = ?2 WHERE id = ?1`
+          `UPDATE stock_reservations
+           SET release_requested_at = ?2, status = 'release_requested', updated_at = ?2
+           WHERE id = ?1 AND release_requested_at IS NULL AND status = 'active'`
         ).bind(row.id, now)
       ),
     ];
-    await db.batch(stmts, { atomic: true });
+    const claims = await db.batch(stmts, { atomic: true });
+    const claimedRows = chunk.filter((_, index) => claims[index]?.meta.changes === 1);
+    for (const row of claimedRows) {
+      if (env.VARIANT_INVENTORY_DO) {
+        await doRelease(env, row.variant_id, row.quantity, row.id);
+      }
+      await db.batch([
+        db.prepare(
+          `UPDATE inventory_items
+           SET reserved_quantity = reserved_quantity - ?1, updated_at = ?3
+           WHERE variant_id = ?2 AND reserved_quantity >= ?1`
+        ).bind(row.quantity, row.variant_id, now),
+        db.prepare(
+          `UPDATE stock_reservations SET status = 'released', updated_at = ?2 WHERE id = ?1 AND status = 'release_requested'`
+        ).bind(row.id, now),
+      ], { atomic: true });
+    }
   }
 
   // Sync DOs with the new reserved_quantity values.
@@ -200,7 +222,7 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
  */
 export async function confirmReservedVariants(
   env: Env,
-  items: Array<{ variantId: string; qty: number }>,
+  items: ReservableItem[],
   now: string,
 ): Promise<{ ok: true } | { ok: false; failedVariantId: string }> {
   if (items.length === 0) return { ok: true };
@@ -217,6 +239,9 @@ export async function confirmReservedVariants(
   const results = await db.batch(deductStmts, { atomic: true });
   const failedIndex = results.findIndex(r => r.meta.changes !== 1);
   if (failedIndex === -1) {
+    if (env.VARIANT_INVENTORY_DO) {
+      await Promise.all(items.map(item => doConfirm(env, item.variantId, item.qty, item.reservationId)));
+    }
     if (env.VARIANT_INVENTORY_DO) {
       await Promise.all(items.map(async item => {
         const row = await db

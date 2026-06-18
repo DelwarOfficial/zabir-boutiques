@@ -530,7 +530,7 @@ async function compensateDirectSales(
  *  Atomic with the status transition.
  */
 export async function voidInvoice(
-  env: { DB: D1Database },
+  env: { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
   invoiceId: string,
   actorStaffId: string,
   reason: string,
@@ -563,13 +563,21 @@ export async function voidInvoice(
     .all<{ variant_id: string; quantity: number }>();
   const itemRows = items.results ?? [];
 
-  const restockStmts = itemRows.map((it) =>
-    db
-      .prepare(
-        `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?2 WHERE variant_id = ?3`,
-      )
-      .bind(it.quantity, now, it.variant_id),
-  );
+  if (env.VARIANT_INVENTORY_DO) {
+    for (const item of itemRows) {
+      await doReverseDirectSale(env, item.variant_id, item.quantity, invoiceId, "same_day_void");
+    }
+  }
+
+  const restockStmts = env.VARIANT_INVENTORY_DO
+    ? []
+    : itemRows.map((it) =>
+        db
+          .prepare(
+            `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?2 WHERE variant_id = ?3`,
+          )
+          .bind(it.quantity, now, it.variant_id),
+      );
 
   const batch = await db.batch(
     [

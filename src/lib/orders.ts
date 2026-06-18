@@ -39,6 +39,7 @@ export type ReservedOrderItem = {
   quantity: number;
   unitPricePaisa: number;
   vatPaisa?: number;
+  reservationId?: string;
 };
 
 type VariantSnapshot = {
@@ -134,7 +135,7 @@ export async function insertReservedOrderWithRetry(
         `INSERT INTO stock_reservations (
           id, order_id, variant_id, quantity, status, expires_at, created_at, updated_at
         ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?6)`
-      ).bind(crypto.randomUUID(), orderId, item.variantId, item.quantity, expiresAt, now)
+      ).bind(item.reservationId ?? crypto.randomUUID(), orderId, item.variantId, item.quantity, expiresAt, now)
     );
 
     try {

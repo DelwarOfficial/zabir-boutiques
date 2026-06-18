@@ -11,6 +11,7 @@ import { assertPaisa, multiplyPaisa, addPaisa, type Paisa } from './money';
 export type CheckoutCartItem = {
   variantId: string;
   qty: number;
+  reservationId?: string;
 };
 
 const MAX_CART_LINE_ITEMS = 10;

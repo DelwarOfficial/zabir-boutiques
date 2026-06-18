@@ -1,3 +1,6 @@
+import { DeepSeekClient } from './integrations/deepseek';
+import { WorkersAIClient } from './integrations/workers_ai';
+
 export interface ProductContext {
   name: string;
   category?: string;
@@ -11,44 +14,6 @@ export interface GeneratedContent {
   description: string;
   metaTitle: string;
   metaDescription: string;
-}
-
-async function callDeepSeek(prompt: string, apiKey: string): Promise<string> {
-  const res = await fetch('https://api.deepseek.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'deepseek-chat',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 1000
-    })
-  });
-  if (!res.ok) throw new Error(`DeepSeek API error: ${res.status} ${await res.text()}`);
-  const data: any = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
-}
-
-async function callOpenAI(prompt: string, apiKey: string): Promise<string> {
-  const res = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      model: 'gpt-4o-mini',
-      messages: [{ role: 'user', content: prompt }],
-      temperature: 0.7,
-      max_tokens: 1000
-    })
-  });
-  if (!res.ok) throw new Error(`OpenAI API error: ${res.status} ${await res.text()}`);
-  const data: any = await res.json();
-  return data.choices?.[0]?.message?.content ?? '';
 }
 
 function buildProductPrompt(product: ProductContext): string {
@@ -87,20 +52,14 @@ function parseContentResponse(raw: string, fallbackName: string): GeneratedConte
 
 export async function generateProductContent(
   product: ProductContext,
-  deepseekKey: string,
-  openaiKey: string,
-  preferred: 'deepseek' | 'openai' = 'deepseek'
-): Promise<GeneratedContent> {
+  env: { DEEPSEEK_API_KEY?: string; DEEPSEEK_BASE_URL?: string; AI?: Ai },
+  preferred: 'deepseek' | 'workers_ai' = 'deepseek'
+): Promise<GeneratedContent & { provider: 'deepseek' | 'workers_ai'; tokens_used: number; cost_usd: number }> {
   const prompt = buildProductPrompt(product);
-  let raw: string;
-  if (preferred === 'deepseek' && deepseekKey) {
-    raw = await callDeepSeek(prompt, deepseekKey);
-  } else if (openaiKey) {
-    raw = await callOpenAI(prompt, openaiKey);
-  } else if (deepseekKey) {
-    raw = await callDeepSeek(prompt, deepseekKey);
-  } else {
-    throw new Error('No AI API key configured');
+  if (preferred === 'deepseek' && env.DEEPSEEK_API_KEY) {
+    const result = await new DeepSeekClient(env).generateProductDescription(prompt);
+    return { ...parseContentResponse(result.text, product.name), provider: 'deepseek', tokens_used: result.tokens_used, cost_usd: result.cost_usd };
   }
-  return parseContentResponse(raw, product.name);
+  const fallback = await new WorkersAIClient(env.AI).generateProductDescription(prompt);
+  return { ...parseContentResponse(fallback.text, product.name), provider: 'workers_ai', tokens_used: fallback.tokens_used, cost_usd: fallback.cost_usd };
 }

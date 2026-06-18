@@ -17,19 +17,10 @@
 -- enforcement allows us to simply INSERT 'in_store' values. We document the
 -- expanded contract here. If a clean rebuild is performed, update 0001 directly.
 
--- 2. Add created_by to orders (which staff created this order, nullable for guest orders)
-ALTER TABLE orders ADD COLUMN created_by TEXT REFERENCES staff_users(id);
-
--- 3. Add order_channel (how the order was placed)
-ALTER TABLE orders ADD COLUMN order_channel TEXT DEFAULT 'web'
-  CHECK (order_channel IN ('web','in_store','phone','messenger','whatsapp'));
-
--- 4. Add partial prepayment tracking columns
-ALTER TABLE orders ADD COLUMN advance_paisa INTEGER DEFAULT 0 CHECK (advance_paisa >= 0);
-ALTER TABLE orders ADD COLUMN balance_paisa INTEGER DEFAULT 0 CHECK (balance_paisa >= 0);
-
--- 5. Add created_by to coupons (which staff created the coupon)
-ALTER TABLE coupons ADD COLUMN created_by TEXT REFERENCES staff_users(id);
+-- 2-5. These columns are now part of 0001 for clean V7 builds.
+-- D1/SQLite does not support ADD COLUMN IF NOT EXISTS, so keeping these ALTERs
+-- active breaks migration dry-runs on fresh schemas. Legacy environments that
+-- missed these columns need a targeted repair migration, not this historical file.
 
 -- 6. Index for staff-created orders lookup
 CREATE INDEX IF NOT EXISTS idx_orders_created_by ON orders(created_by) WHERE created_by IS NOT NULL;

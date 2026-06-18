@@ -69,7 +69,7 @@
       { "queue": "payment-webhooks", "binding": "PAYMENT_WEBHOOKS" },
       { "queue": "order-emails", "binding": "ORDER_EMAILS" },
       { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
-      { "queue": "fraud-scoring", "binding": "FRAUD_SCORING" },
+      { "queue": "fraud-audit", "binding": "FRAUD_AUDIT" },
       { "queue": "d1-backup", "binding": "D1_BACKUP" },
       { "queue": "cart-activity", "binding": "CART_ACTIVITY" }
     ],
@@ -77,7 +77,7 @@
       { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
       { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
       { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
-      { "queue": "fraud-scoring", "max_batch_size": 10, "max_retries": 2 },
+      { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2 },
       { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 },
       { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
     ]
@@ -121,14 +121,14 @@
           { "queue": "payment-webhooks", "binding": "PAYMENT_WEBHOOKS" },
           { "queue": "order-emails", "binding": "ORDER_EMAILS" },
           { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
-          { "queue": "fraud-scoring", "binding": "FRAUD_SCORING" },
+          { "queue": "fraud-audit", "binding": "FRAUD_AUDIT" },
           { "queue": "d1-backup", "binding": "D1_BACKUP" }
         ],
         "consumers": [
           { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
           { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
-          { "queue": "fraud-scoring", "max_batch_size": 10, "max_retries": 2 },
+          { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2 },
           { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 }
         ]
       },
@@ -178,7 +178,7 @@
           { "queue": "payment-webhooks-staging", "binding": "PAYMENT_WEBHOOKS" },
           { "queue": "order-emails-staging", "binding": "ORDER_EMAILS" },
           { "queue": "image-processing-staging", "binding": "IMAGE_PROCESSING" },
-          { "queue": "fraud-scoring-staging", "binding": "FRAUD_SCORING" },
+          { "queue": "fraud-audit-staging", "binding": "FRAUD_AUDIT" },
           { "queue": "d1-backup-staging", "binding": "D1_BACKUP" },
           { "queue": "cart-activity-staging", "binding": "CART_ACTIVITY" }
         ],
@@ -186,7 +186,7 @@
           { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5 },
           { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
-          { "queue": "fraud-scoring-staging", "max_batch_size": 10, "max_retries": 2 },
+          { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2 },
           { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 },
           { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
         ]
@@ -234,7 +234,7 @@
           { "queue": "payment-webhooks-dev", "binding": "PAYMENT_WEBHOOKS" },
           { "queue": "order-emails-dev", "binding": "ORDER_EMAILS" },
           { "queue": "image-processing-dev", "binding": "IMAGE_PROCESSING" },
-          { "queue": "fraud-scoring-dev", "binding": "FRAUD_SCORING" },
+          { "queue": "fraud-audit-dev", "binding": "FRAUD_AUDIT" },
           { "queue": "d1-backup-dev", "binding": "D1_BACKUP" },
           { "queue": "cart-activity-dev", "binding": "CART_ACTIVITY" }
         ],
@@ -242,7 +242,7 @@
           { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5 },
           { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3 },
-          { "queue": "fraud-scoring-dev", "max_batch_size": 10, "max_retries": 2 },
+          { "queue": "fraud-audit-dev", "max_batch_size": 10, "max_retries": 2 },
           { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2 },
           { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3 }
         ]

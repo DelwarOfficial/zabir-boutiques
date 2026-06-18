@@ -257,17 +257,17 @@ export async function handleImageProcessingBatch(
   }
 }
 
-// ─── fraud-scoring ───────────────────────────────────────────────────────
+// ─── fraud-audit ─────────────────────────────────────────────────────────
 
-export type FraudScoringMessage = { orderId: string; phone: string };
+export type FraudAuditMessage = { orderId: string; phone: string; reason?: string };
 
-export async function enqueueFraudScoring(env: { FRAUD_SCORING?: Queue }, orderId: string, phone: string): Promise<void> {
-  if (!env.FRAUD_SCORING) return;
-  await env.FRAUD_SCORING.send({ orderId, phone });
+export async function enqueueFraudAudit(env: { FRAUD_AUDIT?: Queue }, orderId: string, phone: string, reason?: string): Promise<void> {
+  if (!env.FRAUD_AUDIT) return;
+  await env.FRAUD_AUDIT.send({ orderId, phone, reason });
 }
 
-export async function handleFraudScoringBatch(
-  batch: MessageBatch<FraudScoringMessage>,
+export async function handleFraudAuditBatch(
+  batch: MessageBatch<FraudAuditMessage>,
   env: { DB: D1Database; FRAUDBD_API_KEY: string },
 ): Promise<void> {
   for (const msg of batch.messages) {
@@ -281,9 +281,9 @@ export async function handleFraudScoringBatch(
         .run();
       msg.ack();
     } catch (err) {
-      safeLog.error("[fraud-scoring-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
+      safeLog.error("[fraud-audit-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
       // Per spec: 2x retry then auto-approve with review flag.
-      msg.retry({ delaySeconds: 10 });
+      msg.retry({ delaySeconds: 2 });
     }
   }
 }

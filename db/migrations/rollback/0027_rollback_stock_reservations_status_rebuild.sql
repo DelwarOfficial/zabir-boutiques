@@ -1,0 +1,1 @@
+-- ROLLBACK_EXCEPTION: status CHECK remains V7-compatible; rebuilding back would risk reservation data.

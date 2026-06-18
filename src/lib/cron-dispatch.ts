@@ -25,11 +25,9 @@ import { nowSql } from "./dates";
 type CronHandler = (env: Env) => Promise<void>;
 
 export const CRON_HANDLERS: Record<string, CronHandler> = {
-  // Every 5 min — reservation cleanup + partial-prepay sweeper.
+  // Every 5 min — partial-prepay sweeper.
   "*/5 * * * *": async (env) => {
-    const { cleanExpiredReservations } = await import('./inventory');
     const { sweepStalePartialPrepayOrders } = await import('./maintenance/partial-prepay');
-    await cleanExpiredReservations(env, 200);
     await sweepStalePartialPrepayOrders(env.DB);
   },
   // Every 15 min — payment reconciliation + abandoned cart scan.
@@ -39,9 +37,11 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
     await reconcilePendingPayments(env);
     await scanAbandonedCarts(env as unknown as { DB: D1Database; ORDER_EMAILS?: Queue });
   },
-  // Hourly — session sweep.
+  // Hourly — reservation cleanup + session sweep.
   "0 * * * *": async (env) => {
+    const { cleanExpiredReservations } = await import('./inventory');
     const { cleanExpiredSessions } = await import('./sessions');
+    await cleanExpiredReservations(env, 200);
     await cleanExpiredSessions(env.DB);
   },
   // Daily 00:00 UTC — AI daily budget reset (the counter is daily-bucketed).

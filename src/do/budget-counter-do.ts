@@ -12,6 +12,7 @@
  */
 interface Env {
   AI_BUDGET: DurableObjectNamespace;
+  DB?: D1Database;
   ANALYTICS?: AnalyticsEngineDataset;
 }
 
@@ -44,6 +45,8 @@ const DEFAULT_LIMITS: Record<BudgetProvider, { dailyUsdCents: number; monthlyUsd
   deepseek: { dailyUsdCents: 500, monthlyUsdCents: 10000, dailyCalls: 50, monthlyCalls: 1000 },
   imagify: { dailyUsdCents: 100, monthlyUsdCents: 2000, dailyCalls: 100, monthlyCalls: 3000 },
 };
+
+type ProviderLimits = { dailyUsdCents: number; monthlyUsdCents: number; dailyCalls: number; monthlyCalls: number; ownerOverride: boolean };
 
 export class BudgetCounterDO implements DurableObject {
   private storage: DurableObjectStorage;
@@ -80,6 +83,12 @@ export class BudgetCounterDO implements DurableObject {
     if (req.method === "POST" && url.pathname === "/increment") {
       const body = (await req.json()) as IncrementRequest;
       return Response.json(await this.increment(body));
+    }
+    if (req.method === "GET" && url.pathname === "/can-use-deepseek") {
+      return Response.json({ allowed: await this.canUseDeepSeek() });
+    }
+    if (req.method === "POST" && url.pathname === "/record-usage") {
+      return Response.json(await this.recordUsage(await req.json() as Parameters<BudgetCounterDO['recordUsage']>[0]));
     }
     return new Response("not found", { status: 404 });
   }
@@ -127,7 +136,7 @@ export class BudgetCounterDO implements DurableObject {
     monthly.cents += costUsdCents;
     await this.storage.put({ [dailyKey]: daily, [monthlyKey]: monthly, [key]: { dailyUsd: daily.cents / 100, monthlyUsd: monthly.cents / 100 } });
 
-    const limits = DEFAULT_LIMITS[input.provider];
+    const limits = await this.getProviderLimits(input.provider);
     const dailyPercent = Math.max((daily.cents / limits.dailyUsdCents) * 100, (daily.calls / limits.dailyCalls) * 100);
     const monthlyPercent = Math.max((monthly.cents / limits.monthlyUsdCents) * 100, (monthly.calls / limits.monthlyCalls) * 100);
     const maxPercent = Math.max(dailyPercent, monthlyPercent);
@@ -141,7 +150,8 @@ export class BudgetCounterDO implements DurableObject {
   }
 
   private async canUseProvider(provider: BudgetProvider): Promise<boolean> {
-    const limits = DEFAULT_LIMITS[provider];
+    const limits = await this.getProviderLimits(provider);
+    if (limits.ownerOverride) return true;
     const dailyKey = `daily:${provider}:${new Date().toISOString().slice(0, 10)}`;
     const monthlyKey = `monthly:${provider}:${new Date().toISOString().slice(0, 7)}`;
     const daily = (await this.storage.get<{ calls: number; cents: number }>(dailyKey)) ?? { calls: 0, cents: 0 };
@@ -150,6 +160,40 @@ export class BudgetCounterDO implements DurableObject {
       && monthly.calls < limits.monthlyCalls
       && daily.cents < limits.dailyUsdCents
       && monthly.cents < limits.monthlyUsdCents;
+  }
+
+  private async getProviderLimits(provider: BudgetProvider): Promise<ProviderLimits> {
+    const cacheKey = `limits:${provider}`;
+    const cached = await this.storage.get<ProviderLimits>(cacheKey);
+    if (cached) return cached;
+    const fallback = DEFAULT_LIMITS[provider];
+    if (!this.env.DB) return { ...fallback, ownerOverride: false };
+    try {
+      const row = await this.env.DB.prepare(
+        `SELECT daily_limit_usd_cents, monthly_limit_usd_cents, daily_call_limit,
+                monthly_call_limit, owner_override
+         FROM ai_budget_limits WHERE provider = ?1`,
+      ).bind(provider).first<{
+        daily_limit_usd_cents: number;
+        monthly_limit_usd_cents: number;
+        daily_call_limit: number;
+        monthly_call_limit: number;
+        owner_override: number;
+      }>();
+      const limits: ProviderLimits = row
+        ? {
+            dailyUsdCents: row.daily_limit_usd_cents,
+            monthlyUsdCents: row.monthly_limit_usd_cents,
+            dailyCalls: row.daily_call_limit,
+            monthlyCalls: row.monthly_call_limit,
+            ownerOverride: row.owner_override === 1,
+          }
+        : { ...fallback, ownerOverride: false };
+      await this.storage.put(cacheKey, limits);
+      return limits;
+    } catch {
+      return { ...fallback, ownerOverride: false };
+    }
   }
 
   private status(): IncrementResult & { scope: string | null; op: string | null } {
@@ -226,4 +270,22 @@ export async function chargeBudget(env: Env, scope: string, costUsdCents: number
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ costUsdCents, op }),
   }).then(r => r.json())) as IncrementResult;
+}
+
+export async function canUseDeepSeekBudget(env: Env): Promise<boolean> {
+  const id = env.AI_BUDGET.idFromName(`deepseek:${new Date().toISOString().slice(0, 10)}`);
+  const stub = env.AI_BUDGET.get(id);
+  const res = await stub.fetch("https://budget/can-use-deepseek");
+  const data = await res.json() as { allowed?: boolean };
+  return data.allowed === true;
+}
+
+export async function recordDeepSeekUsage(env: Env, input: { tokens: number; cost_usd: number; request_id: string; staff_id: string; operation: string }): Promise<void> {
+  const id = env.AI_BUDGET.idFromName(`deepseek:${new Date().toISOString().slice(0, 10)}`);
+  const stub = env.AI_BUDGET.get(id);
+  await stub.fetch("https://budget/record-usage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: 'deepseek', ...input }),
+  });
 }

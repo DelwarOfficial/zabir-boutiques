@@ -11,7 +11,6 @@ export default defineConfig({
   adapter: cloudflare({
     runtime: { mode: "advanced" },
     imageService: { build: "compile", runtime: "passthrough" },
-    platformProxy: { enabled: true },
   }),
   prefetch: {
     prefetchAll: false,

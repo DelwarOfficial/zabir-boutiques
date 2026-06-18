@@ -4,7 +4,7 @@ import { requireAuth, requirePermission, RbacError } from '../../../../lib/rbac'
 import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateProductContent } from '../../../../lib/ai-content';
 import { safeLog } from '../../../../lib/pii-scrubber';
-import { chargeBudget } from '../../../../do/budget-counter-do';
+import { canUseDeepSeekBudget, recordDeepSeekUsage } from '../../../../do/budget-counter-do';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -31,11 +31,14 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   try {
-    // Budget gate: BudgetCounterDO [Master_Prompt v7.0 §24.2]
-    // 50 generations/day, 1000 generations/month
-    const budgetResult = await chargeBudget(env, 'ai:product-content:daily', 1, 'product-content');
-    if (!budgetResult.allowed) {
-      return Response.json({ ok: false, error: 'AI generation budget exhausted for today.' }, { status: 429 });
+    let provider: 'deepseek' | 'workers_ai' = body.provider === 'workers_ai' ? 'workers_ai' : 'deepseek';
+    if (provider === 'deepseek') {
+      try {
+        const allowed = await canUseDeepSeekBudget(env);
+        if (!allowed) provider = 'workers_ai';
+      } catch {
+        provider = 'workers_ai';
+      }
     }
 
     const content = await generateProductContent(
@@ -47,10 +50,19 @@ export async function POST(context: APIContext): Promise<Response> {
         targetAudience: body.target_audience,
         style: body.style
       },
-      env.DEEPSEEK_API_KEY,
-      env.OPENAI_API_KEY,
-      body.provider ?? 'deepseek'
+      env,
+      provider,
     );
+
+    if (content.provider === 'deepseek') {
+      await recordDeepSeekUsage(env, {
+        tokens: content.tokens_used,
+        cost_usd: content.cost_usd,
+        request_id: crypto.randomUUID(),
+        staff_id: user.id,
+        operation: 'product_description',
+      });
+    }
 
     await writeAuditLog(env.DB, {
       actorStaffId: user.id,
@@ -58,7 +70,7 @@ export async function POST(context: APIContext): Promise<Response> {
       action: 'ai.product_content.generate',
       entityType: 'product',
       entityId: name,
-      metadata: { provider: body.provider ?? 'deepseek' },
+      metadata: { provider: content.provider },
       ipAddress: clientIp(context.request),
       userAgent: userAgent(context.request)
     });

@@ -12,13 +12,13 @@ import {
   handlePaymentWebhookBatch,
   handleOrderEmailBatch,
   handleImageProcessingBatch,
-  handleFraudScoringBatch,
+  handleFraudAuditBatch,
   handleD1BackupBatch,
   handleCartActivityBatch,
   type PaymentWebhookMessage,
   type OrderEmailMessage,
   type ImageProcessingMessage,
-  type FraudScoringMessage,
+  type FraudAuditMessage,
   type D1BackupMessage,
   type CartActivityMessage,
 } from "./queues/consumers";
@@ -46,8 +46,8 @@ async function routeQueue(batch: MessageBatch, env: Env): Promise<void> {
     case "image-processing":
       await handleImageProcessingBatch(batch as MessageBatch<ImageProcessingMessage>, env);
       break;
-    case "fraud-scoring":
-      await handleFraudScoringBatch(batch as MessageBatch<FraudScoringMessage>, env);
+    case "fraud-audit":
+      await handleFraudAuditBatch(batch as MessageBatch<FraudAuditMessage>, env);
       break;
     case "d1-backup":
       await handleD1BackupBatch(batch as MessageBatch<D1BackupMessage>, env);

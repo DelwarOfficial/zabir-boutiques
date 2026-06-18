@@ -49,13 +49,14 @@ export async function doRelease(
   env: DoEnv & { DB: D1Database },
   variantId: VariantId,
   qty: number,
+  reservationId?: string,
 ): Promise<void> {
   if (!env.VARIANT_INVENTORY_DO) return;
   const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/release", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId, reservationId, env: { DB: env.DB } }),
   });
 }
 
@@ -64,13 +65,14 @@ export async function doConfirm(
   env: DoEnv & { DB: D1Database },
   variantId: VariantId,
   qty: number,
+  reservationId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!env.VARIANT_INVENTORY_DO) return { ok: true };
   const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/confirm", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId, reservationId, env: { DB: env.DB } }),
   });
   return (await res.json()) as { ok: boolean; error?: string };
 }

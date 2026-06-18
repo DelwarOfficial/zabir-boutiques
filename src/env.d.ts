@@ -41,6 +41,7 @@ export type Env = {
   PASSWORD_PEPPER: string;
   PUBLIC_SITE_URL: string;
   PUBLIC_SITE_NAME: string;
+  VAT_RATE_PERCENT?: string;
   // Master Plan §3.4 — Durable Objects (required in deployed Workers)
   VARIANT_INVENTORY_DO: DurableObjectNamespace;
   IDEMPOTENCY_DO: DurableObjectNamespace;
@@ -53,7 +54,7 @@ export type Env = {
   PAYMENT_WEBHOOKS: Queue;
   ORDER_EMAILS: Queue;
   IMAGE_PROCESSING: Queue;
-  FRAUD_SCORING: Queue;
+  FRAUD_AUDIT: Queue;
   D1_BACKUP: Queue;
   CART_ACTIVITY: Queue;
   // Master Plan §17.2 — Analytics Engine
@@ -64,6 +65,7 @@ export type Env = {
   // Master_Prompt v7.0 §2.10 Email
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;
+  EMAIL_PROVIDER?: 'resend' | 'cloudflare_email';
   // POS invoice compliance (Bangladesh NBR SRO 198/Law/2015).
   // Operator-supplied. Production deploy MUST set these via
   // `wrangler secret put`; without them the printed receipt is missing

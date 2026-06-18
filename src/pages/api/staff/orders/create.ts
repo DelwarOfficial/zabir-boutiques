@@ -167,6 +167,7 @@ export async function POST(context: APIContext): Promise<Response> {
       quantity: item.qty,
       unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
       vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
+      reservationId: item.reservationId,
     }));
 
     // Determine order status
