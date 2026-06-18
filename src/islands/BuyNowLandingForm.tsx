@@ -1,53 +1,65 @@
-import { AlertTriangle, ArrowRight, CheckCircle2, Loader2, MapPin, Package, ShieldCheck, Truck, User } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2, Minus, Plus } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
 
 type DeliveryZone = "inside_dhaka" | "outside_dhaka";
-type PaymentMethod = "cod" | "uddoktapay";
 type SubmitStatus =
   | { type: "idle" }
   | { type: "success"; orderNumber: string; redirectUrl?: string }
   | { type: "error"; code: string; message: string };
 
+type Variant = {
+  id: string;
+  size: string | null;
+  color: string | null;
+  pricePaisa: Paisa;
+};
+
 type Props = {
   sessionId: string;
   productName: string;
+  productImageUrl: string;
   variantLabel: string;
   unitPricePaisa: Paisa;
   quantity: number;
   insideDhakaPaisa: Paisa;
   outsideDhakaPaisa: Paisa;
   initialDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
+  variants: Variant[];
 };
 
 export function BuyNowLandingForm({
   sessionId,
   productName,
+  productImageUrl,
   variantLabel,
   unitPricePaisa,
-  quantity,
+  quantity: initialQty,
   insideDhakaPaisa,
   outsideDhakaPaisa,
   initialDraft,
+  variants,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(initialDraft?.name ?? "");
   const [phone, setPhone] = useState(initialDraft?.phone ?? "");
   const [address, setAddress] = useState(initialDraft?.address ?? "");
+  const [note, setNote] = useState("");
   const [zone, setZone] = useState<DeliveryZone>(
     initialDraft?.shippingZone === "outside_dhaka" ? "outside_dhaka" : "inside_dhaka"
   );
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
+  const [qty, setQty] = useState(initialQty);
+  const [selectedVariantId, setSelectedVariantId] = useState(variants[0]?.id ?? "");
   const [status, setStatus] = useState<SubmitStatus>({ type: "idle" });
   const idempotencyKeyRef = useRef<string | null>(null);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
+  const selectedVariant = variants.find(v => v.id === selectedVariantId) ?? variants[0];
+  const unitPrice = selectedVariant?.pricePaisa ?? unitPricePaisa;
   const shippingPaisa = zone === "inside_dhaka" ? insideDhakaPaisa : outsideDhakaPaisa;
-  const subtotalPaisa = unitPricePaisa * quantity;
+  const subtotalPaisa = unitPrice * qty;
   const totalPaisa = addPaisa([subtotalPaisa, shippingPaisa]);
-  const prepaymentRequired = quantity > 2 && paymentMethod === "cod";
-  const advancePaisa = prepaymentRequired ? ((totalPaisa + 1) >> 1) : 0;
 
   const contactValid = name.trim().length >= 2 && normalizedPhone.ok;
   const deliveryValid = address.trim().length >= 8;
@@ -65,26 +77,24 @@ export function BuyNowLandingForm({
         }
         const idempotencyKey = idempotencyKeyRef.current;
 
-        async function postSubmit(method: PaymentMethod | "partial_prepay") {
-          return fetch("/api/buy-now/submit", {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "Idempotency-Key": idempotencyKey,
-            },
-            body: JSON.stringify({
-              session_id: sessionId,
-              name: name.trim(),
-              phone: phoneE164,
-              address: address.trim(),
-              shipping_zone: zone,
-              payment_method: method,
-            }),
-          });
-        }
+        const response = await fetch("/api/buy-now/submit", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Idempotency-Key": idempotencyKey,
+          },
+          body: JSON.stringify({
+            session_id: sessionId,
+            name: name.trim(),
+            phone: phoneE164,
+            address: address.trim(),
+            shipping_zone: zone,
+            payment_method: "cod",
+            note: note.trim() || undefined,
+          }),
+        });
 
-        let response = await postSubmit(paymentMethod);
-        let payload = (await response.json().catch(() => ({}))) as {
+        const payload = (await response.json().catch(() => ({}))) as {
           ok?: boolean;
           code?: string;
           message?: string;
@@ -92,16 +102,11 @@ export function BuyNowLandingForm({
           checkout_url?: string;
         };
 
-        if (response.status === 402 && payload.code === "PREPAYMENT_REQUIRED") {
-          response = await postSubmit("partial_prepay");
-          payload = (await response.json().catch(() => ({}))) as typeof payload;
-        }
-
         if (response.status === 202) {
           setStatus({
             type: "error",
             code: "CHECKOUT_PROCESSING",
-            message: "Your order is still processing. Please wait.",
+            message: "অর্ডার প্রসেস হচ্ছে। একটু অপেক্ষা করুন।",
           });
           return;
         }
@@ -110,7 +115,7 @@ export function BuyNowLandingForm({
           setStatus({
             type: "error",
             code: payload.code || "CHECKOUT_FAILED",
-            message: payload.message || "Order failed. Please try again.",
+            message: payload.message || "অর্ডার ব্যর্থ হয়েছে। আবার চেষ্টা করুন।",
           });
           return;
         }
@@ -118,36 +123,41 @@ export function BuyNowLandingForm({
         idempotencyKeyRef.current = null;
         setStatus({ type: "success", orderNumber: payload.order_number || "Pending", redirectUrl: payload.checkout_url });
         if (payload.checkout_url) {
-          window.setTimeout(() => { window.location.href = payload.checkout_url as string; }, 1500);
+          window.setTimeout(() => { window.location.href = payload.checkout_url as string; }, 2000);
         }
       } catch {
-        setStatus({ type: "error", code: "NETWORK_ERROR", message: "Network problem. Please try again." });
+        setStatus({ type: "error", code: "NETWORK_ERROR", message: "নেটওয়ার্ক সমস্যা। আবার চেষ্টা করুন।" });
       }
     });
   }
 
+  // ── SUCCESS STATE ──
   if (status.type === "success") {
     return (
-      <section className="text-center py-8 fade-up">
-        <div className="mx-auto h-20 w-20 grid place-items-center rounded-full bg-[var(--success)]/10">
+      <div className="shell-card p-5 text-center fade-up">
+        <div className="mx-auto h-20 w-20 grid place-items-center rounded-full bg-[var(--success)]/10 pop">
           <CheckCircle2 className="h-10 w-10 text-[var(--success)]" />
         </div>
-        <h2 className="mt-4 text-2xl font-extrabold">Order placed!</h2>
-        <p className="mt-1 text-sm text-[var(--muted)]">Order number</p>
-        <p className="mt-1 font-mono text-xl font-bold text-[var(--brand)]">{status.orderNumber}</p>
-        <p className="mt-3 text-sm text-[var(--muted)]">Confirmation will reach you via SMS/WhatsApp.</p>
+        <h2 className="mt-4 text-2xl font-extrabold">অর্ডার সফল হয়েছে! 🎉</h2>
+        <p className="mt-1 text-sm text-[var(--muted)]">অর্ডার নম্বর</p>
+        <p className="mt-1 font-mono text-xl font-bold text-[var(--brand)] tracking-wider">{status.orderNumber}</p>
+        <p className="mt-3 text-sm text-[var(--muted)]">
+          আপনার অর্ডারটি কনফার্ম করা হয়েছে। SMS/WhatsApp এ কনফার্মেশন পাঠানো হবে।
+        </p>
         {status.redirectUrl && (
-          <p className="mt-3 text-xs text-[var(--muted)]">Redirecting to payment…</p>
+          <p className="mt-2 text-xs text-[var(--muted)]">পেমেন্ট পেজে নিয়ে যাওয়া হচ্ছে…</p>
         )}
-      </section>
+      </div>
     );
   }
 
+  // ── ORDER FORM ──
   return (
     <form
-      className="shell-card p-4 sm:p-5 space-y-4"
+      className="shell-card p-4 sm:p-5 space-y-5"
       onSubmit={(e) => { e.preventDefault(); submitOrder(); }}
     >
+      {/* Error alert */}
       {status.type === "error" && (
         <div className="flex gap-2 rounded-xl border border-[var(--danger)] bg-[var(--danger)]/10 p-3 text-sm font-semibold text-[var(--danger)]">
           <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -155,105 +165,138 @@ export function BuyNowLandingForm({
         </div>
       )}
 
-      <h2 className="text-base font-extrabold flex items-center gap-2">
-        <User className="h-4 w-4 text-[var(--brand)]" /> Your Details
-      </h2>
+      {/* ── Selected product card ── */}
+      <div className="flex gap-3 p-3 rounded-xl bg-[var(--surface-soft)]">
+        <div className="w-16 h-16 rounded-lg overflow-hidden bg-[var(--surface)] shrink-0">
+          <img src={productImageUrl} alt={productName} width="64" height="64" className="h-full w-full object-cover" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-sm font-bold line-clamp-2">{productName}</p>
+          <p className="text-xs text-[var(--muted)]">{selectedVariant?.size && selectedVariant?.color ? `${selectedVariant.size} / ${selectedVariant.color}` : variantLabel}</p>
+          <p className="mt-1 text-base font-extrabold tabular text-[var(--brand)]">{formatPaisa(unitPrice)}</p>
+        </div>
+        <div className="flex flex-col items-center justify-center gap-1">
+          <button type="button" className="press tap-44 grid place-items-center h-8 w-8 rounded-lg border border-[var(--line)] bg-[var(--surface)]" onClick={() => setQty(q => Math.max(1, q - 1))} aria-label="কমান">
+            <Minus className="h-4 w-4" />
+          </button>
+          <span className="text-sm font-extrabold tabular w-8 text-center">{qty}</span>
+          <button type="button" className="press tap-44 grid place-items-center h-8 w-8 rounded-lg border border-[var(--line)] bg-[var(--surface)]" onClick={() => setQty(q => q + 1)} aria-label="বাড়ান">
+            <Plus className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
 
-      <label className="block">
-        <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Name</span>
-        <input className="control" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="Ayesha Rahman" />
-      </label>
+      {/* ── Size/Color variant selector ── */}
+      {variants.length > 1 && (
+        <div>
+          <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">সাইজ / কালার</label>
+          <div className="flex flex-wrap gap-2">
+            {variants.map(v => {
+              const label = [v.size, v.color].filter(Boolean).join(" / ") || "Standard";
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setSelectedVariantId(v.id)}
+                  className={`press tap-44 rounded-lg border px-3 py-2 text-xs font-bold transition ${
+                    selectedVariantId === v.id
+                      ? "border-[var(--brand)] bg-[var(--brand)] text-white"
+                      : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
-      <label className="block">
-        <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Phone</span>
-        <input
-          className={`control ${phone && !normalizedPhone.ok ? "border-[var(--danger)]" : ""}`}
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-          inputMode="tel"
-          autoComplete="tel"
-          placeholder="017XXXXXXXX"
-        />
-        <span className={`mt-1 block text-xs font-semibold ${normalizedPhone.ok ? "text-[var(--success)]" : phone ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
-          {phoneHelperText(phone)}
-        </span>
-      </label>
+      {/* ── Billing fields ── */}
+      <div className="space-y-3">
+        <h3 className="text-sm font-extrabold">📋 অর্ডার তথ্য</h3>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">আপনার নাম *</span>
+          <input className="control" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" placeholder="আপনার নাম লিখুন" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">মোবাইল নম্বর *</span>
+          <input
+            className={`control ${phone && !normalizedPhone.ok ? "border-[var(--danger)]" : ""}`}
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            inputMode="tel"
+            autoComplete="tel"
+            placeholder="017XXXXXXXX"
+          />
+          <span className={`mt-1 block text-xs font-semibold ${normalizedPhone.ok ? "text-[var(--success)]" : phone ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+            {phoneHelperText(phone)}
+          </span>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">ডেলিভারি ঠিকানা *</span>
+          <textarea className="control min-h-24 resize-none py-3" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="বাসা নং, রোড, এরিয়া, জেলা" />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">নোট (ঐচ্ছিক)</span>
+          <input className="control" value={note} onChange={(e) => setNote(e.target.value)} placeholder="অর্ডার সম্পর্কে কোনো বিশেষ নির্দেশনা" />
+        </label>
+      </div>
 
-      <label className="block">
-        <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Delivery Address</span>
-        <textarea className="control min-h-24 resize-none py-3" value={address} onChange={(e) => setAddress(e.target.value)} placeholder="House, road, area, district" />
-      </label>
-
+      {/* ── Shipping zone ── */}
       <fieldset>
-        <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1.5">
-          <Truck className="h-3.5 w-3.5" /> Delivery Zone
-        </legend>
-        <div className="grid grid-cols-2 gap-2 rounded-xl bg-[var(--surface-soft)] p-1">
+        <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">🚚 শিপিং জোন</legend>
+        <div className="grid grid-cols-2 gap-2">
           {([
-            ["inside_dhaka", "Inside Dhaka", insideDhakaPaisa],
-            ["outside_dhaka", "Outside Dhaka", outsideDhakaPaisa],
+            ["inside_dhaka", "ঢাকা সিটির ভেতরে", insideDhakaPaisa],
+            ["outside_dhaka", "ঢাকা সিটির বাইরে", outsideDhakaPaisa],
           ] as const).map(([value, label, price]) => (
             <button
               key={value}
               type="button"
               onClick={() => setZone(value)}
-              className={`press tap-44 rounded-lg px-3 py-3 text-left text-sm font-bold transition ${
-                zone === value ? "bg-[var(--surface)] text-[var(--brand)] shadow-sm" : "text-[var(--muted)]"
+              className={`press tap-44 rounded-xl border p-3 text-left text-sm font-bold transition ${
+                zone === value ? "border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)]" : "border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]"
               }`}
             >
               {label}
-              <span className="block text-xs font-bold tabular">{formatPaisa(price)}</span>
+              <span className="block text-base font-extrabold tabular">{formatPaisa(price)}</span>
             </button>
           ))}
         </div>
       </fieldset>
 
-      <fieldset>
-        <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--muted)] flex items-center gap-1.5">
-          <ShieldCheck className="h-3.5 w-3.5" /> Payment
-        </legend>
-        <div className="grid grid-cols-2 gap-2">
-          {([
-            ["cod", "Cash on Delivery"],
-            ["uddoktapay", "UddoktaPay"],
-          ] as const).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              onClick={() => setPaymentMethod(value)}
-              className={`press tap-44 min-h-12 rounded-xl border px-3 text-sm font-bold transition ${
-                paymentMethod === value ? "border-[var(--brand)] bg-[var(--brand)] text-white" : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+      {/* ── Order summary table ── */}
+      <div className="border-t border-[var(--line)] pt-4 space-y-2 text-sm tabular">
+        <h3 className="text-sm font-extrabold mb-2">🧾 অর্ডার সামারি</h3>
+        <div className="flex justify-between">
+          <span>{productName} × {qty}</span>
+          <strong>{formatPaisa(subtotalPaisa)}</strong>
         </div>
-      </fieldset>
-
-      {prepaymentRequired && (
-        <div className="flex gap-2 rounded-xl border border-[var(--brand)] bg-[var(--brand-light)] p-3 text-sm font-semibold">
-          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-[var(--brand)]" />
-          <div>
-            <p>Orders with &gt;2 items require 50% advance. Balance on delivery.</p>
-            <p className="mt-1 font-extrabold tabular">Advance: {formatPaisa(advancePaisa)} · Balance: {formatPaisa(totalPaisa - advancePaisa)}</p>
-          </div>
+        <div className="flex justify-between">
+          <span>ডেলিভারি</span>
+          <strong>{formatPaisa(shippingPaisa)}</strong>
         </div>
-      )}
-
-      <div className="border-t border-[var(--line)] pt-3 space-y-1.5 text-sm tabular">
-        <div className="flex justify-between"><span className="text-[var(--muted)]">Subtotal</span><strong>{formatPaisa(subtotalPaisa)}</strong></div>
-        <div className="flex justify-between"><span className="text-[var(--muted)]">Shipping</span><strong>{formatPaisa(shippingPaisa)}</strong></div>
-        <div className="flex justify-between border-t border-[var(--line)] pt-2 text-base"><span>Total</span><strong>{formatPaisa(totalPaisa)}</strong></div>
+        <div className="flex justify-between border-t border-[var(--line)] pt-2 text-lg">
+          <span className="font-extrabold">মোট</span>
+          <strong className="font-extrabold text-[var(--brand)]">{formatPaisa(totalPaisa)}</strong>
+        </div>
       </div>
 
+      {/* ── Payment: COD ── */}
+      <div className="rounded-xl border-2 border-[var(--brand)] bg-[var(--brand)]/5 p-4 text-center">
+        <p className="text-base font-extrabold">💵 ক্যাশ অন ডেলিভারি</p>
+        <p className="mt-1 text-sm text-[var(--muted)]">পণ্য হাতে পেয়ে মূল্য পরিশোধ করুন</p>
+      </div>
+
+      {/* ── Submit ── */}
       <button
         type="submit"
         disabled={!canSubmit}
-        className="press tap-44 w-full inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand)] text-white px-5 h-12 text-sm font-extrabold shadow-[0_8px_24px_rgba(161,98,7,0.25)] disabled:opacity-50"
+        className="press tap-44 w-full inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand)] text-white px-5 h-14 text-base font-extrabold shadow-[0_8px_24px_rgba(161,98,7,0.25)] disabled:opacity-50"
       >
         {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
-        {isPending ? "Placing order…" : `Confirm Order · ${formatPaisa(totalPaisa)}`}
+        {isPending ? "অর্ডার প্রসেস হচ্ছে…" : `অর্ডার কনফার্ম করুন · ${formatPaisa(totalPaisa)}`}
       </button>
     </form>
   );

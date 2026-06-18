@@ -1,9 +1,10 @@
 ---
 /**
- * /buy-now/[slug] — Buy Now Landing Page [Master Plan §10.4]
+ * /buy-now/[slug] — F-Commerce Direct Order Landing Page [Master Plan §10.4]
  *
- * Dynamic route: loads live product, selected variant, delivery charge,
- * and server-generated order summary. Does NOT modify the normal cart.
+ * Single-page conversion-focused layout matching Bangladesh F-commerce pattern.
+ * Everything on one scroll: hero offer, image gallery, product benefits,
+ * trust signals, order form, support CTA.
  */
 export const prerender = false;
 
@@ -47,77 +48,222 @@ if (!sessionData?.ok || !sessionData.session) {
 
 const session = sessionData.session;
 
-// Load product and variant from D1
+// Load product from D1
 const product = await env.DB.prepare(
-  `SELECT p.id, p.slug, p.name, p.description, p.status
+  `SELECT p.id, p.slug, p.name, p.description, p.price_paisa, p.compare_price_paisa, p.status
    FROM products p
    WHERE p.slug = ?1 AND p.status = 'published'`
-).bind(slug).first<{ id: string; slug: string; name: string; description: string | null; status: string }>();
+).bind(slug).first<{
+  id: string; slug: string; name: string; description: string | null;
+  price_paisa: number; compare_price_paisa: number | null; status: string;
+}>();
 
 if (!product || product.id !== session.productId) {
   return Astro.redirect(`/products/${slug ?? ""}`);
 }
 
-const variant = await env.DB.prepare(
+// Load ALL product images for gallery
+const images = await env.DB.prepare(
+  `SELECT id, r2_key, alt_text, width, height, sort_order
+   FROM product_images WHERE product_id = ?1 ORDER BY sort_order ASC`
+).bind(product.id).all<{ id: string; r2_key: string; alt_text: string | null; width: number | null; height: number | null; sort_order: number }>();
+
+const imageList = images.results ?? [];
+const primaryImage = imageList[0]?.r2_key ?? "/assets/product-zb-stitch.svg";
+const primaryAlt = imageList[0]?.alt_text ?? product.name;
+
+// Load ALL variants for size/color options
+const variants = await env.DB.prepare(
   `SELECT v.id, v.size, v.color, v.sku, COALESCE(v.price_paisa, p.price_paisa) AS price_paisa
    FROM product_variants v
    JOIN products p ON p.id = v.product_id
-   WHERE v.id = ?1 AND v.product_id = ?2 AND v.is_deleted = 0`
-).bind(session.variantId, product.id).first<{
+   WHERE v.product_id = ?1 AND v.is_deleted = 0
+   ORDER BY v.size, v.color`
+).bind(product.id).all<{
   id: string; size: string | null; color: string | null; sku: string; price_paisa: number;
 }>();
 
-if (!variant) {
-  return Astro.redirect(`/products/${slug ?? ""}`);
-}
-
-// Load product image
-const image = await env.DB.prepare(
-  `SELECT url, alt_text FROM product_images WHERE product_id = ?1 ORDER BY sort_order ASC LIMIT 1`
-).bind(product.id).first<{ url: string; alt_text: string | null }>();
-
-const imageUrl = image?.url ?? "/assets/product-zb-stitch.svg";
-const imageAlt = image?.alt_text ?? product.name;
+const variantList = variants.results ?? [];
+const selectedVariant = variantList.find(v => v.id === session.variantId) ?? variantList[0];
 
 // Delivery pricing
 const INSIDE_DHAKA = 7000;
 const OUTSIDE_DHAKA = 13000;
 
-const variantLabel = [variant.size, variant.color].filter(Boolean).join(" / ") || "Standard";
-const subtotalPaisa = variant.price_paisa * session.quantity;
+const variantLabel = [selectedVariant?.size, selectedVariant?.color].filter(Boolean).join(" / ") || "Standard";
+const unitPrice = selectedVariant?.price_paisa ?? product.price_paisa;
+const subtotalPaisa = unitPrice * session.quantity;
+const hasDiscount = product.compare_price_paisa && product.compare_price_paisa > unitPrice;
+const discountPercent = hasDiscount ? Math.round((1 - unitPrice / product.compare_price_paisa!) * 100) : 0;
+
+// Parse product description into feature list
+const features = (product.description ?? "")
+  .split("\n")
+  .map(l => l.replace(/^[•\-\*]\s*/, "").trim())
+  .filter(l => l.length > 0);
 ---
 
-<RootLayout title={`Buy Now — ${product.name} | Zabir Boutiques`} description={`Quick order for ${product.name}`}>
-  <section class="max-w-2xl mx-auto fade-up">
+<RootLayout title={`${product.name} | Zabir Boutiques`} description={product.description ?? product.name}>
+  <article class="max-w-2xl mx-auto fade-up">
+
+    {/* ── HERO: Offer headline ── */}
     <header class="text-center mb-6">
-      <p class="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[var(--brand)]">Direct Order</p>
-      <h1 class="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">{product.name}</h1>
-      <p class="mt-1 text-sm text-[var(--muted)]">{variantLabel} · Qty: {session.quantity}</p>
+      {hasDiscount && (
+        <span class="inline-block chip chip-danger pop mb-2">
+          🔥 {discountPercent}% ডিসকাউন্ট
+        </span>
+      )}
+      <h1 class="text-2xl sm:text-3xl font-extrabold tracking-tight leading-tight">
+        {product.name}
+      </h1>
+      <p class="mt-1 text-sm text-[var(--muted)]">{variantLabel}</p>
+      <div class="mt-3 flex items-center justify-center gap-3">
+        <span class="text-3xl font-extrabold text-[var(--brand)] tabular">{formatPaisa(unitPrice)}</span>
+        {hasDiscount && (
+          <span class="text-lg font-bold text-[var(--muted)] line-through tabular">{formatPaisa(product.compare_price_paisa!)}</span>
+        )}
+      </div>
+      <p class="mt-2 text-sm font-semibold text-[var(--danger)]">
+        ⚠️ স্টক ফুরিয়ে যাওয়ার আগেই অর্ডার করুন!
+      </p>
     </header>
 
-    <div class="grid gap-5 md:grid-cols-[200px_1fr] mb-6">
-      <div class="aspect-square overflow-hidden rounded-2xl bg-[var(--surface-soft)]">
-        <img src={imageUrl} alt={imageAlt} width="200" height="200" loading="eager" class="h-full w-full object-cover" />
+    {/* ── IMAGE CAROUSEL (CSS scroll-snap, zero JS) ── */}
+    {imageList.length > 0 && (
+      <div class="relative mb-6">
+        <div class="flex gap-3 overflow-x-auto scroll-x-snap snap-x snap-mandatory rounded-2xl bg-[var(--surface-soft)] p-2 scrollbar-hide">
+          {imageList.map((img, i) => (
+            <div class="snap-center shrink-0 w-full aspect-[4/5] overflow-hidden rounded-xl" key={img.id}>
+              <img
+                src={img.r2_key}
+                alt={img.alt_text ?? product.name}
+                width={img.width ?? 800}
+                height={img.height ?? 1000}
+                loading={i === 0 ? "eager" : "lazy"}
+                decoding="async"
+                fetchpriority={i === 0 ? "high" : "auto"}
+                class="h-full w-full object-cover"
+              />
+            </div>
+          ))}
+        </div>
+        {imageList.length > 1 && (
+          <div class="flex justify-center gap-1.5 mt-3">
+            {imageList.map((img, i) => (
+              <span class={`h-1.5 w-1.5 rounded-full ${i === 0 ? "bg-[var(--brand)]" : "bg-[var(--line)]"}`} key={img.id} />
+            ))}
+          </div>
+        )}
       </div>
-      <div class="space-y-2">
-        <p class="text-3xl font-extrabold tabular">{formatPaisa(variant.price_paisa)}</p>
-        <p class="text-sm text-[var(--muted)]">× {session.quantity} = <strong class="text-[var(--ink)]">{formatPaisa(subtotalPaisa)}</strong></p>
-        {variant.size && <p class="text-sm">Size: <strong>{variant.size}</strong></p>}
-        {variant.color && <p class="text-sm">Color: <strong>{variant.color}</strong></p>}
-        <p class="text-xs text-[var(--muted)]">Delivery: Inside Dhaka {formatPaisa(INSIDE_DHAKA)} · Outside Dhaka {formatPaisa(OUTSIDE_DHAKA)}</p>
+    )}
+
+    {/* ── PRODUCT GALLERY GRID ── */}
+    {imageList.length > 1 && (
+      <section class="mb-6">
+        <h2 class="text-base font-extrabold mb-3">📸 প্রোডাক্ট গ্যালারি</h2>
+        <div class="grid grid-cols-3 sm:grid-cols-4 gap-2">
+          {imageList.map((img) => (
+            <div class="aspect-square overflow-hidden rounded-xl bg-[var(--surface-soft)]" key={img.id}>
+              <img src={img.r2_key} alt={img.alt_text ?? product.name} width="200" height="200" loading="lazy" class="h-full w-full object-cover" />
+            </div>
+          ))}
+        </div>
+      </section>
+    )}
+
+    {/* ── PRODUCT FEATURES ── */}
+    {features.length > 0 && (
+      <section class="mb-6 shell-card p-4">
+        <h2 class="text-base font-extrabold mb-3">✨ প্রোডাক্টের বিশেষত্ব</h2>
+        <ul class="space-y-2 text-sm leading-6">
+          {features.map((f) => (
+            <li class="flex gap-2 items-start">
+              <span class="text-[var(--success)] shrink-0 mt-0.5">✅</span>
+              <span>{f}</span>
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
+
+    {/* ── TRUST SIGNALS ── */}
+    <section class="mb-6 shell-card p-4">
+      <h2 class="text-base font-extrabold mb-3">🛡️ আমাদের থেকে কেন নিবেন?</h2>
+      <ul class="space-y-2 text-sm leading-6">
+        <li class="flex gap-2 items-start">
+          <span class="text-[var(--success)] shrink-0">✔️</span>
+          <span>COD (ক্যাশ অন ডেলিভারি) — পণ্য হাতে পেয়ে মূল্য পরিশোধ করুন</span>
+        </li>
+        <li class="flex gap-2 items-start">
+          <span class="text-[var(--success)] shrink-0">✔️</span>
+          <span>চেক করে কোয়ালিটি যাচাই করে নেওয়ার সুবিধা</span>
+        </li>
+        <li class="flex gap-2 items-start">
+          <span class="text-[var(--success)] shrink-0">✔️</span>
+          <span>৭ দিনের রিটার্ন/এক্সচেঞ্জ পলিসি (শর্ত প্রযোজ্য)</span>
+        </li>
+        <li class="flex gap-2 items-start">
+          <span class="text-[var(--success)] shrink-0">✔️</span>
+          <span>ছবি ও বাস্তবের মিল ১০০% গ্যারান্টি</span>
+        </li>
+      </ul>
+    </section>
+
+    {/* ── DELIVERY INFO ── */}
+    <section class="mb-6 shell-card p-4">
+      <h2 class="text-base font-extrabold mb-3">🚚 ডেলিভারি চার্জ</h2>
+      <div class="grid grid-cols-2 gap-2 text-sm">
+        <div class="rounded-xl bg-[var(--surface-soft)] p-3 text-center">
+          <p class="font-bold">ঢাকা সিটির ভেতরে</p>
+          <p class="text-lg font-extrabold text-[var(--brand)] tabular">{formatPaisa(INSIDE_DHAKA)}</p>
+        </div>
+        <div class="rounded-xl bg-[var(--surface-soft)] p-3 text-center">
+          <p class="font-bold">ঢাকা সিটির বাইরে</p>
+          <p class="text-lg font-extrabold text-[var(--brand)] tabular">{formatPaisa(OUTSIDE_DHAKA)}</p>
+        </div>
+      </div>
+    </section>
+
+    {/* ── URGENCY CTA ── */}
+    <div class="mb-6 text-center">
+      <p class="text-sm font-bold text-[var(--danger)]">
+        🔥 অফার দেয়ার পর বেশি টাইম স্টক থাকে না, তাই দেরি না করে এখনই অর্ডার করে ফেলুন!
+      </p>
+    </div>
+
+    {/* ── ORDER FORM ── */}
+    <section id="checkout" class="mb-6">
+      <h2 class="text-base font-extrabold text-center mb-4">
+        👇 অর্ডার কনফার্ম করতে নিচের ফর্মটি সঠিকভাবে পূরণ করুন
+      </h2>
+
+      <BuyNowLandingForm
+        client:load
+        sessionId={sid}
+        productName={product.name}
+        productImageUrl={primaryImage}
+        variantLabel={variantLabel}
+        unitPricePaisa={unitPrice}
+        quantity={session.quantity}
+        insideDhakaPaisa={INSIDE_DHAKA}
+        outsideDhakaPaisa={OUTSIDE_DHAKA}
+        initialDraft={session.formDraft}
+        variants={variantList.map(v => ({ id: v.id, size: v.size, color: v.color, pricePaisa: v.price_paisa }))}
+      />
+    </section>
+
+    {/* ── SUPPORT CTA ── */}
+    <div class="text-center space-y-3 pb-8">
+      <p class="text-sm text-[var(--muted)]">যেকোনো প্রয়োজনে বা অর্ডার সম্পর্কে জানতে সরাসরি যোগাযোগ করুন:</p>
+      <div class="flex justify-center gap-3">
+        <a href="tel:+8801985516000" class="press inline-flex items-center gap-2 rounded-full border border-[var(--line)] bg-[var(--surface)] px-5 h-11 text-sm font-bold">
+          📞 কল করুন
+        </a>
+        <a href="https://wa.me/8801985516000" target="_blank" rel="noopener" class="press inline-flex items-center gap-2 rounded-full bg-[#25D366] text-white px-5 h-11 text-sm font-bold">
+          💬 হোয়াটসঅ্যাপ
+        </a>
       </div>
     </div>
 
-    <BuyNowLandingForm
-      client:load
-      sessionId={sid}
-      productName={product.name}
-      variantLabel={variantLabel}
-      unitPricePaisa={variant.price_paisa}
-      quantity={session.quantity}
-      insideDhakaPaisa={INSIDE_DHAKA}
-      outsideDhakaPaisa={OUTSIDE_DHAKA}
-      initialDraft={session.formDraft}
-    />
-  </section>
+  </article>
 </RootLayout>

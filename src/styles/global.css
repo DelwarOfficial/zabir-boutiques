@@ -394,6 +394,15 @@ img {
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
+
+/* Hide scrollbar for carousel (keeps scroll functionality) */
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
 .line-clamp-3 {
   display: -webkit-box;
   -webkit-line-clamp: 3;
