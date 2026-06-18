@@ -127,11 +127,16 @@ export async function POST(context: APIContext): Promise<Response> {
     discountPaisa = assertPaisa(Math.min(couponResult.discountPaisa, subtotalPaisa + deliveryPaisa), 'discount_paisa');
   }
 
-  const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa - discountPaisa), 'total_paisa');
+  const vatRate = Number((env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT ?? 0);
+  const vatPaisa = Number.isFinite(vatRate) && vatRate > 0
+    ? assertPaisa(Math.round((subtotalPaisa * vatRate) / 100), 'vat_paisa')
+    : 0;
+  const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa - discountPaisa), 'total_paisa');
 
   // Determine payment method and prepayment
   let paymentMethod: string = isInStore ? 'in_store' : (body.payment_method ?? 'cod');
-  const prepayment = calculatePrepayment(items.length, totalPaisa, paymentMethod);
+  const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
+  const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
   // If prepayment is required but caller sent 'cod', upgrade to 'partial_prepay'
   if (prepayment.required && paymentMethod === 'cod') {
     paymentMethod = 'partial_prepay';
@@ -160,7 +165,8 @@ export async function POST(context: APIContext): Promise<Response> {
     const orderItems = items.map((item) => ({
       variantId: item.variantId,
       quantity: item.qty,
-      unitPricePaisa: snapshots.get(item.variantId)!.price_paisa
+      unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
+      vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
     }));
 
     // Determine order status
@@ -175,6 +181,7 @@ export async function POST(context: APIContext): Promise<Response> {
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
       discount_paisa: discountPaisa,
+      vat_paisa: vatPaisa,
       total_paisa: totalPaisa,
       payment_method: paymentMethod as 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store',
       fraud_decision: fraudDecision,

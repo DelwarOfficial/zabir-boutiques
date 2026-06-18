@@ -9,6 +9,8 @@
  * platform's needs are modest. If a template grows complex, migrate
  * to React Email per the spec.
  */
+import { getEmailProvider } from './integrations/email';
+
 type OrderLike = {
   order_number: string;
   name: string;
@@ -76,50 +78,33 @@ function templateFor(type: EmailType, order: OrderLike): { subject: string; html
 }
 
 export async function sendTransactionalEmail(
-  env: { DB: D1Database; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string },
+  env: { DB: D1Database; EMAIL_PROVIDER?: string; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string },
   to: string,
   type: EmailType,
   order: OrderLike,
 ): Promise<{ ok: boolean; id?: string; error?: string }> {
-  if (!env.RESEND_API_KEY) {
-    // No-op in dev: log to email_log so the path is testable.
-    await env.DB
-      .prepare(
-        `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-         VALUES (?1, ?2, ?3, ?4, 'queued', ?5, 'no-resend-key', ?6)`,
-      )
-      .bind(crypto.randomUUID(), order.order_number, type, to, new Date().toISOString().replace("T", " ").slice(0, 19), new Date().toISOString().replace("T", " ").slice(0, 19))
-      .run();
-    return { ok: false, error: "RESEND_API_KEY not configured" };
-  }
   const { subject, html } = templateFor(type, order);
-  const from = env.RESEND_FROM_EMAIL ?? "Zabir Boutiques <orders@zabirboutiques.com>";
+  const provider = getEmailProvider(env);
+  const messageId = crypto.randomUUID();
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
   try {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${env.RESEND_API_KEY}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ from, to, subject, html }),
+    const result = await provider.sendEmail({
+      to: [to],
+      from_name: "Zabir Boutiques",
+      subject,
+      html,
+      tags: [type],
+      custom_args: { order_number: order.order_number, email_type: type },
+      message_id: messageId,
     });
-    const data = (await res.json().catch(() => ({}))) as { id?: string; error?: { message?: string } };
-    if (!res.ok || !data.id) {
-      const error = data.error?.message ?? `http_${res.status}`;
-      await env.DB
-        .prepare(
-          `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-           VALUES (?1, ?2, ?3, ?4, 'failed', NULL, ?5, ?6)`,
-        )
-        .bind(crypto.randomUUID(), order.order_number, type, to, error, new Date().toISOString().replace("T", " ").slice(0, 19))
-        .run();
-      return { ok: false, error };
-    }
     await env.DB
       .prepare(
         `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-         VALUES (?1, ?2, ?3, ?4, 'sent', ?5, NULL, ?6)`,
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
       )
-      .bind(crypto.randomUUID(), order.order_number, type, to, new Date().toISOString().replace("T", " ").slice(0, 19), new Date().toISOString().replace("T", " ").slice(0, 19))
+      .bind(messageId, order.order_number, type, to, result.status, result.status === 'sent' ? now : null, result.error_code ?? null, now)
       .run();
-    return { ok: true, id: data.id };
+    return { ok: result.accepted, id: result.provider_message_id, error: result.error_code };
   } catch (err) {
     const error = err instanceof Error ? err.message : "unknown";
     await env.DB
@@ -127,7 +112,7 @@ export async function sendTransactionalEmail(
         `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
          VALUES (?1, ?2, ?3, ?4, 'failed', NULL, ?5, ?6)`,
       )
-      .bind(crypto.randomUUID(), order.order_number, type, to, error, new Date().toISOString().replace("T", " ").slice(0, 19))
+      .bind(messageId, order.order_number, type, to, error, now)
       .run();
     return { ok: false, error };
   }

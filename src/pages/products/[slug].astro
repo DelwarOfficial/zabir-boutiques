@@ -87,31 +87,6 @@ const breadcrumbJsonLd = JSON.stringify({
         {outOfStock ? "Out of stock" : lowStock ? `Only ${product.availableQuantity} in stock — order soon` : `${product.availableQuantity} in stock`}
       </p>
 
-      <div class="mt-5 hidden md:block max-w-sm">
-        <div class="grid grid-cols-2 gap-3">
-          <AddToCartButton
-            client:idle
-            productId={product.id}
-            variantId={product.variantId}
-            title={product.title}
-            imageUrl={product.imageUrl}
-            variantLabel={product.variantLabel}
-            unitPricePaisa={product.pricePaisa}
-            availableQuantity={product.availableQuantity}
-            variant="sticky"
-          />
-          <BuyNowButton
-            client:idle
-            productId={product.id}
-            variantId={product.variantId}
-            slug={product.slug}
-            quantity={1}
-            disabled={outOfStock}
-            variant="sticky"
-          />
-        </div>
-      </div>
-
       <div class="mt-6 grid gap-3 text-sm leading-6 text-[var(--muted)] stagger">
         <p class="shell-card p-3 flex gap-2 items-start">
           <svg class="h-4 w-4 mt-0.5 text-[var(--brand)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>

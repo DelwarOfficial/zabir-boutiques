@@ -365,6 +365,17 @@ export async function createInvoice(
       directSales.push({ variantId: l.variantId, quantity: l.quantity });
     }
   }
+  const deductStmts = env.VARIANT_INVENTORY_DO
+    ? []
+    : lines.map((l) =>
+        db
+          .prepare(
+            `UPDATE inventory_items
+             SET quantity = quantity - ?1, updated_at = ?2
+             WHERE variant_id = ?3 AND quantity >= ?1`,
+          )
+          .bind(l.quantity, now, l.variantId),
+      );
 
   // Audit row. Same pattern as the platform-wide audit_log.
   const insertAudit = db
@@ -399,6 +410,7 @@ export async function createInvoice(
         insertInvoice,
         ...insertItemStmts,
         ...insertPaymentStmts,
+        ...deductStmts,
         insertAudit,
       ],
       { atomic: true },

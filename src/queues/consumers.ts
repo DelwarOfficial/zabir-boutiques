@@ -79,11 +79,46 @@ export async function handlePaymentWebhookBatch(
 
 // ─── order-emails ────────────────────────────────────────────────────────
 
-export type OrderEmailMessage = { orderId: string; emailType: string };
+export type OrderEmailMessage = { orderId?: string; emailType: string; sessionId?: string; customerEmail?: string };
 
 export async function enqueueOrderEmail(env: { ORDER_EMAILS?: Queue }, orderId: string, emailType: string): Promise<void> {
   if (!env.ORDER_EMAILS) return;
   await env.ORDER_EMAILS.send({ orderId, emailType });
+}
+
+export async function enqueueAbandonedCartEmail(env: { ORDER_EMAILS?: Queue }, sessionId: string, customerEmail: string): Promise<void> {
+  if (!env.ORDER_EMAILS) return;
+  await env.ORDER_EMAILS.send({ sessionId, customerEmail, emailType: 'abandoned_cart' });
+}
+
+export async function scanAbandonedCarts(env: { DB: D1Database; ORDER_EMAILS?: Queue }): Promise<void> {
+  const eligible = await env.DB.prepare(
+    `WITH eligible AS (
+       SELECT session_id, customer_email,
+              ROW_NUMBER() OVER (PARTITION BY customer_email ORDER BY last_cart_update_at DESC) AS rn
+       FROM cart_activity
+       WHERE last_cart_update_at < datetime('now', '-24 hours')
+         AND abandoned_email_sent_at IS NULL
+         AND converted_order_id IS NULL
+         AND consent_status = 'allowed'
+         AND customer_email IS NOT NULL
+     )
+     SELECT session_id, customer_email FROM eligible WHERE rn = 1
+     LIMIT 100`,
+  ).all<{ session_id: string; customer_email: string }>();
+
+  for (const row of eligible.results ?? []) {
+    const claimed = await env.DB.prepare(
+      `UPDATE cart_activity
+       SET abandoned_email_sent_at = datetime('now'), updated_at = datetime('now')
+       WHERE session_id = ?1
+         AND abandoned_email_sent_at IS NULL
+         AND converted_order_id IS NULL`,
+    ).bind(row.session_id).run();
+    if (claimed.meta.changes === 1) {
+      await enqueueAbandonedCartEmail(env, row.session_id, row.customer_email);
+    }
+  }
 }
 
 export async function handleOrderEmailBatch(
@@ -93,6 +128,33 @@ export async function handleOrderEmailBatch(
   for (const msg of batch.messages) {
     try {
       const { orderId, emailType } = msg.body;
+
+      if (emailType === 'abandoned_cart' && msg.body.sessionId) {
+        const row = await env.DB.prepare(
+          `SELECT converted_order_id, customer_email
+           FROM cart_activity
+           WHERE session_id = ?1`,
+        ).bind(msg.body.sessionId).first<{ converted_order_id: string | null; customer_email: string | null }>();
+        if (!row || row.converted_order_id !== null || !row.customer_email) {
+          await env.DB.prepare(
+            `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
+             VALUES (?1, NULL, 'abandoned_cart', ?2, 'failed', NULL, 'cart_converted_before_reminder', datetime('now'))`,
+          ).bind(crypto.randomUUID(), msg.body.customerEmail ?? null).run();
+          msg.ack();
+          continue;
+        }
+        await env.DB.prepare(
+          `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
+           VALUES (?1, NULL, 'abandoned_cart', ?2, 'queued', NULL, NULL, datetime('now'))`,
+        ).bind(crypto.randomUUID(), row.customer_email).run();
+        msg.ack();
+        continue;
+      }
+
+      if (!orderId) {
+        msg.ack();
+        continue;
+      }
 
       // Load order details for the email template
       const order = await env.DB

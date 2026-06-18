@@ -32,10 +32,12 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
     await cleanExpiredReservations(env, 200);
     await sweepStalePartialPrepayOrders(env.DB);
   },
-  // Every 15 min — payment reconciliation.
+  // Every 15 min — payment reconciliation + abandoned cart scan.
   "*/15 * * * *": async (env) => {
     const { reconcilePendingPayments } = await import('./maintenance/reconciliation');
+    const { scanAbandonedCarts } = await import('./maintenance/abandoned-cart');
     await reconcilePendingPayments(env);
+    await scanAbandonedCarts(env as unknown as { DB: D1Database; ORDER_EMAILS?: Queue });
   },
   // Hourly — session sweep.
   "0 * * * *": async (env) => {

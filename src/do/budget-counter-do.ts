@@ -37,6 +37,14 @@ interface IncrementResult {
   resetAt: string;
 }
 
+type BudgetProvider = 'workers_ai' | 'deepseek' | 'imagify';
+
+const DEFAULT_LIMITS: Record<BudgetProvider, { dailyUsdCents: number; monthlyUsdCents: number; dailyCalls: number; monthlyCalls: number }> = {
+  workers_ai: { dailyUsdCents: 100, monthlyUsdCents: 2000, dailyCalls: 200, monthlyCalls: 5000 },
+  deepseek: { dailyUsdCents: 500, monthlyUsdCents: 10000, dailyCalls: 50, monthlyCalls: 1000 },
+  imagify: { dailyUsdCents: 100, monthlyUsdCents: 2000, dailyCalls: 100, monthlyCalls: 3000 },
+};
+
 export class BudgetCounterDO implements DurableObject {
   private storage: DurableObjectStorage;
   private env: Env;
@@ -74,6 +82,74 @@ export class BudgetCounterDO implements DurableObject {
       return Response.json(await this.increment(body));
     }
     return new Response("not found", { status: 404 });
+  }
+
+  async canUseDeepSeek(): Promise<boolean> {
+    return this.canUseProvider('deepseek');
+  }
+
+  async canUseWorkersAI(): Promise<boolean> {
+    return this.canUseProvider('workers_ai');
+  }
+
+  async canUseImagify(): Promise<boolean> {
+    return this.canUseProvider('imagify');
+  }
+
+  async recordUsage(input: {
+    provider: BudgetProvider;
+    tokens: number;
+    cost_usd: number;
+    request_id: string;
+    staff_id: string;
+    operation: string;
+  }): Promise<{ recorded: boolean; new_daily_total_usd: number; new_monthly_total_usd: number; soft_alert_triggered: boolean; hard_block_reached: boolean }> {
+    const key = `usage:${input.provider}:${input.request_id}`;
+    const existing = await this.storage.get<{ dailyUsd: number; monthlyUsd: number }>(key);
+    if (existing) {
+      return {
+        recorded: false,
+        new_daily_total_usd: existing.dailyUsd,
+        new_monthly_total_usd: existing.monthlyUsd,
+        soft_alert_triggered: false,
+        hard_block_reached: false,
+      };
+    }
+
+    const costUsdCents = Math.ceil(input.cost_usd * 100);
+    const dailyKey = `daily:${input.provider}:${new Date().toISOString().slice(0, 10)}`;
+    const monthlyKey = `monthly:${input.provider}:${new Date().toISOString().slice(0, 7)}`;
+    const daily = (await this.storage.get<{ calls: number; cents: number }>(dailyKey)) ?? { calls: 0, cents: 0 };
+    const monthly = (await this.storage.get<{ calls: number; cents: number }>(monthlyKey)) ?? { calls: 0, cents: 0 };
+    daily.calls += 1;
+    daily.cents += costUsdCents;
+    monthly.calls += 1;
+    monthly.cents += costUsdCents;
+    await this.storage.put({ [dailyKey]: daily, [monthlyKey]: monthly, [key]: { dailyUsd: daily.cents / 100, monthlyUsd: monthly.cents / 100 } });
+
+    const limits = DEFAULT_LIMITS[input.provider];
+    const dailyPercent = Math.max((daily.cents / limits.dailyUsdCents) * 100, (daily.calls / limits.dailyCalls) * 100);
+    const monthlyPercent = Math.max((monthly.cents / limits.monthlyUsdCents) * 100, (monthly.calls / limits.monthlyCalls) * 100);
+    const maxPercent = Math.max(dailyPercent, monthlyPercent);
+    return {
+      recorded: true,
+      new_daily_total_usd: daily.cents / 100,
+      new_monthly_total_usd: monthly.cents / 100,
+      soft_alert_triggered: maxPercent >= 80,
+      hard_block_reached: maxPercent >= 100,
+    };
+  }
+
+  private async canUseProvider(provider: BudgetProvider): Promise<boolean> {
+    const limits = DEFAULT_LIMITS[provider];
+    const dailyKey = `daily:${provider}:${new Date().toISOString().slice(0, 10)}`;
+    const monthlyKey = `monthly:${provider}:${new Date().toISOString().slice(0, 7)}`;
+    const daily = (await this.storage.get<{ calls: number; cents: number }>(dailyKey)) ?? { calls: 0, cents: 0 };
+    const monthly = (await this.storage.get<{ calls: number; cents: number }>(monthlyKey)) ?? { calls: 0, cents: 0 };
+    return daily.calls < limits.dailyCalls
+      && monthly.calls < limits.monthlyCalls
+      && daily.cents < limits.dailyUsdCents
+      && monthly.cents < limits.monthlyUsdCents;
   }
 
   private status(): IncrementResult & { scope: string | null; op: string | null } {
