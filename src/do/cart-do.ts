@@ -27,10 +27,12 @@ export interface CartState {
 
 export class CartDO implements DurableObject {
   private state: DurableObjectState;
+  private env: { CART_ACTIVITY?: Queue };
   private cart: CartState | null = null;
 
-  constructor(state: DurableObjectState, _env: unknown) {
+  constructor(state: DurableObjectState, env: { CART_ACTIVITY?: Queue }) {
     this.state = state;
+    this.env = env;
   }
 
   private async ensureLoaded(): Promise<CartState> {
@@ -159,17 +161,25 @@ export class CartDO implements DurableObject {
 
   /** Publish cart activity for batched D1 writes [Master_Prompt v7.0 §6.3] */
   private async publishActivity(cart: CartState): Promise<void> {
-    // Queue publishing is handled by the caller via env binding
-    // This is a placeholder for the queue message structure
     const activity = {
       sessionId: this.state.id.toString(),
       itemCount: cart.items.length,
       totalQuantity: cart.items.reduce((sum, i) => sum + i.quantity, 0),
+      subtotalPaisa: 0, // Price loaded from D1 at checkout time
       lastCartUpdateAt: cart.lastUpdatedAt,
       cartVersion: cart.cartVersion,
+      customerContact: cart.customerContact,
     };
-    // Store activity for queue consumer to pick up
-    await this.state.storage.put('pendingActivity', activity);
+    if (this.env.CART_ACTIVITY) {
+      try {
+        await this.env.CART_ACTIVITY.send(activity);
+      } catch {
+        // Queue send failed — store for retry
+        await this.state.storage.put('pendingActivity', activity);
+      }
+    } else {
+      await this.state.storage.put('pendingActivity', activity);
+    }
   }
 
   /** Alarm-based cleanup [Master_Prompt v7.0 §6.8] */

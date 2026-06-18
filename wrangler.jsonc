@@ -53,13 +53,16 @@
       { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
       { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
       { "name": "WAF_RULES", "class_name": "WafRules" },
-      { "name": "CART_DO", "class_name": "CartDO" }
+      { "name": "CART_DO", "class_name": "CartDO" },
+      { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+      { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
     { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-    { "tag": "v3", "new_classes": ["CartDO"] }
+    { "tag": "v3", "new_classes": ["CartDO"] },
+    { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
   ],
   "queues": {
     "producers": [
@@ -67,14 +70,16 @@
       { "queue": "order-emails", "binding": "ORDER_EMAILS" },
       { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
       { "queue": "fraud-scoring", "binding": "FRAUD_SCORING" },
-      { "queue": "d1-backup", "binding": "D1_BACKUP" }
+      { "queue": "d1-backup", "binding": "D1_BACKUP" },
+      { "queue": "cart-activity", "binding": "CART_ACTIVITY" }
     ],
     "consumers": [
       { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
       { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
       { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
       { "queue": "fraud-scoring", "max_batch_size": 10, "max_retries": 2 },
-      { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 }
+      { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 },
+      { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
     ]
   },
   "analytics_engine_datasets": [
@@ -99,12 +104,17 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" }
+          { "name": "WAF_RULES", "class_name": "WafRules" },
+          { "name": "CART_DO", "class_name": "CartDO" },
+          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+        { "tag": "v3", "new_classes": ["CartDO"] },
+        { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
       ],
       "queues": {
         "producers": [
@@ -151,12 +161,17 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" }
+          { "name": "WAF_RULES", "class_name": "WafRules" },
+          { "name": "CART_DO", "class_name": "CartDO" },
+          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+        { "tag": "v3", "new_classes": ["CartDO"] },
+        { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
       ],
       "queues": {
         "producers": [
@@ -164,14 +179,16 @@
           { "queue": "order-emails-staging", "binding": "ORDER_EMAILS" },
           { "queue": "image-processing-staging", "binding": "IMAGE_PROCESSING" },
           { "queue": "fraud-scoring-staging", "binding": "FRAUD_SCORING" },
-          { "queue": "d1-backup-staging", "binding": "D1_BACKUP" }
+          { "queue": "d1-backup-staging", "binding": "D1_BACKUP" },
+          { "queue": "cart-activity-staging", "binding": "CART_ACTIVITY" }
         ],
         "consumers": [
           { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5 },
           { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
           { "queue": "fraud-scoring-staging", "max_batch_size": 10, "max_retries": 2 },
-          { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 }
+          { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 },
+          { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
       "analytics_engine_datasets": [
@@ -200,12 +217,17 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" }
+          { "name": "WAF_RULES", "class_name": "WafRules" },
+          { "name": "CART_DO", "class_name": "CartDO" },
+          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+        { "tag": "v3", "new_classes": ["CartDO"] },
+        { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
       ],
       "queues": {
         "producers": [
@@ -213,14 +235,16 @@
           { "queue": "order-emails-dev", "binding": "ORDER_EMAILS" },
           { "queue": "image-processing-dev", "binding": "IMAGE_PROCESSING" },
           { "queue": "fraud-scoring-dev", "binding": "FRAUD_SCORING" },
-          { "queue": "d1-backup-dev", "binding": "D1_BACKUP" }
+          { "queue": "d1-backup-dev", "binding": "D1_BACKUP" },
+          { "queue": "cart-activity-dev", "binding": "CART_ACTIVITY" }
         ],
         "consumers": [
           { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5 },
           { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3 },
           { "queue": "fraud-scoring-dev", "max_batch_size": 10, "max_retries": 2 },
-          { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2 }
+          { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2 },
+          { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
       "analytics_engine_datasets": [

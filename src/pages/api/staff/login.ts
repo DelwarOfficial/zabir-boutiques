@@ -8,6 +8,7 @@ import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
 import { verifyTurnstile } from '../../../lib/turnstile';
+import { verifyTotpCode } from '../../../lib/totp';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 import type { StaffUser } from '../../../lib/rbac';
@@ -77,7 +78,7 @@ export async function POST(context: APIContext): Promise<Response> {
         OR phone IN (${candidates.map((_, i) => `?${candidates.length + i + 1}`).join(',')}))
        AND is_active = 1
      LIMIT 1`
-  ).bind(...candidates, ...candidates).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number }>();
+  ).bind(...candidates, ...candidates).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number; totp_secret: string | null; totp_required: number }>();
 
   if (!staff) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
 
@@ -110,6 +111,29 @@ export async function POST(context: APIContext): Promise<Response> {
         ipAddress: clientIp(context.request),
         userAgent: userAgent(context.request),
       });
+    }
+  }
+
+
+  // TOTP 2FA enforcement for owner/super_admin [Master_Prompt v7.0 §18.1]
+  const totpRequired = staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin';
+  if (totpRequired && staff.totp_secret) {
+    const totpCode = typeof body.totp_code === 'string' ? body.totp_code.trim() : '';
+    if (!totpCode) {
+      return Response.json({ error: 'TOTP code required', totp_required: true }, { status: 401 });
+    }
+    const totpValid = await verifyTotpCode(staff.totp_secret, totpCode);
+    if (!totpValid) {
+      await writeAuditLog(env.DB, {
+        actorStaffId: staff.id,
+        actorRole: staff.role,
+        action: 'staff.login.totp_failed',
+        entityType: 'staff_session',
+        entityId: staff.id,
+        ipAddress: clientIp(context.request),
+        userAgent: userAgent(context.request),
+      });
+      return Response.json({ error: 'Invalid TOTP code' }, { status: 401 });
     }
   }
 

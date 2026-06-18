@@ -35,8 +35,8 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     // Budget gate: BudgetCounterDO [Master_Prompt v7.0 §24.2]
     // 50 generations/day, 1000 generations/month
-    const budgetResult = await chargeBudget(env.AI_BUDGET, 'ai:product-content:daily', 1);
-    if (!budgetResult.ok) {
+    const budgetResult = await chargeBudget(env, 'ai:product-content:daily', 1, 'product-content');
+    if (!budgetResult.allowed) {
       return Response.json({ ok: false, error: 'AI generation budget exhausted for today.' }, { status: 429 });
     }
 

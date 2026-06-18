@@ -23,6 +23,9 @@ export interface AvailabilityResult { ok: true; stock: number; reserved: number;
 interface DoEnv {
   VARIANT_INVENTORY_DO?: DurableObjectNamespace;
   IDEMPOTENCY_DO?: DurableObjectNamespace;
+  CART_DO?: DurableObjectNamespace;
+  DIRECT_CHECKOUT_DO?: DurableObjectNamespace;
+  PROVIDER_HEALTH_DO?: DurableObjectNamespace;
 }
 
 /** Call the VariantInventoryDO for a variant. */
@@ -206,5 +209,121 @@ async function d1OnlyReserve(
     .first<{ available: number }>();
   const available = Math.max(0, row?.available ?? 0);
   if (qty > available) return { ok: false, available, requested: qty };
-  return { ok: true, available: available - qty };
+  return { ok: true, reservationId: `d1-${variantId}-${Date.now()}`, available: available - qty };
+}
+
+// ─── CartDO helpers ─────────────────────────────────────────────────────
+
+export interface CartDOItem {
+  variantId: string;
+  quantity: number;
+  addedAt: string;
+  updatedAt: string;
+}
+
+export interface CartDOState {
+  items: CartDOItem[];
+  lastUpdatedAt: string;
+  cartVersion: number;
+  couponCode: string | null;
+  customerContact: string | null;
+}
+
+/** Get cart from CartDO. Returns null if DO not bound or cart empty. */
+export async function doGetCart(
+  env: DoEnv,
+  sessionId: string,
+): Promise<CartDOState | null> {
+  if (!env.CART_DO) return null;
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/get", {
+    method: "POST",
+    body: "{}",
+  });
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; cart?: CartDOState } | null;
+  return data?.ok ? data.cart ?? null : null;
+}
+
+// ─── DirectCheckoutSessionDO helpers ────────────────────────────────────
+
+export interface DirectCheckoutState {
+  sessionId: string;
+  productId: string;
+  variantId: string;
+  quantity: number;
+  selectedOptions: Record<string, string>;
+  createdAt: string;
+  expiresAt: string;
+  landingVersion: number;
+  sourcePage: string | null;
+  utmParams: Record<string, string> | null;
+  formDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
+}
+
+/** Create a direct checkout session. */
+export async function doCreateDirectSession(
+  env: DoEnv,
+  body: { productId: string; variantId: string; quantity: number; selectedOptions?: Record<string, string>; sourcePage?: string; utmParams?: Record<string, string> },
+): Promise<{ ok: boolean; session?: DirectCheckoutState; error?: string }> {
+  if (!env.DIRECT_CHECKOUT_DO) return { ok: false, error: 'DO_NOT_BOUND' };
+  const sessionId = crypto.randomUUID();
+  const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+  const stub = env.DIRECT_CHECKOUT_DO.get(id);
+  const res = await stub.fetch("https://do/create", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return (await res.json()) as { ok: boolean; session?: DirectCheckoutState; error?: string };
+}
+
+/** Get a direct checkout session. */
+export async function doGetDirectSession(
+  env: DoEnv,
+  sessionId: string,
+): Promise<DirectCheckoutState | null> {
+  if (!env.DIRECT_CHECKOUT_DO) return null;
+  const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+  const stub = env.DIRECT_CHECKOUT_DO.get(id);
+  const res = await stub.fetch("https://do/get", {
+    method: "POST",
+    body: "{}",
+  });
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; session?: DirectCheckoutState } | null;
+  return data?.ok ? data.session ?? null : null;
+}
+
+// ─── ProviderHealthDO helpers ───────────────────────────────────────────
+
+export type CircuitState = 'closed' | 'open' | 'half-open';
+
+/** Check if a provider's circuit breaker allows a request. */
+export async function doCheckProviderHealth(
+  env: DoEnv,
+  provider: string,
+): Promise<{ canProceed: boolean; state: CircuitState }> {
+  if (!env.PROVIDER_HEALTH_DO) return { canProceed: true, state: 'closed' };
+  const id = env.PROVIDER_HEALTH_DO.idFromName(provider);
+  const stub = env.PROVIDER_HEALTH_DO.get(id);
+  const res = await stub.fetch("https://do/status", {
+    method: "POST",
+    body: JSON.stringify({ provider }),
+  });
+  const data = (await res.json().catch(() => null)) as { canProceed?: boolean; state?: CircuitState } | null;
+  return { canProceed: data?.canProceed ?? true, state: data?.state ?? 'closed' };
+}
+
+/** Record a provider call success or failure. */
+export async function doRecordProviderResult(
+  env: DoEnv,
+  provider: string,
+  success: boolean,
+): Promise<void> {
+  if (!env.PROVIDER_HEALTH_DO) return;
+  const id = env.PROVIDER_HEALTH_DO.idFromName(provider);
+  const stub = env.PROVIDER_HEALTH_DO.get(id);
+  await stub.fetch("https://do/record", {
+    method: "POST",
+    body: JSON.stringify({ provider, success }),
+  });
 }

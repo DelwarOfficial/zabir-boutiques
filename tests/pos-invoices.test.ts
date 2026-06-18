@@ -19,7 +19,7 @@ type SqlRow = Record<string, unknown>;
 
 function makeD1(opts: {
   variants?: Array<{ variant_id: string; price_paisa: number; stock: number; product_name?: string; sku?: string; is_deleted?: number; product_status?: string; is_available?: number }>;
-  existingInvoices?: Array<{ id?: string; receipt_no: string; idempotency_key?: string; status?: string }>;
+  existingInvoices?: Array<{ id?: string; receipt_no: string; idempotency_key?: string; status?: string; created_at?: string }>;
   inventoryItems?: Map<string, { quantity: number }>;
   invoiceItems?: Map<string, { product_name: string; variant_label: string; sku: string; quantity: number; unit_price_paisa: number; total_price_paisa: number }>;
 } = {}): D1Database & {
@@ -40,7 +40,7 @@ function makeD1(opts: {
   if (opts.existingInvoices) {
     for (const i of opts.existingInvoices) {
       const id = i.id ?? crypto.randomUUID();
-      invoices.set(id, { id, receipt_no: i.receipt_no, idempotency_key: i.idempotency_key, status: i.status ?? 'paid' });
+      invoices.set(id, { id, receipt_no: i.receipt_no, idempotency_key: i.idempotency_key, status: i.status ?? 'paid', created_at: i.created_at ?? '2026-06-16 10:00:00' });
     }
   }
   const invoiceItems = opts.invoiceItems ?? new Map();
@@ -141,9 +141,9 @@ function makeD1(opts: {
               change_due_paisa: inv.change_due_paisa ?? 0,
             } : null) as T;
           }
-          if (/SELECT id, status FROM invoices WHERE id/.test(sql)) {
+          if (/SELECT id, status.*?FROM invoices WHERE id/.test(sql)) {
             const inv = invoices.get(bound[0]);
-            return (inv ? { id: inv.id, status: inv.status } : null) as T;
+            return (inv ? { id: inv.id, status: inv.status, created_at: inv.created_at } : null) as T;
           }
           if (/SELECT variant_id, quantity FROM invoice_items WHERE invoice_id/.test(sql)) {
             return null as T;
@@ -213,6 +213,13 @@ function makeD1(opts: {
             if (!item) return { meta: { changes: 0 } };
             if (item.quantity < bound[0]) return { meta: { changes: 0 } };
             item.quantity -= bound[0];
+            return { meta: { changes: 1 } };
+          }
+          if (/^UPDATE inventory_items\s+SET quantity = quantity \+/.test(sql)) {
+            const vid = bound[2];
+            const item = inventoryItems.get(vid);
+            if (!item) return { meta: { changes: 0 } };
+            item.quantity += bound[0];
             return { meta: { changes: 1 } };
           }
           if (/^INSERT INTO invoice_audit/.test(sql)) {

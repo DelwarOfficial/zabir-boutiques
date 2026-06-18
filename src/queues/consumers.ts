@@ -263,3 +263,55 @@ export async function handleD1BackupBatch(
     }
   }
 }
+
+// ─── cart-activity ───────────────────────────────────────────────────────
+
+export type CartActivityMessage = {
+  sessionId: string;
+  itemCount: number;
+  totalQuantity: number;
+  subtotalPaisa: number;
+  lastCartUpdateAt: string;
+  cartVersion: number;
+  customerContact?: string | null;
+};
+
+export async function enqueueCartActivity(env: { CART_ACTIVITY?: Queue }, activity: CartActivityMessage): Promise<void> {
+  if (!env.CART_ACTIVITY) return;
+  await env.CART_ACTIVITY.send(activity);
+}
+
+export async function handleCartActivityBatch(
+  batch: MessageBatch<CartActivityMessage>,
+  env: { DB: D1Database },
+): Promise<void> {
+  for (const msg of batch.messages) {
+    try {
+      const { sessionId, itemCount, totalQuantity, subtotalPaisa, lastCartUpdateAt, customerContact } = msg.body;
+      const now = nowSql();
+
+      await env.DB.prepare(
+        `INSERT INTO cart_activity (session_id, item_count, total_quantity, subtotal_paisa, last_cart_update_at, updated_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+         ON CONFLICT (session_id) DO UPDATE SET
+           item_count = excluded.item_count,
+           total_quantity = excluded.total_quantity,
+           subtotal_paisa = excluded.subtotal_paisa,
+           last_cart_update_at = excluded.last_cart_update_at,
+           updated_at = excluded.updated_at`
+      ).bind(sessionId, itemCount, totalQuantity, subtotalPaisa, lastCartUpdateAt, now).run();
+
+      // Update customer contact if provided (from checkout start)
+      if (customerContact) {
+        await env.DB.prepare(
+          `UPDATE cart_activity SET customer_phone = ?2 WHERE session_id = ?1 AND customer_phone IS NULL`
+        ).bind(sessionId, customerContact).run();
+      }
+
+      msg.ack();
+    } catch (err) {
+      safeLog.error("[cart-activity-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
+      msg.retry({ delaySeconds: 10 });
+    }
+  }
+}

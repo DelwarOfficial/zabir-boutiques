@@ -2,19 +2,20 @@ import { describe, it, expect, vi } from 'vitest';
 import { decideFraudRisk, deriveRiskScore, checkFraudBD } from '../src/lib/fraud';
 
 describe('decideFraudRisk', () => {
-  it('returns approved for score 0-30', () => {
+  it('returns approved for score 0-40', () => {
     expect(decideFraudRisk(0)).toBe('approved');
     expect(decideFraudRisk(15)).toBe('approved');
-    expect(decideFraudRisk(30)).toBe('approved');
+    expect(decideFraudRisk(40)).toBe('approved');
   });
 
-  it('returns review for score 31-79', () => {
-    expect(decideFraudRisk(31)).toBe('review');
+  it('returns review for score 41-70', () => {
+    expect(decideFraudRisk(41)).toBe('review');
     expect(decideFraudRisk(50)).toBe('review');
-    expect(decideFraudRisk(79)).toBe('review');
+    expect(decideFraudRisk(70)).toBe('review');
   });
 
-  it('returns blocked for score 80-100', () => {
+  it('returns blocked for score 71-100', () => {
+    expect(decideFraudRisk(71)).toBe('blocked');
     expect(decideFraudRisk(80)).toBe('blocked');
     expect(decideFraudRisk(100)).toBe('blocked');
   });

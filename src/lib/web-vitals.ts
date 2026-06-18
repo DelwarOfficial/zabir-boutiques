@@ -2,11 +2,12 @@
  * Web Vitals Monitoring [Master_Prompt v7.0 §21]
  *
  * Real User Monitoring (RUM) for Core Web Vitals.
- * This module should be loaded on public pages to collect
- * LCP, INP, CLS, and TTFB metrics.
+ * Uses the web-vitals library to collect LCP, INP, CLS, and TTFB metrics.
  *
  * Usage: Import and call initWebVitals() in the layout.
  */
+
+import { onLCP, onINP, onCLS, onTTFB, type Metric } from 'web-vitals';
 
 export interface WebVitalMetric {
   name: string;
@@ -20,36 +21,30 @@ export type WebVitalsCallback = (metric: WebVitalMetric) => void;
 
 /**
  * Initialize web vitals monitoring.
- * This is a placeholder implementation. In production, use the
- * web-vitals library: npm install web-vitals
+ * Sends metrics to /api/analytics/vitals via sendBeacon.
  */
 export function initWebVitals(callback?: WebVitalsCallback): void {
   if (typeof window === 'undefined') return;
 
-  // Placeholder: In production, use web-vitals library
-  // import { onLCP, onINP, onCLS, onTTFB } from 'web-vitals';
-  //
-  // onLCP((metric) => {
-  //   const result = {
-  //     name: 'LCP',
-  //     value: metric.value,
-  //     rating: metric.rating,
-  //     id: metric.id,
-  //     navigationType: metric.navigationType,
-  //   };
-  //   callback?.(result);
-  //   sendToAnalytics(result);
-  // });
-  //
-  // onINP((metric) => { ... });
-  // onCLS((metric) => { ... });
-  // onTTFB((metric) => { ... });
+  function handleMetric(metric: Metric) {
+    const result: WebVitalMetric = {
+      name: metric.name,
+      value: metric.value,
+      rating: metric.rating as 'good' | 'needs-improvement' | 'poor',
+      id: metric.id,
+      navigationType: metric.navigationType,
+    };
+    callback?.(result);
+    sendToAnalytics(result);
+  }
 
-  console.log('[web-vitals] Monitoring initialized (placeholder)');
+  onLCP(handleMetric);
+  onINP(handleMetric);
+  onCLS(handleMetric);
+  onTTFB(handleMetric);
 }
 
 function sendToAnalytics(metric: WebVitalMetric): void {
-  // Send to Cloudflare Analytics Engine or other analytics endpoint
   if (navigator.sendBeacon) {
     const body = JSON.stringify({
       type: 'web-vital',

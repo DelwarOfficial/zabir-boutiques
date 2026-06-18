@@ -60,5 +60,10 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
     </div>
     <!-- Bottom nav: idle-hydrated (not blocking LCP) -->
     <BottomNav client:idle />
+    <!-- Web Vitals RUM [Master_Prompt v7.0 §21] -->
+    <script>
+      import { initWebVitals } from '../lib/web-vitals';
+      initWebVitals();
+    </script>
   </body>
 </html>

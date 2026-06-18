@@ -76,6 +76,23 @@ export async function POST(context: APIContext): Promise<Response> {
     now,
   });
 
+  // Master Plan §6.1 step 4: Load cart from CartDO when session_id is provided.
+  // Falls back to client body cart for backward compatibility during migration.
+  const sessionId = typeof body.session_id === 'string' ? body.session_id : null;
+  if (sessionId && env.CART_DO) {
+    const cartId = env.CART_DO.idFromName(sessionId);
+    const cartStub = env.CART_DO.get(cartId);
+    const cartRes = await cartStub.fetch('https://do/get', { method: 'POST', body: '{}' });
+    const cartData = (await cartRes.json().catch(() => null)) as { ok?: boolean; cart?: { items?: Array<{ variantId: string; quantity: number }> } } | null;
+    if (cartData?.ok && cartData.cart?.items && cartData.cart.items.length > 0) {
+      // Override body.cart with CartDO data — CartDO is the source of truth
+      body.cart = cartData.cart.items.map((item) => ({
+        variant_id: item.variantId,
+        quantity: item.quantity,
+      }));
+    }
+  }
+
   if (env.TURNSTILE_SECRET_KEY) {
     const token = typeof body.turnstile === 'string' ? body.turnstile : context.request.headers.get('CF-Turnstile-Token');
     if (token) {
@@ -237,7 +254,7 @@ export async function POST(context: APIContext): Promise<Response> {
       balancePaisa = split.balancePaisa;
     }
 
-    const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
+    const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY, 1500, 'https://fraudbd.com', env);
     const fraudDecision = decideFraudRisk(score);
 
     if (fraudDecision === 'blocked') {

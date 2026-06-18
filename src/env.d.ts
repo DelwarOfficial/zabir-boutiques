@@ -46,12 +46,16 @@ export type Env = {
   IDEMPOTENCY_DO: DurableObjectNamespace;
   AI_BUDGET: DurableObjectNamespace;
   WAF_RULES: DurableObjectNamespace;
+  CART_DO: DurableObjectNamespace;
+  DIRECT_CHECKOUT_DO: DurableObjectNamespace;
+  PROVIDER_HEALTH_DO: DurableObjectNamespace;
   // Master Plan §3.5 — Queues (required in deployed Workers)
   PAYMENT_WEBHOOKS: Queue;
   ORDER_EMAILS: Queue;
   IMAGE_PROCESSING: Queue;
   FRAUD_SCORING: Queue;
   D1_BACKUP: Queue;
+  CART_ACTIVITY: Queue;
   // Master Plan §17.2 — Analytics Engine
   ANALYTICS: AnalyticsEngineDataset;
   // Master_Prompt v7.0 §2.6 Turnstile

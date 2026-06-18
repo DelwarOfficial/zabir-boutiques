@@ -1,0 +1,123 @@
+---
+/**
+ * /buy-now/[slug] — Buy Now Landing Page [Master Plan §10.4]
+ *
+ * Dynamic route: loads live product, selected variant, delivery charge,
+ * and server-generated order summary. Does NOT modify the normal cart.
+ */
+export const prerender = false;
+
+import RootLayout from "@/layouts/RootLayout.astro";
+import { BuyNowLandingForm } from "@/islands/BuyNowLandingForm";
+import { formatPaisa } from "@/lib/money";
+
+const { slug } = Astro.params;
+const sid = Astro.url.searchParams.get("sid");
+
+if (!sid) {
+  return Astro.redirect(`/products/${slug ?? ""}`);
+}
+
+// Load session from DirectCheckoutSessionDO
+const env = (Astro.locals as any).runtime?.env;
+if (!env?.DIRECT_CHECKOUT_DO) {
+  return Astro.redirect(`/products/${slug ?? ""}`);
+}
+
+const doId = env.DIRECT_CHECKOUT_DO.idFromName(sid);
+const stub = env.DIRECT_CHECKOUT_DO.get(doId);
+const sessionRes = await stub.fetch("https://do/get", { method: "POST", body: "{}" });
+const sessionData = (await sessionRes.json().catch(() => null)) as {
+  ok?: boolean;
+  session?: {
+    sessionId: string;
+    productId: string;
+    variantId: string;
+    quantity: number;
+    selectedOptions: Record<string, string>;
+    expiresAt: string;
+    formDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
+  };
+  error?: string;
+} | null;
+
+if (!sessionData?.ok || !sessionData.session) {
+  return Astro.redirect(`/products/${slug ?? ""}`);
+}
+
+const session = sessionData.session;
+
+// Load product and variant from D1
+const product = await env.DB.prepare(
+  `SELECT p.id, p.slug, p.name, p.description, p.status
+   FROM products p
+   WHERE p.slug = ?1 AND p.status = 'published'`
+).bind(slug).first<{ id: string; slug: string; name: string; description: string | null; status: string }>();
+
+if (!product || product.id !== session.productId) {
+  return Astro.redirect(`/products/${slug ?? ""}`);
+}
+
+const variant = await env.DB.prepare(
+  `SELECT v.id, v.size, v.color, v.sku, COALESCE(v.price_paisa, p.price_paisa) AS price_paisa
+   FROM product_variants v
+   JOIN products p ON p.id = v.product_id
+   WHERE v.id = ?1 AND v.product_id = ?2 AND v.is_deleted = 0`
+).bind(session.variantId, product.id).first<{
+  id: string; size: string | null; color: string | null; sku: string; price_paisa: number;
+}>();
+
+if (!variant) {
+  return Astro.redirect(`/products/${slug ?? ""}`);
+}
+
+// Load product image
+const image = await env.DB.prepare(
+  `SELECT url, alt_text FROM product_images WHERE product_id = ?1 ORDER BY sort_order ASC LIMIT 1`
+).bind(product.id).first<{ url: string; alt_text: string | null }>();
+
+const imageUrl = image?.url ?? "/assets/product-zb-stitch.svg";
+const imageAlt = image?.alt_text ?? product.name;
+
+// Delivery pricing
+const INSIDE_DHAKA = 7000;
+const OUTSIDE_DHAKA = 13000;
+
+const variantLabel = [variant.size, variant.color].filter(Boolean).join(" / ") || "Standard";
+const subtotalPaisa = variant.price_paisa * session.quantity;
+---
+
+<RootLayout title={`Buy Now — ${product.name} | Zabir Boutiques`} description={`Quick order for ${product.name}`}>
+  <section class="max-w-2xl mx-auto fade-up">
+    <header class="text-center mb-6">
+      <p class="text-[11px] font-extrabold uppercase tracking-[0.22em] text-[var(--brand)]">Direct Order</p>
+      <h1 class="mt-1 text-2xl sm:text-3xl font-extrabold tracking-tight">{product.name}</h1>
+      <p class="mt-1 text-sm text-[var(--muted)]">{variantLabel} · Qty: {session.quantity}</p>
+    </header>
+
+    <div class="grid gap-5 md:grid-cols-[200px_1fr] mb-6">
+      <div class="aspect-square overflow-hidden rounded-2xl bg-[var(--surface-soft)]">
+        <img src={imageUrl} alt={imageAlt} width="200" height="200" loading="eager" class="h-full w-full object-cover" />
+      </div>
+      <div class="space-y-2">
+        <p class="text-3xl font-extrabold tabular">{formatPaisa(variant.price_paisa)}</p>
+        <p class="text-sm text-[var(--muted)]">× {session.quantity} = <strong class="text-[var(--ink)]">{formatPaisa(subtotalPaisa)}</strong></p>
+        {variant.size && <p class="text-sm">Size: <strong>{variant.size}</strong></p>}
+        {variant.color && <p class="text-sm">Color: <strong>{variant.color}</strong></p>}
+        <p class="text-xs text-[var(--muted)]">Delivery: Inside Dhaka {formatPaisa(INSIDE_DHAKA)} · Outside Dhaka {formatPaisa(OUTSIDE_DHAKA)}</p>
+      </div>
+    </div>
+
+    <BuyNowLandingForm
+      client:load
+      sessionId={sid}
+      productName={product.name}
+      variantLabel={variantLabel}
+      unitPricePaisa={variant.price_paisa}
+      quantity={session.quantity}
+      insideDhakaPaisa={INSIDE_DHAKA}
+      outsideDhakaPaisa={OUTSIDE_DHAKA}
+      initialDraft={session.formDraft}
+    />
+  </section>
+</RootLayout>

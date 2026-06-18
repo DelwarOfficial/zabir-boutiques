@@ -10,6 +10,7 @@
  * Timeout/error: review — Allow with pending_review flag; do not block automatically.
  */
 import { nowSql } from './dates';
+import { doCheckProviderHealth, doRecordProviderResult } from './do-client';
 
 export type FraudDecision = 'approved' | 'review' | 'blocked';
 
@@ -62,20 +63,26 @@ export function deriveRiskScore(data: any): number | null {
 
 /**
  * Call the FraudBD Check Courier Info API with a short timeout.
- * Contract (https://fraudbd.com/api-documentation):
- *   POST {base}/api/check-courier-info
- *   headers: { api_key, Content-Type: application/json }
- *   body:    { phone_number: "017XXXXXXXX" }   // local 11-digit format
- * On timeout/error/usage-limit, returns a null score (which routes to 'review').
+ * Uses ProviderHealthDO circuit breaker to short-circuit when provider is down.
  *
  * @param localPhone Bangladesh phone in local 01XXXXXXXXX format.
+ * @param env Optional env for ProviderHealthDO circuit breaker access.
  */
 export async function checkFraudBD(
   localPhone: string,
   apiKey: string,
   timeoutMs = 1500,
-  baseUrl = 'https://fraudbd.com'
+  baseUrl = 'https://fraudbd.com',
+  env?: { PROVIDER_HEALTH_DO?: DurableObjectNamespace },
 ): Promise<{ score: number | null; rawResponse: string }> {
+  // Circuit breaker check [Master_Prompt v7.0 §6.6]
+  if (env?.PROVIDER_HEALTH_DO) {
+    const health = await doCheckProviderHealth(env, 'fraudbd');
+    if (!health.canProceed) {
+      return { score: null, rawResponse: '{"error":"circuit_open"}' };
+    }
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -94,10 +101,18 @@ export async function checkFraudBD(
 
     const data = await res.json().catch(() => null) as any;
     const rawResponse = JSON.stringify(data ?? { error: 'invalid_json' });
-    if (!res.ok) return { score: null, rawResponse };
+    if (!res.ok) {
+      // Record failure
+      if (env?.PROVIDER_HEALTH_DO) await doRecordProviderResult(env, 'fraudbd', false);
+      return { score: null, rawResponse };
+    }
+    // Record success
+    if (env?.PROVIDER_HEALTH_DO) await doRecordProviderResult(env, 'fraudbd', true);
     return { score: deriveRiskScore(data), rawResponse };
   } catch {
     clearTimeout(timer);
+    // Record failure (timeout/network)
+    if (env?.PROVIDER_HEALTH_DO) await doRecordProviderResult(env, 'fraudbd', false);
     return { score: null, rawResponse: '{"error":"timeout_or_network_error"}' };
   }
 }

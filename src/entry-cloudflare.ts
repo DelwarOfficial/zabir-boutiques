@@ -14,21 +14,26 @@ import {
   handleImageProcessingBatch,
   handleFraudScoringBatch,
   handleD1BackupBatch,
+  handleCartActivityBatch,
   type PaymentWebhookMessage,
   type OrderEmailMessage,
   type ImageProcessingMessage,
   type FraudScoringMessage,
   type D1BackupMessage,
+  type CartActivityMessage,
 } from "./queues/consumers";
 import { VariantInventoryDO } from "./do/variant-inventory-do";
 import { IdempotencyDO } from "./do/idempotency-do";
 import { BudgetCounterDO } from "./do/budget-counter-do";
 import { WafRules } from "./do/waf-rules";
+import { CartDO } from "./do/cart-do";
+import { DirectCheckoutSessionDO } from "./do/direct-checkout-session-do";
+import { ProviderHealthDO } from "./do/provider-health-do";
 import { safeLog } from "./lib/pii-scrubber";
 import type { Env } from "./env";
 
 // Required by Cloudflare: DO classes must be top-level exports.
-export { VariantInventoryDO, IdempotencyDO, BudgetCounterDO, WafRules };
+export { VariantInventoryDO, IdempotencyDO, BudgetCounterDO, WafRules, CartDO, DirectCheckoutSessionDO, ProviderHealthDO };
 
 async function routeQueue(batch: MessageBatch, env: Env): Promise<void> {
   switch (batch.queue) {
@@ -46,6 +51,9 @@ async function routeQueue(batch: MessageBatch, env: Env): Promise<void> {
       break;
     case "d1-backup":
       await handleD1BackupBatch(batch as MessageBatch<D1BackupMessage>, env);
+      break;
+    case "cart-activity":
+      await handleCartActivityBatch(batch as MessageBatch<CartActivityMessage>, env);
       break;
     default:
       safeLog.warn("[queue] Unknown queue", { queue: batch.queue });
