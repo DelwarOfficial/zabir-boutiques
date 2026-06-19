@@ -8,7 +8,7 @@
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
   [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
-  [![Vitest](https://img.shields.io/badge/Tests-211%20passing-6E9F18?logo=vitest)](https://vitest.dev)
+  [![Vitest](https://img.shields.io/badge/Tests-391%20passing-6E9F18?logo=vitest)](https://vitest.dev)
   [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
 </div>
 

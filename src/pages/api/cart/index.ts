@@ -12,8 +12,14 @@ function readCartSessionId(request: Request): string | null {
   return match ? decodeURIComponent(match[1]) : null;
 }
 
-function setCartSessionCookie(response: Response, sid: string): Response {
-  const setCookie = `${SID_COOKIE}=${encodeURIComponent(sid)}; Path=/; Max-Age=${SID_MAX_AGE}; SameSite=Lax`;
+function isLocalDev(request: Request): boolean {
+  const host = request.headers.get('host') ?? '';
+  return host.includes('localhost') || host.includes('127.0.0.1') || host.includes('0.0.0.0');
+}
+
+function setCartSessionCookie(response: Response, sid: string, request: Request): Response {
+  const secure = isLocalDev(request) ? '' : ' Secure;';
+  const setCookie = `${SID_COOKIE}=${encodeURIComponent(sid)}; HttpOnly;${secure} Path=/; Max-Age=${SID_MAX_AGE}; SameSite=Lax`;
   const existing = response.headers.get('Set-Cookie');
   response.headers.set('Set-Cookie', existing ? `${existing}, ${setCookie}` : setCookie);
   return response;
@@ -179,7 +185,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   let response = Response.json({ ok: true, items, sessionId });
   if (sessionId) {
-    response = setCartSessionCookie(response, sessionId);
+    response = setCartSessionCookie(response, sessionId, context.request);
   }
   return response;
 }

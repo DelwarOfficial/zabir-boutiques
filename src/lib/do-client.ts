@@ -17,7 +17,7 @@ export interface ReserveOk { ok: true; reservationId: string; available: number;
 export interface ReserveFail { ok: false; available: number; requested: number; }
 export type ReserveResult = ReserveOk | ReserveFail;
 
-export interface DirectSaleResult { ok: boolean; stock?: number; reserved?: number; sold?: number; available?: number; error?: string; }
+export interface DirectSaleResult { ok: boolean; inventory_mutation_id?: string; stock?: number; reserved?: number; sold?: number; available?: number; error?: string; }
 export interface ReverseDirectSaleResult { ok: boolean; reversed?: boolean; auditEventId?: string; message?: string; error?: string; }
 export interface AvailabilityResult { ok: true; stock: number; reserved: number; sold: number; available: number; }
 

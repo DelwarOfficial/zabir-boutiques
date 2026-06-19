@@ -81,22 +81,23 @@ export async function POST(context: APIContext): Promise<Response> {
     now,
   });
 
-  // Master Plan §6.1 step 4: Load cart from CartDO when session_id is provided.
-  // Falls back to client body cart for backward compatibility during migration.
+  // Master Plan §6.1 step 4: Load cart from CartDO (source of truth).
+  // Guest checkout must have a CartDO session; Buy Now uses DirectCheckoutSessionDO instead.
   const sessionId = typeof body.session_id === 'string' ? body.session_id : null;
-  if (sessionId && env.CART_DO) {
-    const cartId = env.CART_DO.idFromName(sessionId);
-    const cartStub = env.CART_DO.get(cartId);
-    const cartRes = await cartStub.fetch('https://do/get', { method: 'POST', body: '{}' });
-    const cartData = (await cartRes.json().catch(() => null)) as { ok?: boolean; cart?: { items?: Array<{ variantId: string; quantity: number }> } } | null;
-    if (cartData?.ok && cartData.cart?.items && cartData.cart.items.length > 0) {
-      // Override body.cart with CartDO data — CartDO is the source of truth
-      body.cart = cartData.cart.items.map((item) => ({
-        variant_id: item.variantId,
-        quantity: item.quantity,
-      }));
-    }
+  if (!sessionId || !env.CART_DO) {
+    return Response.json({ ok: false, code: 'MISSING_CART_SESSION', message: 'Cart session is required. Please add items to your cart and try again.' }, { status: 400 });
   }
+  const cartId = env.CART_DO.idFromName(sessionId);
+  const cartStub = env.CART_DO.get(cartId);
+  const cartRes = await cartStub.fetch('https://do/get', { method: 'POST', body: '{}' });
+  const cartData = (await cartRes.json().catch(() => null)) as { ok?: boolean; cart?: { items?: Array<{ variantId: string; quantity: number }> } } | null;
+  if (!cartData?.ok || !cartData.cart?.items || cartData.cart.items.length === 0) {
+    return Response.json({ ok: false, code: 'EMPTY_CART', message: 'Your cart is empty.' }, { status: 400 });
+  }
+  body.cart = cartData.cart.items.map((item) => ({
+    variant_id: item.variantId,
+    quantity: item.quantity,
+  }));
 
   if (env.TURNSTILE_SECRET_KEY) {
     const token = typeof body.turnstile === 'string' ? body.turnstile : context.request.headers.get('CF-Turnstile-Token');

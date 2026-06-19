@@ -19,6 +19,7 @@ import { trackMetric } from "../lib/analytics";
 import { safeLog } from "../lib/pii-scrubber";
 import { sendAbandonedCartEmail, sendTransactionalEmail } from "../lib/email";
 import { claimReservationsForRelease, confirmReservedVariants, releaseReservedVariants } from '../lib/inventory';
+import { compressImage, downloadCompressed, generateThumbnail, thumbnailR2Key } from '../lib/tinify';
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
@@ -259,16 +260,40 @@ export async function enqueueImageProcessing(env: { IMAGE_PROCESSING?: Queue }, 
 
 export async function handleImageProcessingBatch(
   batch: MessageBatch<ImageProcessingMessage>,
-  _env: { DB: D1Database; MEDIA?: R2Bucket; TINIFY_API_KEY: string },
+  env: { DB: D1Database; MEDIA?: R2Bucket; TINIFY_API_KEY: string },
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {
-      // Tinify compression is implemented in src/lib/tinify.ts and runs
-      // synchronously today; the consumer is the future-async path. We
-      // ack on success and let the cron retry tinify on failure.
+      const { r2Key, productId } = msg.body;
+      const obj = await env.MEDIA?.get(r2Key);
+      if (!obj) {
+        safeLog.warn("[image-processing] R2 key not found, acking", { r2Key, productId });
+        msg.ack();
+        continue;
+      }
+
+      const original = await obj.arrayBuffer();
+      const result = await compressImage(original, env.TINIFY_API_KEY, { DB: env.DB });
+
+      if (result.ok) {
+        const downloaded = await downloadCompressed(result.locationUrl, env.TINIFY_API_KEY, { DB: env.DB });
+        if (downloaded.ok) {
+          await env.MEDIA!.put(r2Key, downloaded.compressed, { httpMetadata: { contentType: result.contentType } });
+
+          const thumbResult = await generateThumbnail(result.locationUrl, env.TINIFY_API_KEY, { DB: env.DB });
+          if (thumbResult.ok) {
+            await env.MEDIA!.put(thumbnailR2Key(r2Key), thumbResult.data, { httpMetadata: { contentType: 'image/webp' } });
+          }
+
+          const now = nowSql();
+          await env.DB.prepare(
+            `UPDATE product_images SET is_compressed = 1, updated_at = ?2 WHERE r2_key = ?1`
+          ).bind(r2Key, now).run();
+        }
+      }
       msg.ack();
     } catch (err) {
-      safeLog.error("[image-processing-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
+      safeLog.error("[image-processing-consumer] failed", { error: err instanceof Error ? err.message : String(err), r2Key: msg.body.r2Key });
       msg.retry({ delaySeconds: 30 });
     }
   }

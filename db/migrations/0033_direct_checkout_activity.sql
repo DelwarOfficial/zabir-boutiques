@@ -14,17 +14,17 @@ CREATE TABLE IF NOT EXISTS direct_checkout_activity (
   landing_version INTEGER NOT NULL DEFAULT 0,
   last_activity_at TEXT NOT NULL,
   converted_order_id TEXT,
-  abandoned_1h_sent_at TEXT,
-  abandoned_24h_sent_at TEXT,
+  abandoned_email_sent_at TEXT,
   consent_status TEXT CHECK(consent_status IN ('unknown', 'allowed', 'denied')) DEFAULT 'unknown',
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_direct_checkout_activity_abandoned
-  ON direct_checkout_activity(last_activity_at, abandoned_1h_sent_at, abandoned_24h_sent_at)
-  WHERE converted_order_id IS NULL;
+  ON direct_checkout_activity(last_activity_at)
+  WHERE converted_order_id IS NULL
+    AND abandoned_email_sent_at IS NULL;
 
-CREATE INDEX IF NOT EXISTS idx_direct_checkout_activity_consent
-  ON direct_checkout_activity(consent_status, last_activity_at)
-  WHERE consent_status = 'allowed';
+CREATE INDEX IF NOT EXISTS idx_direct_checkout_activity_email
+  ON direct_checkout_activity(customer_email)
+  WHERE customer_email IS NOT NULL;

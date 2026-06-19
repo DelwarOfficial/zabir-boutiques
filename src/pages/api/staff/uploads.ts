@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { compressImage, downloadCompressed, generateThumbnail, thumbnailR2Key } from '../../../lib/tinify';
+import { enqueueImageProcessing } from '../../../queues/consumers';
 import { nowSql } from '../../../lib/dates';
 import { requireAuth, requirePermission, RbacError } from '../../../lib/rbac';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../lib/audit';
@@ -111,6 +112,10 @@ export async function POST(context: APIContext): Promise<Response> {
     uploadedByApiKeyId: null,
     createdAt: now
   });
+
+  if (!isCompressed) {
+    enqueueImageProcessing(env, r2Key, productId).catch(() => {});
+  }
 
   await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,

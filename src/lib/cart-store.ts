@@ -12,12 +12,14 @@ export type LocalCartItem = {
 };
 
 export const CART_STORAGE_KEY = "zb_cart_v68a";
+export const CART_VERSION_KEY = "zb_cart_version";
 export const CART_UPDATED_EVENT = "zb-cart-updated";
 export const EMPTY_CART: LocalCartItem[] = [];
 
 let cachedCart: LocalCartItem[] | null = null;
 let syncInProgress = false;
 let pendingSyncCount = 0;
+let cachedVersion = -1;
 
 function loadCart(): LocalCartItem[] {
   if (typeof window === "undefined") return EMPTY_CART;
@@ -30,6 +32,26 @@ function loadCart(): LocalCartItem[] {
     return validItems.length > 0 ? validItems : EMPTY_CART;
   } catch {
     return EMPTY_CART;
+  }
+}
+
+function readVersion(): number {
+  if (cachedVersion >= 0) return cachedVersion;
+  if (typeof window === "undefined") return -1;
+  try {
+    cachedVersion = Number(window.localStorage.getItem(CART_VERSION_KEY)) || -1;
+  } catch {
+    cachedVersion = -1;
+  }
+  return cachedVersion;
+}
+
+function writeVersion(version: number) {
+  cachedVersion = version;
+  if (typeof window !== "undefined") {
+    try {
+      window.localStorage.setItem(CART_VERSION_KEY, String(version));
+    } catch { /* no-op */ }
   }
 }
 
@@ -76,9 +98,12 @@ export async function fetchCartFromServer(): Promise<void> {
   try {
     const resp = await fetch("/api/cart", { credentials: "include" });
     if (!resp.ok) return;
-    const data: { ok?: boolean; items?: LocalCartItem[] } = await resp.json();
+    const data = await resp.json() as { ok?: boolean; items?: LocalCartItem[]; currentVersion?: number };
     if (data.ok && Array.isArray(data.items) && data.items.length > 0) {
       writeCart(data.items as LocalCartItem[]);
+      if (typeof data.currentVersion === "number") {
+        writeVersion(data.currentVersion);
+      }
     }
   } catch {
     // network error — keep localStorage cache
@@ -89,14 +114,21 @@ export async function fetchCartFromServer(): Promise<void> {
 
 export async function syncCartToServer(action: string, body: Record<string, unknown> = {}): Promise<void> {
   if (typeof window === "undefined") return;
+  const clientVersion = readVersion();
   pendingSyncCount++;
   try {
-    await fetch("/api/cart", {
+    const resp = await fetch("/api/cart", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "include",
-      body: JSON.stringify({ action, ...body }),
+      body: JSON.stringify({ action, clientVersion, ...body }),
     });
+    if (resp.ok) {
+      const data = await resp.json().catch(() => ({} as Record<string, unknown>)) as { currentVersion?: number };
+      if (typeof data.currentVersion === "number") {
+        writeVersion(data.currentVersion);
+      }
+    }
   } catch {
     // silent — localStorage has the data; next readCart will retry sync
   } finally {

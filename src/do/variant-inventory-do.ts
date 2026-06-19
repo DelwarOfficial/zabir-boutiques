@@ -198,18 +198,28 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       if (!env.DB || !body.invoiceId) {
         return Response.json({ ok: false, error: "CONFIG_ERROR", available: this.available() }, { status: 500 });
       }
-      const updated = await env.DB.prepare(
-        `UPDATE inventory_items
-         SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
-         WHERE variant_id = ?2`,
-      ).bind(qty, variantId).run();
-      if (updated.meta.changes !== 1) {
+      const mutationId = crypto.randomUUID();
+      const d1Result = await env.DB.batch([
+        env.DB.prepare(
+          `UPDATE inventory_items
+           SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
+           WHERE variant_id = ?2`,
+        ).bind(qty, variantId),
+        env.DB.prepare(
+          `INSERT INTO stock_adjustments (id, variant_id, delta, reason, adjusted_by, created_at)
+           VALUES (?1, ?2, ?3, 'pos_direct_sale', ?4, datetime('now'))`,
+        ).bind(mutationId, variantId, qty, body.staffId ?? null),
+      ], { atomic: true });
+      // First statement is the UPDATE — verify it touched a row
+      const firstResult = d1Result[0];
+      if (firstResult.meta.changes !== 1) {
         return Response.json({ ok: false, error: "CONFLICT", available: this.available() }, { status: 409 });
       }
       this.sold += qty;
       await this.persistState();
       return Response.json({
         ok: true,
+        inventory_mutation_id: mutationId,
         stock: this.stock,
         reserved: this.reserved,
         sold: this.sold,
@@ -226,11 +236,13 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       }
 
       // D1 FIRST — source of truth [P1-01: DO state must not mutate before D1]
+      // directSale only increments sold_quantity (never decrements quantity),
+      // so reversal MUST mirror that — only decrement sold_quantity, never add to quantity.
       if (env.DB) {
         await env.DB.batch([
           env.DB.prepare(
             `UPDATE inventory_items
-             SET quantity = quantity + ?1, sold_quantity = MAX(COALESCE(sold_quantity, 0) - ?1, 0), updated_at = datetime('now')
+             SET sold_quantity = MAX(COALESCE(sold_quantity, 0) - ?1, 0), updated_at = datetime('now')
              WHERE variant_id = ?2`,
           ).bind(qty, variantId),
           env.DB.prepare(
@@ -240,8 +252,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
         ], { atomic: true });
       }
 
-      // THEN mutate DO state
-      this.stock += qty;
+      // THEN mutate DO state — mirror D1: only sold_quantity changes
       this.sold = Math.max(0, this.sold - qty);
 
       await this.state.storage.put(reversalKey, auditEventId);
@@ -272,10 +283,10 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
     return res.ok ? { confirmed: true } : { error: 'ALREADY_CONFIRMED' };
   }
 
-  async directSale(input: { variant_id: string; quantity: number; invoice_id: string; staff_id: string; channel: 'pos' }): Promise<{ success: true } | { error: 'INSUFFICIENT_STOCK'; available: number } | { error: 'CONFLICT'; message: string }> {
+  async directSale(input: { variant_id: string; quantity: number; invoice_id: string; staff_id: string; channel: 'pos' }): Promise<{ success: true; inventory_mutation_id: string } | { error: 'INSUFFICIENT_STOCK'; available: number } | { error: 'CONFLICT'; message: string }> {
     const res = await this.fetch(new Request('https://do/directSale', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, qty: input.quantity, invoiceId: input.invoice_id, staffId: input.staff_id, channel: input.channel }) }));
-    const data = await res.json() as { ok?: boolean; error?: string; available?: number };
-    if (data.ok) return { success: true };
+    const data = await res.json() as { ok?: boolean; error?: string; available?: number; inventory_mutation_id?: string };
+    if (data.ok) return { success: true, inventory_mutation_id: data.inventory_mutation_id ?? '' };
     if (data.error === 'CONFLICT') return { error: 'CONFLICT', message: 'conflict' };
     return { error: 'INSUFFICIENT_STOCK', available: data.available ?? 0 };
   }

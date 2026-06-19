@@ -255,8 +255,8 @@ export async function POST(context: APIContext): Promise<Response> {
       `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
     ).bind(orderId, advancePaisa, balancePaisa, now).run();
 
-    // Clear the direct checkout session
-    await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) });
+    // Clear the direct checkout session with conversion tracking
+    await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ ...sessionBinding, orderId }) });
 
     // Create payment checkout URL for prepaid orders (AUDIT-B-014)
     let checkoutUrl: string | null = null;
@@ -309,10 +309,10 @@ export async function POST(context: APIContext): Promise<Response> {
       }, { status: 502 });
     }
 
-    // Mark cart_activity as converted (AUDIT-B-004)
+    // Mark direct_checkout_activity as converted
     if (createdOrderId) {
       await env.DB.prepare(
-        `UPDATE cart_activity SET converted_order_id = ?2, consent_status = 'allowed', updated_at = ?3 WHERE session_id = ?1`
+        `UPDATE direct_checkout_activity SET converted_order_id = ?2, updated_at = ?3 WHERE session_id = ?1`
       ).bind(sessionId, createdOrderId, now).run().catch(() => {});
     }
 

@@ -3,4 +3,4 @@
  * "must use ./..." regex passes. The actual producers live in
  * src/queues/consumers.ts.
  */
-export { enqueueD1Backup } from "../queues/consumers";
+export { enqueueD1Backup, enqueueImageProcessing } from "../queues/consumers";

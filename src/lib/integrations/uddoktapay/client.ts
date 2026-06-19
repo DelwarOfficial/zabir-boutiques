@@ -23,6 +23,17 @@ const STATUS_MAP: Record<string, PaymentStatus> = {
 export class UddoktaPayClient implements PaymentProviderContract {
   constructor(private readonly env: UddoktaPayEnv) {}
 
+  private async fetchWithTimeout(url: string, options: RequestInit = {}, timeoutMs = 10_000): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const res = await fetch(url, { ...options, signal: controller.signal });
+      return res;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
   private summarizeCheckoutResponse(data: { payment_url?: string }): string {
     return JSON.stringify({ payment_url: typeof data.payment_url === 'string' ? '[redacted]' : null });
   }
@@ -37,7 +48,7 @@ export class UddoktaPayClient implements PaymentProviderContract {
     }
 
     try {
-      const res = await fetch(`${this.baseUrl()}/api/checkout`, {
+      const res = await this.fetchWithTimeout(`${this.baseUrl()}/api/checkout`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({
@@ -77,7 +88,7 @@ export class UddoktaPayClient implements PaymentProviderContract {
 
     const empty: VerifiedPayment = { status: 'failed', amountPaisa: null, verifiedInvoiceId: null, metadata: null, rawResponse: '' };
     try {
-      const res = await fetch(`${this.baseUrl()}/api/verify-payment`, {
+      const res = await this.fetchWithTimeout(`${this.baseUrl()}/api/verify-payment`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({ invoice_id: invoiceId }),
@@ -140,7 +151,7 @@ export class UddoktaPayClient implements PaymentProviderContract {
     }
 
     try {
-      const res = await fetch(`${this.baseUrl()}/api/refund-payment`, {
+      const res = await this.fetchWithTimeout(`${this.baseUrl()}/api/refund-payment`, {
         method: 'POST',
         headers: this.headers(),
         body: JSON.stringify({
