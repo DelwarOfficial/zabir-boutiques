@@ -69,7 +69,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const staff = await env.DB.prepare(
-    `SELECT id, email, phone, password_hash, password_salt, full_name, role, is_active
+    `SELECT id, email, phone, password_hash, password_salt, full_name, role, is_active, totp_secret, totp_required
      FROM staff_users
      WHERE (email IN (${candidates.map((_, i) => `?${i + 1}`).join(',')})
         OR phone IN (${candidates.map((_, i) => `?${candidates.length + i + 1}`).join(',')}))

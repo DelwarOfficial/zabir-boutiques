@@ -1,12 +1,6 @@
 ---
-import { getCurrentStaffUser } from '../../lib/rbac';
 import "@/styles/global.css";
 export const prerender = true;
-
-const user = await getCurrentStaffUser(Astro);
-if (user) {
-  return Astro.redirect('/staff');
-}
 ---
 
 <!doctype html>
@@ -18,6 +12,59 @@ if (user) {
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
+    <style is:global>
+      :root {
+        --bg: #f5f4f0; --surface: #fff; --line: #e6e3dd; --ink: #1a1816;
+        --ink-secondary: #6b6560; --muted: #9c9490; --brand: #b8860b; --brand-hover: #a0750a;
+        --success: #16a34a; --error: #dc2626; --step-active: #b8860b; --step-done: #16a34a;
+      }
+      [data-theme="dark"] {
+        --bg: #12100e; --surface: #1e1c1a; --line: #2d2926; --ink: #e8e4df;
+        --ink-secondary: #9c9490; --muted: #6b6560; --brand: #d4a017; --brand-hover: #c4940e;
+        --success: #22c55e; --error: #ef4444; --step-active: #d4a017; --step-done: #22c55e;
+      }
+      *, *::before, *::after { box-sizing: border-box; }
+      body {
+        margin:0; background:var(--bg); color:var(--ink);
+        font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+        display:flex; align-items:center; justify-content:center;
+        min-height:100vh; -webkit-font-smoothing: antialiased;
+      }
+      input:focus { border-color: var(--brand) !important; box-shadow: 0 0 0 3px rgba(184,134,11,0.15); }
+      .step-indicator { display:flex; align-items:center; justify-content:center; gap:8px; margin-bottom:1.5rem; }
+      .step-dot { width:8px; height:8px; border-radius:50%; background:var(--line); transition:all 0.3s; }
+      .step-dot.active { background:var(--step-active); transform:scale(1.3); }
+      .step-dot.done { background:var(--step-done); }
+      .step-line { width:28px; height:2px; background:var(--line); transition:background 0.3s; }
+      .step-line.done { background:var(--step-done); }
+      .step-label { font-size:0.75rem; color:var(--muted); text-align:center; margin-bottom:0.25rem; letter-spacing:0.3px; }
+      .step-view { transition:opacity 0.25s, transform 0.25s; }
+      .step-view.hidden { display:none; }
+      .digit-grid { display:flex; gap:8px; justify-content:center; margin:1rem 0 1.25rem; }
+      .digit-box { width:48px; height:56px; text-align:center; font-size:1.5rem; font-weight:700;
+        border:2px solid var(--line); border-radius:10px; background:var(--surface); color:var(--ink);
+        outline:none; transition:all 0.15s; caret-color:var(--brand); }
+      .digit-box:focus { border-color:var(--brand); box-shadow:0 0 0 3px rgba(184,134,11,0.15); transform:translateY(-2px); }
+      .digit-box.filled { border-color:var(--brand); background:rgba(184,134,11,0.06); }
+      .pulse { animation:pulse 0.3s ease; }
+      @keyframes pulse { 0%{transform:scale(1)} 50%{transform:scale(1.05)} 100%{transform:scale(1)} }
+      .shake { animation:shake 0.3s ease; }
+      @keyframes shake { 0%,100%{transform:translateX(0)} 25%{transform:translateX(-6px)} 75%{transform:translateX(6px)} }
+      .brand-btn {
+        width:100%; padding:0.65rem; background:var(--brand); color:#fff; border:none;
+        border-radius:8px; font-size:0.9rem; font-weight:600; cursor:pointer;
+        transition:background 0.15s, transform 0.1s;
+      }
+      .brand-btn:hover:not(:disabled) { background:var(--brand-hover); }
+      .brand-btn:active:not(:disabled) { transform:scale(0.98); }
+      .brand-btn:disabled { opacity:0.5; cursor:not-allowed; }
+      .error-msg { color:var(--error); font-size:0.8rem; margin:0.75rem 0 0; text-align:center; display:none; }
+      .spinner { display:inline-block; width:16px; height:16px; border:2px solid rgba(255,255,255,0.3);
+        border-top-color:#fff; border-radius:50%; animation:spin 0.6s linear; vertical-align:middle; margin-right:6px; }
+      @keyframes spin { to{transform:rotate(360deg)} }
+      .back-link { font-size:0.75rem; color:var(--muted); cursor:pointer; text-decoration:none; display:inline-block; margin-top:0.75rem; }
+      .back-link:hover { color:var(--ink-secondary); }
+    </style>
     <script nonce={Astro.locals.cspNonce} is:inline>
       (function(){
         var t = localStorage.getItem('zb-theme');
@@ -27,80 +74,255 @@ if (user) {
       })();
     </script>
   </head>
-  <body style="margin:0;background:var(--bg);color:var(--ink);font-family:system-ui,-apple-system,sans-serif;display:flex;align-items:center;justify-content:center;min-height:100vh;">
+  <body>
     <main style="width:100%;max-width:380px;padding:2rem;">
-      <div style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:2rem;box-shadow:0 4px 24px rgba(0,0,0,0.06);">
-        <div style="text-align:center;margin-bottom:1.5rem;">
+      <div style="background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:2rem;box-shadow:0 4px 32px rgba(0,0,0,0.06);">
+
+        <!-- Brand -->
+        <div style="text-align:center;margin-bottom:0.5rem;">
           <div style="font-size:1.5rem;font-weight:800;color:var(--brand);letter-spacing:-0.5px;">Zabir Boutiques</div>
-          <div style="color:var(--muted);font-size:0.85rem;margin-top:0.25rem;">Staff Portal</div>
+          <div style="color:var(--muted);font-size:0.8rem;margin-top:0.15rem;">Staff Portal</div>
         </div>
-        <form id="login-form" method="post" action="/api/staff/login">
-          <div style="margin-bottom:1rem;">
-            <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Email or phone</label>
-            <input name="identifier" type="text" autocomplete="username" required
-              style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-size:0.9rem;box-sizing:border-box;outline:none;" />
+
+        <!-- Step indicator -->
+        <div id="step-indicator" style="margin-top:1.25rem;">
+          <div class="step-label" id="step-label">Sign in</div>
+          <div class="step-indicator">
+            <span class="step-dot active" id="dot1"></span>
+            <span class="step-line" id="line1"></span>
+            <span class="step-dot" id="dot2"></span>
           </div>
-          <div style="margin-bottom:1.25rem;">
-            <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Password</label>
-            <input name="password" type="password" autocomplete="current-password" required
-              style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font-size:0.9rem;box-sizing:border-box;outline:none;" />
+        </div>
+
+        <!-- Step 1: Credentials -->
+        <div id="step1" class="step-view">
+          <form id="login-form" novalidate>
+            <div style="margin-bottom:1rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Email or phone</label>
+              <input name="identifier" type="text" autocomplete="username" required
+                style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:0.9rem;outline:none;" />
+            </div>
+            <div style="margin-bottom:1.25rem;">
+              <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Password</label>
+              <input name="password" type="password" autocomplete="current-password" required
+                style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:0.9rem;outline:none;" />
+            </div>
+            <button type="submit" id="login-btn" class="brand-btn">Sign in</button>
+            <p id="error1" class="error-msg"></p>
+          </form>
+        </div>
+
+        <!-- Step 2: TOTP code -->
+        <div id="step2" class="step-view hidden">
+          <p style="font-size:0.85rem;color:var(--ink-secondary);text-align:center;margin:0 0 0.25rem;">
+            Enter the 6-digit code from your authenticator app
+          </p>
+          <div class="digit-grid" id="digit-grid">
+            <input class="digit-box" maxlength="1" inputmode="numeric" pattern="[0-9]" autocomplete="one-time-code" data-idx="0" />
+            <input class="digit-box" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="1" />
+            <input class="digit-box" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="2" />
+            <input class="digit-box" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="3" />
+            <input class="digit-box" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="4" />
+            <input class="digit-box" maxlength="1" inputmode="numeric" pattern="[0-9]" data-idx="5" />
           </div>
-          <button type="submit" id="login-btn"
-            style="width:100%;padding:0.65rem;background:var(--brand);color:#fff;border:none;border-radius:6px;font-size:0.9rem;font-weight:600;cursor:pointer;">
-            Sign in
-          </button>
-          <p id="error" style="color:#dc2626;font-size:0.8rem;margin:0.75rem 0 0;text-align:center;display:none;"></p>
-        </form>
+          <p id="error2" class="error-msg"></p>
+          <p style="text-align:center;margin:0;">
+            <a class="back-link" id="back-to-creds">&larr; Wrong account?</a>
+          </p>
+        </div>
+
       </div>
       <p style="text-align:center;color:var(--muted);font-size:0.75rem;margin-top:1.5rem;">Zabir Boutiques &copy; 2026</p>
     </main>
+
     <script nonce={Astro.locals.cspNonce} is:inline>
-      const form = document.getElementById('login-form');
-      const btn = document.getElementById('login-btn');
-      const err = document.getElementById('error');
-      const params = new URLSearchParams(window.location.search);
-      const idInput = form.querySelector('[name="identifier"]');
-      const pwInput = form.querySelector('[name="password"]');
-      if (params.get('identifier')) idInput.value = params.get('identifier');
-      if (params.get('password')) pwInput.value = params.get('password');
-      if (params.has('identifier') || params.has('password')) {
-        history.replaceState(null, '', window.location.pathname);
-      }
-
-      async function submitLogin() {
-        err.style.display = 'none';
-        btn.disabled = true;
-        btn.textContent = 'Signing in…';
-        const data = new FormData(form);
-        const res = await fetch('/api/staff/login', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          credentials: 'same-origin',
-          body: JSON.stringify({ identifier: data.get('identifier'), password: data.get('password') })
-        });
-        if (res.ok) {
-          const body = await res.json().catch(() => ({}));
-          if (body.csrf_token) {
-            try { sessionStorage.setItem('zb-csrf', body.csrf_token); } catch (_) {}
-          }
-          window.location.href = '/staff';
-          return;
+      (function(){
+        const params = new URLSearchParams(window.location.search);
+        if (params.has('identifier') || params.has('password') || params.has('totp')) {
+          history.replaceState(null, '', window.location.pathname);
         }
-        const body = await res.json().catch(() => ({}));
-        err.textContent = body.error || 'Login failed';
-        err.style.display = 'block';
-        btn.disabled = false;
-        btn.textContent = 'Sign in';
-      }
 
-      form.addEventListener('submit', (e) => {
-        e.preventDefault();
-        void submitLogin();
-      });
+        // State
+        let identifier = params.get('identifier') || '';
+        let password = params.get('password') || '';
 
-      if (params.get('identifier') && params.get('password')) {
-        void submitLogin();
-      }
+        // DOM refs
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const dot1 = document.getElementById('dot1');
+        const dot2 = document.getElementById('dot2');
+        const line1 = document.getElementById('line1');
+        const stepLabel = document.getElementById('step-label');
+        const idInput = step1.querySelector('[name="identifier"]');
+        const pwInput = step1.querySelector('[name="password"]');
+        const loginBtn = document.getElementById('login-btn');
+        const err1 = document.getElementById('error1');
+        const err2 = document.getElementById('error2');
+        const backLink = document.getElementById('back-to-creds');
+        const digitInputs = Array.from(document.querySelectorAll('.digit-box'));
+
+        if (identifier) idInput.value = identifier;
+        if (password) pwInput.value = password;
+
+        function showStep(n) {
+          const show = n === 1 ? step1 : step2;
+          const hide = n === 1 ? step2 : step1;
+          hide.classList.add('hidden');
+          show.classList.remove('hidden');
+          dot1.className = 'step-dot' + (n === 2 ? ' done' : ' active');
+          line1.className = 'step-line' + (n === 2 ? ' done' : '');
+          dot2.className = 'step-dot' + (n === 2 ? ' active' : '');
+          stepLabel.textContent = n === 1 ? 'Sign in' : 'Two-factor authentication';
+          if (n === 2) {
+            digitInputs[0].focus();
+          } else {
+            idInput.focus();
+          }
+        }
+
+        function showError(el, msg) {
+          el.textContent = msg;
+          el.style.display = 'block';
+        }
+
+        // Step 1: Login submit
+        async function submitLogin(e) {
+          if (e) e.preventDefault();
+          err1.style.display = 'none';
+          loginBtn.disabled = true;
+          loginBtn.innerHTML = '<span class="spinner"></span>Signing in…';
+
+          identifier = idInput.value.trim();
+          password = pwInput.value;
+
+          const res = await fetch('/api/staff/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ identifier, password })
+          });
+
+          if (res.status === 401 || res.status === 403) {
+            const body = await res.json().catch(() => ({}));
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Sign in';
+            // totp_required —> move to step 2
+            if (body.totp_required) {
+              void showStep(2);
+              return;
+            }
+            showError(err1, body.error || 'Invalid credentials');
+            return;
+          }
+
+          if (res.ok) {
+            const body = await res.json().catch(() => ({}));
+            if (body.csrf_token) {
+              try { sessionStorage.setItem('zb-csrf', body.csrf_token); } catch (_) {}
+            }
+            window.location.href = '/staff';
+            return;
+          }
+
+          // Other errors
+          const body = await res.json().catch(() => ({}));
+          loginBtn.disabled = false;
+          loginBtn.textContent = 'Sign in';
+          showError(err1, body.error || 'Login failed');
+        }
+
+        document.getElementById('login-form').addEventListener('submit', submitLogin);
+
+        // Step 2: Digit input handling
+        function focusNext(idx) {
+          if (idx < 5) digitInputs[idx + 1].focus();
+        }
+        function focusPrev(idx) {
+          if (idx > 0) digitInputs[idx - 1].focus();
+        }
+
+        function getCode() {
+          return digitInputs.map(inp => inp.value).join('');
+        }
+
+        async function submitTotp() {
+          const code = getCode();
+          if (code.length !== 6) return;
+          err2.style.display = 'none';
+
+          const res = await fetch('/api/staff/login', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            credentials: 'same-origin',
+            body: JSON.stringify({ identifier, password, totp_code: code })
+          });
+
+          if (res.ok) {
+            const body = await res.json().catch(() => ({}));
+            if (body.csrf_token) {
+              try { sessionStorage.setItem('zb-csrf', body.csrf_token); } catch (_) {}
+            }
+            window.location.href = '/staff';
+            return;
+          }
+
+          // Invalid code
+          const body = await res.json().catch(() => ({}));
+          showError(err2, body.error || 'Invalid code. Try again.');
+          digitContainer.classList.add('shake');
+          setTimeout(() => digitContainer.classList.remove('shake'), 300);
+          digitInputs.forEach(inp => { inp.value = ''; inp.className = 'digit-box'; });
+          digitInputs[0].focus();
+        }
+
+        const digitContainer = document.getElementById('digit-grid');
+        digitInputs.forEach((inp, idx) => {
+          inp.addEventListener('input', function() {
+            this.value = this.value.replace(/[^0-9]/g, '').slice(0, 1);
+            this.className = 'digit-box' + (this.value ? ' filled' : '');
+            if (this.value) focusNext(idx);
+            const code = getCode();
+            if (code.length === 6) {
+              void submitTotp();
+            }
+          });
+          inp.addEventListener('keydown', function(e) {
+            if (e.key === 'Backspace' && !this.value) {
+              e.preventDefault();
+              focusPrev(idx);
+            }
+            if (e.key === 'ArrowLeft') { e.preventDefault(); focusPrev(idx); }
+            if (e.key === 'ArrowRight') { e.preventDefault(); focusNext(idx); }
+          });
+          inp.addEventListener('paste', function(e) {
+            e.preventDefault();
+            const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+            paste.split('').forEach((ch, i) => {
+              if (i < 6) {
+                digitInputs[i].value = ch;
+                digitInputs[i].className = 'digit-box filled';
+              }
+            });
+            if (paste.length === 6) {
+              void submitTotp();
+            } else if (paste.length > 0) {
+              digitInputs[Math.min(paste.length, 5)].focus();
+            }
+          });
+        });
+
+        backLink.addEventListener('click', (e) => {
+          e.preventDefault();
+          showStep(1);
+          loginBtn.disabled = false;
+          loginBtn.textContent = 'Sign in';
+        });
+
+        // Auto-login if params pre-filled
+        if (identifier && password) {
+          void submitLogin();
+        }
+      })();
     </script>
   </body>
 </html>

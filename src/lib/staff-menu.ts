@@ -48,6 +48,7 @@ const ALL: MenuItem[] = [
   { label: 'Staff Users', href: '/staff/users', roles: ['owner-tier'] },
   { label: 'Roles & Permissions', href: '/staff/roles', roles: ['owner-tier'] },
   { label: 'Site Settings', href: '/staff/settings', roles: ['owner-tier'] },
+  { label: 'Security (2FA)', href: '/staff/settings/totp', roles: ['owner-tier'] },
   { label: 'Media / R2', href: '/staff/media-admin', roles: ['owner-tier'] },
   { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier', 'auditor'] },
   { label: 'Guardrails', href: '/staff/guardrails', roles: ['owner-tier', 'auditor'] },

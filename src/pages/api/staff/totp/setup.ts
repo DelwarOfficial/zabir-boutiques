@@ -8,15 +8,15 @@ import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { generateTotpSecret } from '../../../../lib/totp';
 
 export async function POST(context: APIContext): Promise<Response> {
+  let user;
   try {
-    const user = await requireAuth(context);
-    requireRole(user, 'owner');
+    user = await requireAuth(context);
+    requireRole(user, ['owner']);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
   }
 
-  const user = await requireAuth(context);
-  const totp = generateTotpSecret(user.email ?? `${user.id}@zabir.local`);
+  const totp = generateTotpSecret(`${user.id}@zabir.local`);
   return Response.json({ ok: true, secret: totp.secret, uri: totp.uri });
 }
