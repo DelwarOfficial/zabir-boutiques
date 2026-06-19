@@ -1,3 +1,5 @@
+import type { VariantInventoryDOContract } from '../lib/contracts/variant-inventory-do';
+
 /**
  * VariantInventoryDO [Master_Prompt v7.0 §6.6, §12.2]
  *
@@ -15,7 +17,7 @@
  *   availability — Read-only stock check.
  *   sync       — Push D1 state into DO (used after D1 writes).
  */
-export class VariantInventoryDO implements DurableObject {
+export class VariantInventoryDO implements DurableObject, VariantInventoryDOContract {
   private state: DurableObjectState;
   private stock = 0;
   private reserved = 0;
@@ -210,5 +212,42 @@ export class VariantInventoryDO implements DurableObject {
     }
 
     return Response.json({ ok: false, error: "UNKNOWN_ACTION" }, { status: 400 });
+  }
+
+  async reserve(input: { variant_id: string; quantity: number; checkout_id: string }): Promise<{ reservation_id: string } | { error: 'INSUFFICIENT_STOCK'; available: number }> {
+    const res = await this.fetch(new Request('https://do/reserve', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, qty: input.quantity }) }));
+    const data = await res.json() as { ok?: boolean; reservationId?: string; available?: number };
+    return data.ok ? { reservation_id: data.reservationId ?? '' } : { error: 'INSUFFICIENT_STOCK', available: data.available ?? 0 };
+  }
+
+  async release(input: { reservation_id: string; reason: string }): Promise<{ released: boolean; already_released?: boolean }> {
+    const res = await this.fetch(new Request('https://do/release', { method: 'POST', body: JSON.stringify({ reservationId: input.reservation_id, qty: 1 }) }));
+    return res.ok ? { released: true } : { released: false, already_released: true };
+  }
+
+  async confirm(input: { reservation_id: string; order_id: string }): Promise<{ confirmed: true } | { error: 'RESERVATION_NOT_FOUND' | 'ALREADY_CONFIRMED' }> {
+    const existing = this.reservations.get(input.reservation_id);
+    if (!existing) return { error: 'RESERVATION_NOT_FOUND' };
+    const res = await this.fetch(new Request('https://do/confirm', { method: 'POST', body: JSON.stringify({ reservationId: input.reservation_id, qty: existing.qty }) }));
+    return res.ok ? { confirmed: true } : { error: 'ALREADY_CONFIRMED' };
+  }
+
+  async directSale(input: { variant_id: string; quantity: number; invoice_id: string; staff_id: string; channel: 'pos' }): Promise<{ success: true } | { error: 'INSUFFICIENT_STOCK'; available: number } | { error: 'CONFLICT'; message: string }> {
+    const res = await this.fetch(new Request('https://do/directSale', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, qty: input.quantity, invoiceId: input.invoice_id, staffId: input.staff_id, channel: input.channel }) }));
+    const data = await res.json() as { ok?: boolean; error?: string; available?: number };
+    if (data.ok) return { success: true };
+    if (data.error === 'CONFLICT') return { error: 'CONFLICT', message: 'conflict' };
+    return { error: 'INSUFFICIENT_STOCK', available: data.available ?? 0 };
+  }
+
+  async reverseDirectSale(input: { variant_id: string; quantity: number; invoice_id: string; reason: string }): Promise<{ reversed: true; audit_event_id: string } | { reversed: false; audit_event_id: string; message: 'already_reversed' }> {
+    const res = await this.fetch(new Request('https://do/reverseDirectSale', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, qty: input.quantity, invoiceId: input.invoice_id, reason: input.reason }) }));
+    const data = await res.json() as { reversed?: boolean; auditEventId?: string; message?: string };
+    return data.reversed ? { reversed: true, audit_event_id: data.auditEventId ?? '' } : { reversed: false, audit_event_id: data.auditEventId ?? '', message: 'already_reversed' };
+  }
+
+  async getAvailability(input: { variant_id: string }): Promise<{ stock: number; reserved: number; sold: number; available: number }> {
+    await this.ensureInitialized({}, input.variant_id);
+    return { stock: this.stock, reserved: this.reserved, sold: this.sold, available: this.available() };
   }
 }

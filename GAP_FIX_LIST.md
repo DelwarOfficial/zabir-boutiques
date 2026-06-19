@@ -5,25 +5,25 @@
 | ID | Gap | Fix |
 |---|---|---|
 | GAP-P0-001 | Local migration dry-run cannot complete because existing migration `0003_staff_operations_v2.sql` fails on partially migrated local D1 state with `duplicate column name: created_by`. | Reset/recreate local D1 for clean dry-run or make old migrations idempotent through a repair strategy. Re-run all migrations from `0001` through latest. |
-| GAP-P0-002 | Reservation lifecycle still does not fully thread `reservation_id` from `VariantInventoryDO.reserve()` through D1 `stock_reservations`, checkout release, confirm, and cleanup paths. | Refactor `reserveVariants`, `releaseReservedVariants`, `confirmReservedVariants`, and order insertion to persist and use DO-returned `reservation_id` everywhere. Add rollback tests for every failure branch. |
-| GAP-P0-003 | Reservation cleanup cron still uses older expiry logic and does not fully implement `created_at < datetime('now', '-15 minutes')`, `release_requested_at IS NULL`, atomic claim/stamp, then DO release. | Update `cleanExpiredReservations()` to use the V7 claim-before-release cleanup contract and add concurrent cleanup race tests. |
+| GAP-P0-002 | Completed. Reservation IDs are now threaded consistently from `VariantInventoryDO.reserve()` into D1 `stock_reservations.id`, then reused for release, confirm, and cleanup flows. | Expand deeper end-to-end failure/retry coverage if new reservation entry points are added later. |
+| GAP-P0-003 | Completed. Expired reservation cleanup now uses `created_at < datetime('now', '-15 minutes')`, `release_requested_at IS NULL`, atomic claim/stamp, then DO release plus D1 finalize steps. | Keep concurrency tests growing if cleanup logic becomes more complex. |
 
 ## P1 - High Priority Plan Compliance
 
 | ID | Gap | Fix |
 |---|---|---|
 | GAP-P1-001 | FraudBD Section 37 25-test circuit breaker suite is not implemented. | Add `tests/fraudbd-circuit-breaker/` with CB-01 through CB-25 fixtures and assertions. |
-| GAP-P1-002 | FraudBD circuit breaker does not yet persist all state transitions and external-call audit rows to `api_audit_logs`. | Add audit writes for failure, success, open, half-open, close, timeout, malformed response, and circuit-open fallback. |
-| GAP-P1-003 | FraudBD queue naming/config still has older `fraud-scoring` paths in `wrangler.jsonc` and consumers. | Rename/wire canonical `fraud-audit` queue and keep it async-only for post-checkout enrichment. |
-| GAP-P1-004 | Payment, image, AI, and courier external APIs are not all behind canonical `src/lib/integrations/{provider}/` adapters. | Move direct API calls into provider adapters with timeout, retry, circuit breaker, schema validation, PII redaction, mock, and audit logging. |
-| GAP-P1-005 | Completed. `src/lib/ai-content.ts` now uses canonical `src/lib/integrations/deepseek/` and `src/lib/integrations/workers_ai/` adapters; OpenAI path was removed. | Add adapter-level timeout/mock/audit tests to strengthen coverage. |
-| GAP-P1-006 | Completed for the staff product-content path. Staff AI now preflights DeepSeek budget, falls back to Workers AI when DeepSeek budget/preflight is unavailable, and records DeepSeek usage after success. | Add explicit fallback tests for timeout/DO failure branches. |
-| GAP-P1-007 | `BudgetCounterDO` has required methods but does not yet read durable config from D1 `ai_budget_limits`. | Load provider limits from D1 on first call per period, cache in DO, and enforce owner override semantics. |
-| GAP-P1-008 | Checkout/payment creation does not fully initiate/reconcile UddoktaPay/SSLCommerz through canonical payment provider adapters. | Formalize payment provider contracts under integrations and ensure redirects/webhooks/reconciliation never trust redirect-only success. |
-| GAP-P1-009 | POS same-day void restores D1 inventory directly instead of using `VariantInventoryDO.reverseDirectSale()` for stock restoration. | Route POS void stock restoration through `reverseDirectSale()` and keep invoice ledger immutable. |
-| GAP-P1-010 | DirectCheckoutSessionDO uses binding verification, but contract-style methods from Section 36 are not fully implemented with `implements` interfaces. | Add complete contract stubs for all DOs and make concrete classes implement them. |
-| GAP-P1-011 | Full abandoned-cart send path is minimal; it records queued email but does not render/send a real abandoned-cart provider email. | Add abandoned-cart email template and provider send path after consumer re-check. |
-| GAP-P1-012 | Runtime schema and migration tests do not cover forward/rollback for new migrations. | Add migration fixture tests for `0021`-`0026`, including invalid inserts and rollback checks. |
+| GAP-P1-002 | Partially completed. FraudBD external checks now write `api_audit_logs` entries for success, error, timeout, and circuit-open fallback through the canonical adapter. | Expand coverage to include every state-transition/audit permutation from the full Section 37 suite. |
+| GAP-P1-003 | Completed. Fraud queue naming/config now uses canonical `fraud-audit` wiring in `wrangler.jsonc`, `src/queues/consumers.ts`, and related bindings. | Keep async-only enrichment behavior as new fraud events are added. |
+| GAP-P1-004 | Completed for current repo-scoped providers. Payment, image, AI, fraud, email, Turnstile, and Cloudflare cache purge paths now run through canonical `src/lib/integrations/{provider}/` adapters. | Courier remains the primary provider area still needing equivalent adapter coverage if/when that flow is expanded. |
+| GAP-P1-005 | Completed. `src/lib/ai-content.ts` and `src/lib/ai-client.ts` now use canonical DeepSeek and Workers AI adapters; OpenAI path was removed. | Broader route-level AI tests can still be expanded later if new AI entry points are added. |
+| GAP-P1-006 | Completed for the current AI generation path. Staff/product-content fallback coverage now includes adapterized Workers AI fallback behavior and DeepSeek-path verification tests. | Add route-level preflight/DO-failure tests later only if that route becomes more complex. |
+| GAP-P1-007 | Completed. `BudgetCounterDO` loads provider limits from D1 `ai_budget_limits`, caches them in DO storage, and applies owner override semantics. | Add extra admin-path tests if config editing UI becomes more dynamic. |
+| GAP-P1-008 | Completed for the active UddoktaPay path. Checkout creation, verification, refund, and reconciliation now use the canonical UddoktaPay adapter, while redirects still do not mark payments successful on their own. | SSLCommerz remains out of active repo flow unless reintroduced. |
+| GAP-P1-009 | Completed. POS same-day void now restores stock through `VariantInventoryDO.reverseDirectSale()` while keeping invoice-ledger semantics intact. | Add more void/reversal replay tests if POS flows expand. |
+| GAP-P1-010 | Completed. Core DO classes now expose contract-style methods and declare `implements` for the Section 36 contract interfaces while preserving fetch-based routing. | Expand contract assertions if new DO actions are added later. |
+| GAP-P1-011 | Completed. Abandoned-cart queue processing now re-checks conversion state and sends a real provider email through `sendAbandonedCartEmail()`. | Improve cart-recovery UX copy/linking if a richer restore flow is added later. |
+| GAP-P1-012 | Partially completed. Added migration fixture coverage for forward/rollback SQL across `0021`-`0028`. | Add DB-backed migration execution fixtures and invalid-insert cases when local D1 migration environment is fully available. |
 
 ## P2 - Complete Plan Coverage
 
@@ -33,7 +33,7 @@
 | GAP-P2-002 | Completed at stub/contract level. Added Section 36 contract files for VariantInventoryDO, BudgetCounterDO, DirectCheckoutSessionDO, CartDO, IdempotencyDO, ProviderHealthDO, PaymentProvider, and AIProvider. | Concrete classes still need `implements` adoption where practical. |
 | GAP-P2-003 | Drift audit script from Section 38 is not implemented. | Add `scripts/audit/audit-drift.ts` with all 35 checks and CI completeness guard. |
 | GAP-P2-004 | Guardrail operational docs and dashboard are not complete. | Add `docs/guardrail-owners.md`, `docs/audit/` templates, and `/staff/guardrails` read-only dashboard if in current milestone scope. |
-| GAP-P2-005 | Full provider adapter test matrix is missing for email/payment/fraud/image/AI/courier. | Add mocked schema validation, timeout, retry, circuit-breaker, sandbox/mock tests per adapter. |
+| GAP-P2-005 | Partially completed. Added focused provider adapter tests covering AI, payment, fraud, Turnstile, cache purge, image compression, and abandoned-cart email paths. | Expand to a fuller matrix for courier and exhaustive retry/schema fixtures if required for compliance sign-off. |
 | GAP-P2-006 | R2 bucket names in `wrangler.jsonc` use `zabir-media`, while Master Plan lists product images, email templates, logs, backups, reports buckets. | Align bucket bindings/names or document a launch waiver. |
 | GAP-P2-007 | Some static route coverage from Section 3.4 is absent for collections/blog. | Add route files or document out-of-scope waiver for launch. |
 | GAP-P2-008 | Full Cloudflare Access/Zero Trust coverage cannot be verified from repo alone. | Manually audit Cloudflare dashboard for `/staff/*` and `/api/staff/*` Access policies. |

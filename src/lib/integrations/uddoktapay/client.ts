@@ -1,7 +1,14 @@
 import { writeApiAuditLog } from '../../api-audit';
-import { takaStringToPaisa, type PaymentStatus, type VerifiedPayment } from '../../payments';
 import { doCheckProviderHealth, doRecordProviderResult } from '../../do-client';
+import type { PaymentStatus, VerifiedPayment } from '../../payments';
 import type { CreateCheckoutInput, CreateCheckoutResult, RefundPaymentInput, RefundPaymentResult, UddoktaPayEnv } from './types';
+
+function takaStringToPaisa(amount: unknown): number | null {
+  if (typeof amount !== 'string' && typeof amount !== 'number') return null;
+  const value = Number(amount);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return Math.round(value * 100);
+}
 
 const STATUS_MAP: Record<string, PaymentStatus> = {
   COMPLETED: 'paid',

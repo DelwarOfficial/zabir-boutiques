@@ -1,3 +1,5 @@
+import type { CartDOContract } from '../lib/contracts/cart-do';
+
 /**
  * CartDO [Master_Prompt v7.0 §6.6, §9]
  *
@@ -25,7 +27,7 @@ export interface CartState {
   customerContact: string | null;
 }
 
-export class CartDO implements DurableObject {
+export class CartDO implements DurableObject, CartDOContract {
   private state: DurableObjectState;
   private env: { CART_ACTIVITY?: Queue; DB?: D1Database };
   private cart: CartState | null = null;
@@ -57,6 +59,27 @@ export class CartDO implements DurableObject {
     await this.persist();
     await this.publishActivity(cart);
     await this.state.storage.setAlarm(Date.now() + 5 * 60 * 1000);
+  }
+
+  async getCart(_input: unknown): Promise<{ ok: true; cart: CartState; currentVersion: number }> {
+    const cart = await this.ensureLoaded();
+    return { ok: true, cart, currentVersion: cart.cartVersion };
+  }
+
+  async addItem(input: { variantId?: string; quantity?: number; clientVersion?: number }): Promise<unknown> {
+    return this.fetch(new Request('https://do/add', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
+  }
+
+  async removeItem(input: { variantId?: string; clientVersion?: number }): Promise<unknown> {
+    return this.fetch(new Request('https://do/remove', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
+  }
+
+  async changeQuantity(input: { variantId?: string; quantity?: number; clientVersion?: number }): Promise<unknown> {
+    return this.fetch(new Request('https://do/quantity', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
+  }
+
+  async clearCart(input: { clientVersion?: number }): Promise<unknown> {
+    return this.fetch(new Request('https://do/clear', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
   }
 
   async fetch(request: Request): Promise<Response> {

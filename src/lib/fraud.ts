@@ -13,6 +13,7 @@ import { nowSql } from './dates';
 import { FraudBDClient } from './integrations/fraudbd';
 
 export type FraudDecision = 'approved' | 'review' | 'blocked';
+const CIRCUIT_OPEN_FALLBACK_RAW = '{"error":"circuit_open","fallback_score":50}';
 
 export function decideFraudRisk(score: number | null): FraudDecision {
   if (score === null) return 'review';
@@ -77,7 +78,7 @@ export async function checkFraudBD(
 ): Promise<{ score: number | null; rawResponse: string }> {
   const result = await new FraudBDClient({ ...env, FRAUDBD_API_KEY: apiKey }).checkCourierInfo(localPhone, timeoutMs, baseUrl);
   if (result.circuitOpen) {
-    return { score: 50, rawResponse: result.rawResponse };
+    return { score: 50, rawResponse: result.rawResponse || CIRCUIT_OPEN_FALLBACK_RAW };
   }
   return { score: deriveRiskScore(result.data), rawResponse: result.rawResponse };
 }

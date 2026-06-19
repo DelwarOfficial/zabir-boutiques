@@ -23,6 +23,13 @@ type OrderLike = {
 
 type EmailType = "order_confirmed" | "payment_confirmed" | "order_shipped" | "order_delivered" | "abandoned_cart_1h" | "abandoned_cart_24h" | "return_confirmed";
 
+type AbandonedCartEmail = {
+  session_id: string;
+  name: string;
+  email: string;
+  recovery_url: string;
+};
+
 function formatTaka(paisa: number): string {
   return `৳${(paisa / 100).toFixed(0)}`;
 }
@@ -114,6 +121,52 @@ export async function sendTransactionalEmail(
       )
       .bind(messageId, order.order_number, type, to, error, now)
       .run();
+    return { ok: false, error };
+  }
+}
+
+export async function sendAbandonedCartEmail(
+  env: { DB: D1Database; EMAIL_PROVIDER?: string; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string },
+  payload: AbandonedCartEmail,
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const provider = getEmailProvider(env);
+  const messageId = crypto.randomUUID();
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const subject = 'Complete your Zabir Boutiques checkout';
+  const html = `<h1>Your cart is still waiting</h1>
+<p>Hi ${payload.name},</p>
+<p>You left items in your cart at Zabir Boutiques. Continue checkout before the saved cart goes stale.</p>
+<p><a href="${payload.recovery_url}">Resume your checkout</a></p>
+<p>If the button does not open your saved cart directly, visit checkout on the same device/browser you used earlier.</p>`;
+
+  try {
+    const result = await provider.sendEmail({
+      to: [payload.email],
+      from_name: 'Zabir Boutiques',
+      subject,
+      html,
+      tags: ['abandoned_cart'],
+      custom_args: { session_id: payload.session_id, email_type: 'abandoned_cart' },
+      message_id: messageId,
+    });
+    await env.DB.prepare(
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
+       VALUES (?1, NULL, 'abandoned_cart', ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(
+      messageId,
+      payload.email,
+      result.status,
+      result.status === 'sent' ? now : null,
+      result.error_code ?? null,
+      now,
+    ).run();
+    return { ok: result.accepted, id: result.provider_message_id, error: result.error_code };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'unknown';
+    await env.DB.prepare(
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
+       VALUES (?1, NULL, 'abandoned_cart', ?2, 'failed', NULL, ?3, ?4)`,
+    ).bind(messageId, payload.email, error, now).run();
     return { ok: false, error };
   }
 }

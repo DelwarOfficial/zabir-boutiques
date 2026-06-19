@@ -1,3 +1,5 @@
+import type { DirectCheckoutSessionDOContract } from '../lib/contracts/direct-checkout-session-do';
+
 /**
  * DirectCheckoutSessionDO [Master_Prompt v7.0 §6.6, §10.6]
  *
@@ -30,7 +32,7 @@ export interface DirectCheckoutSession {
   } | null;
 }
 
-export class DirectCheckoutSessionDO implements DurableObject {
+export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSessionDOContract {
   private state: DurableObjectState;
   private session: DirectCheckoutSession | null = null;
 
@@ -169,6 +171,40 @@ export class DirectCheckoutSessionDO implements DurableObject {
     if (!hasOrder) {
       await this.state.storage.deleteAll();
     }
+  }
+
+  async create(input: { product_id: string; variant_id: string; quantity: number; selected_options: Record<string, string>; source_page: string; origin: string; user_agent: string }): Promise<{ session_id: string; expires_at: string }> {
+    const res = await this.fetch(new Request('https://do/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        productId: input.product_id,
+        variantId: input.variant_id,
+        quantity: input.quantity,
+        selectedOptions: input.selected_options,
+        sourcePage: input.source_page,
+        origin: input.origin,
+        userAgent: input.user_agent,
+      }),
+    }));
+    const data = await res.json() as { session?: DirectCheckoutSession };
+    return { session_id: data.session?.sessionId ?? '', expires_at: data.session?.expiresAt ?? '' };
+  }
+
+  async get(input: { session_id: string; origin: string; user_agent: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/get', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, origin: input.origin, userAgent: input.user_agent }) })).then((r) => r.json());
+  }
+
+  async updateFormDraft(input: { session_id: string; form_draft: Record<string, string>; origin: string; user_agent: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/draft', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, formDraft: input.form_draft, origin: input.origin, userAgent: input.user_agent }) })).then((r) => r.json());
+  }
+
+  async markConvertedAndDelete(input: { session_id: string; order_id: string; origin: string; user_agent: string }): Promise<{ deleted: true } | { error: string }> {
+    const res = await this.fetch(new Request('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, orderId: input.order_id, origin: input.origin, userAgent: input.user_agent }) }));
+    if (!res.ok) {
+      const data = await res.json() as { error?: string };
+      return { error: data.error ?? 'CLEAR_FAILED' };
+    }
+    return { deleted: true };
   }
 }
 

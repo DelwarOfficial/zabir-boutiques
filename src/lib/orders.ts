@@ -130,13 +130,14 @@ export async function insertReservedOrderWithRetry(
       );
     });
 
-    const reservationStmts = items.map(item =>
-      db.prepare(
+    const reservationStmts = items.map((item) => {
+      item.reservationId ??= crypto.randomUUID();
+      return db.prepare(
         `INSERT INTO stock_reservations (
           id, order_id, variant_id, quantity, status, expires_at, created_at, updated_at
         ) VALUES (?1, ?2, ?3, ?4, 'active', ?5, ?6, ?6)`
-      ).bind(item.reservationId ?? crypto.randomUUID(), orderId, item.variantId, item.quantity, expiresAt, now)
-    );
+      ).bind(item.reservationId, orderId, item.variantId, item.quantity, expiresAt, now);
+    });
 
     try {
       // atomic:true so an order row, its order_items, and its stock_reservations

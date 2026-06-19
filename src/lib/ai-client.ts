@@ -18,6 +18,8 @@
  */
 import { chargeBudget, configureScope } from "../do/budget-counter-do";
 import { moderate } from "./content-moderation";
+import { DeepSeekClient } from "./integrations/deepseek";
+import { WorkersAIClient } from "./integrations/workers_ai";
 
 interface Env {
   AI: Ai;
@@ -35,13 +37,6 @@ export interface AiCallResult {
   costUsdCents: number;
   moderation?: "allow" | "quarantine" | "block";
 }
-
-const TASK_MODEL: Record<AiTask, string> = {
-  describe_product: "@cf/meta/llama-3.1-8b-instruct",
-  summarize_review: "@cf/meta/llama-3.1-8b-instruct",
-  translate: "@cf/meta/m2m100-1.2b",
-  copy_suggestion: "@cf/meta/llama-3.1-8b-instruct",
-};
 
 const COST_PER_1K_TOKENS_CENTS = 2; // approx; tunable
 
@@ -103,14 +98,10 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
 }
 
 async function runWorkersAi(env: Env, task: AiTask, prompt: string): Promise<AiCallResult> {
-  const model = TASK_MODEL[task];
-  const resp = (await env.AI.run(model as never, {
-    messages: [
-      { role: "system", content: "You write concise, brand-appropriate copy for a Bangladeshi boutique. Stay under 80 words." },
-      { role: "user", content: prompt },
-    ],
-  })) as { response?: string } | undefined;
-  const text = resp?.response ?? "";
+  const client = new WorkersAIClient(env.AI);
+  const text = (await client.generateProductDescription(
+    `Task: ${task}\nYou write concise, brand-appropriate copy for a Bangladeshi boutique. Stay under 80 words.\n\n${prompt}`,
+  )).text;
   if (!text) throw new Error("workers-ai empty response");
   const cost = estimateCostCents(text.split(/\s+/).length);
   if (env.ANALYTICS) {
@@ -120,21 +111,10 @@ async function runWorkersAi(env: Env, task: AiTask, prompt: string): Promise<AiC
 }
 
 async function runDeepSeek(env: Env, task: AiTask, prompt: string): Promise<AiCallResult> {
-  const url = env.AI_FALLBACK_URL!;
-  const r = await fetch(url, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.AI_FALLBACK_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model: "deepseek-chat",
-      messages: [
-        { role: "system", content: "You write concise, brand-appropriate copy for a Bangladeshi boutique. Stay under 80 words." },
-        { role: "user", content: prompt },
-      ],
-    }),
-  });
-  if (!r.ok) throw new Error(`deepseek http ${r.status}`);
-  const data = (await r.json()) as { choices?: Array<{ message?: { content?: string } }> };
-  const text = data.choices?.[0]?.message?.content ?? "";
+  const client = new DeepSeekClient({ DEEPSEEK_API_KEY: env.AI_FALLBACK_KEY, DEEPSEEK_BASE_URL: env.AI_FALLBACK_URL });
+  const text = (await client.generateProductDescription(
+    `Task: ${task}\nYou write concise, brand-appropriate copy for a Bangladeshi boutique. Stay under 80 words.\n\n${prompt}`,
+  )).text;
   if (!text) throw new Error("deepseek empty response");
   const cost = estimateCostCents(text.split(/\s+/).length);
   if (env.ANALYTICS) {

@@ -17,7 +17,7 @@ import { nowSql } from "../lib/dates";
 import { writeAuditLog } from "../lib/audit";
 import { trackMetric } from "../lib/analytics";
 import { safeLog } from "../lib/pii-scrubber";
-import { sendTransactionalEmail } from "../lib/email";
+import { sendAbandonedCartEmail, sendTransactionalEmail } from "../lib/email";
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
@@ -37,7 +37,7 @@ export async function processPaymentWebhookMessage(
   env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
   invoiceId: string,
 ): Promise<void> {
-  const verified = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
+  const verified = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
   if (verified.status !== "paid") return;
 
   const result = await applyPaymentVerified(
@@ -123,7 +123,7 @@ export async function scanAbandonedCarts(env: { DB: D1Database; ORDER_EMAILS?: Q
 
 export async function handleOrderEmailBatch(
   batch: MessageBatch<OrderEmailMessage>,
-  env: { DB: D1Database; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string },
+  env: { DB: D1Database; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string; EMAIL_PROVIDER?: string; PUBLIC_SITE_URL?: string },
 ): Promise<void> {
   for (const msg of batch.messages) {
     try {
@@ -131,10 +131,10 @@ export async function handleOrderEmailBatch(
 
       if (emailType === 'abandoned_cart' && msg.body.sessionId) {
         const row = await env.DB.prepare(
-          `SELECT converted_order_id, customer_email
+          `SELECT converted_order_id, customer_email, customer_name
            FROM cart_activity
            WHERE session_id = ?1`,
-        ).bind(msg.body.sessionId).first<{ converted_order_id: string | null; customer_email: string | null }>();
+        ).bind(msg.body.sessionId).first<{ converted_order_id: string | null; customer_email: string | null; customer_name: string | null }>();
         if (!row || row.converted_order_id !== null || !row.customer_email) {
           await env.DB.prepare(
             `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
@@ -143,10 +143,17 @@ export async function handleOrderEmailBatch(
           msg.ack();
           continue;
         }
-        await env.DB.prepare(
-          `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-           VALUES (?1, NULL, 'abandoned_cart', ?2, 'queued', NULL, NULL, datetime('now'))`,
-        ).bind(crypto.randomUUID(), row.customer_email).run();
+        const sendResult = await sendAbandonedCartEmail(env, {
+          session_id: msg.body.sessionId,
+          name: row.customer_name?.trim() || 'there',
+          email: row.customer_email,
+          recovery_url: `${(env.PUBLIC_SITE_URL ?? 'https://zabirboutiques.com').replace(/\/$/, '')}/checkout?session_id=${encodeURIComponent(msg.body.sessionId)}`,
+        });
+        if (!sendResult.ok) {
+          safeLog.error('[order-email-consumer] abandoned cart send failed', { sessionId: msg.body.sessionId, error: sendResult.error });
+          msg.retry({ delaySeconds: 30 });
+          continue;
+        }
         msg.ack();
         continue;
       }
@@ -273,7 +280,7 @@ export async function handleFraudAuditBatch(
   for (const msg of batch.messages) {
     try {
       const { checkFraudBD, decideFraudRisk } = await import("../lib/fraud");
-      const { score } = await checkFraudBD(msg.body.phone, env.FRAUDBD_API_KEY);
+      const { score } = await checkFraudBD(msg.body.phone, env.FRAUDBD_API_KEY, 1500, 'https://fraudbd.com', env);
       const decision = decideFraudRisk(score);
       await env.DB
         .prepare("UPDATE orders SET fraud_decision = ?2, updated_at = ?3 WHERE id = ?1")

@@ -15,6 +15,7 @@
  * staff dashboard surfaces it.
  */
 import { nowSql } from '../dates';
+import { releaseReservedVariants } from '../inventory';
 
 const PARTIAL_PREPAY_MAX_AGE_HOURS = 24;
 
@@ -54,19 +55,11 @@ export async function sweepStalePartialPrepayOrders(db: D1Database): Promise<{ c
 
     const resRows = reservations.results ?? [];
     if (resRows.length > 0) {
-      const releaseStmts = resRows.map(r =>
-        db.prepare(
-          `UPDATE inventory_items
-           SET reserved_quantity = MAX(reserved_quantity - ?1, 0), updated_at = ?3
-           WHERE variant_id = ?2`
-        ).bind(r.quantity, r.variant_id, now)
+      await releaseReservedVariants(
+        { DB: db },
+        resRows.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
+        now,
       );
-      const markStmts = resRows.map(r =>
-        db.prepare(
-          `UPDATE stock_reservations SET status = 'released', updated_at = ?2 WHERE id = ?1`
-        ).bind(r.id, now)
-      );
-      await db.batch([...releaseStmts, ...markStmts], { atomic: true });
       releasedReservations += resRows.length;
     }
 

@@ -9,5 +9,5 @@
 ALTER TABLE stock_reservations ADD COLUMN release_requested_at TEXT;
 
 CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_reservations_order_active
-  ON stock_reservations(order_id)
+  ON stock_reservations(order_id, variant_id)
   WHERE status = 'active';

@@ -27,7 +27,33 @@ import { nowSql } from "./dates";
 import { doConfirm, doReserve, doRelease, doSyncFromD1 } from "./do-client";
 
 type Env = { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace };
-type ReservableItem = { variantId: string; qty: number; reservationId?: string };
+export type ReservableItem = { variantId: string; qty: number; reservationId?: string };
+
+async function syncVariantsFromD1(env: Env, variantIds: string[]): Promise<void> {
+  if (!env.VARIANT_INVENTORY_DO || variantIds.length === 0) return;
+  await Promise.all([...new Set(variantIds)].map(async (variantId) => {
+    const row = await env.DB
+      .prepare(
+        `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
+         FROM inventory_items WHERE variant_id = ?1`,
+      )
+      .bind(variantId)
+      .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
+    if (row) await doSyncFromD1(env, variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
+  }));
+}
+
+export async function syncConfirmedReservationsDoState(env: Env, items: ReservableItem[]): Promise<void> {
+  if (!env.VARIANT_INVENTORY_DO || items.length === 0) return;
+  await Promise.all(items.map((item) => doConfirm(env, item.variantId, item.qty, item.reservationId)));
+  await syncVariantsFromD1(env, items.map((item) => item.variantId));
+}
+
+export async function syncReleasedReservationsDoState(env: Env, items: ReservableItem[]): Promise<void> {
+  if (!env.VARIANT_INVENTORY_DO || items.length === 0) return;
+  await Promise.all(items.map((item) => doRelease(env, item.variantId, item.qty, item.reservationId)));
+  await syncVariantsFromD1(env, items.map((item) => item.variantId));
+}
 
 export async function reserveVariants(
   env: Env,
@@ -77,24 +103,15 @@ export async function reserveVariants(
   const failedIndex = results.findIndex(result => result.meta.changes !== 1);
 
   if (failedIndex === -1) {
-    // Sync the DOs with the new D1 state so future DO-only reads see reality.
-    if (env.VARIANT_INVENTORY_DO) {
-      await Promise.all(items.map(async item => {
-        const row = await db
-          .prepare(
-            `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
-             FROM inventory_items WHERE variant_id = ?1`,
-          )
-          .bind(item.variantId)
-          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
-        if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
-      }));
+    for (const item of items) {
+      item.reservationId ??= crypto.randomUUID();
     }
+    await syncVariantsFromD1(env, items.map((item) => item.variantId));
     return {
       ok: true,
       reservations: items.map((item) => ({
         variantId: item.variantId,
-        reservationId: item.reservationId ?? `d1-${item.variantId}-${now}`,
+        reservationId: item.reservationId!,
         quantity: item.qty,
       })),
     };
@@ -131,17 +148,27 @@ export async function releaseReservedVariants(
 ): Promise<void> {
   if (items.length === 0) return;
   const db = env.DB;
-  const releaseStmts = items.map(item =>
-    db.prepare(
-      `UPDATE inventory_items
-       SET reserved_quantity = reserved_quantity - ?1, updated_at = ?3
-       WHERE variant_id = ?2 AND reserved_quantity >= ?1`
-    ).bind(item.qty, item.variantId, now)
-  );
+  const releaseStmts = items.flatMap((item) => {
+    const stmts = [
+      db.prepare(
+        `UPDATE inventory_items
+         SET reserved_quantity = reserved_quantity - ?1, updated_at = ?3
+         WHERE variant_id = ?2 AND reserved_quantity >= ?1`
+      ).bind(item.qty, item.variantId, now),
+    ];
+    if (item.reservationId) {
+      stmts.push(
+        db.prepare(
+          `UPDATE stock_reservations
+           SET status = 'released', updated_at = ?2
+           WHERE id = ?1 AND status IN ('active','release_requested')`
+        ).bind(item.reservationId, now),
+      );
+    }
+    return stmts;
+  });
   await db.batch(releaseStmts, { atomic: true });
-  if (env.VARIANT_INVENTORY_DO) {
-    await Promise.all(items.map(item => doRelease(env, item.variantId, item.qty, item.reservationId)));
-  }
+  await syncReleasedReservationsDoState(env, items);
 }
 
 /**
@@ -165,9 +192,6 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
 
   const rows = expired.results ?? [];
   if (rows.length === 0) return;
-
-  // Unique variants in this batch (avoid re-syncing the same DO).
-  const variantIds = Array.from(new Set(rows.map(r => r.variant_id)));
 
   const CHUNK_ROWS = 25;
   for (let i = 0; i < rows.length; i += CHUNK_ROWS) {
@@ -198,20 +222,7 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
         ).bind(row.id, now),
       ], { atomic: true });
     }
-  }
-
-  // Sync DOs with the new reserved_quantity values.
-  if (env.VARIANT_INVENTORY_DO) {
-    await Promise.all(variantIds.map(async variantId => {
-      const row = await db
-        .prepare(
-          `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
-           FROM inventory_items WHERE variant_id = ?1`,
-        )
-        .bind(variantId)
-        .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
-      if (row) await doSyncFromD1(env, variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
-    }));
+    await syncVariantsFromD1(env, claimedRows.map((row) => row.variant_id));
   }
 }
 
@@ -227,33 +238,34 @@ export async function confirmReservedVariants(
 ): Promise<{ ok: true } | { ok: false; failedVariantId: string }> {
   if (items.length === 0) return { ok: true };
   const db = env.DB;
-  const deductStmts = items.map(item =>
-    db.prepare(
-      `UPDATE inventory_items
-       SET reserved_quantity = reserved_quantity - ?1,
-           quantity = quantity - ?1,
-           updated_at = ?3
-       WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
-    ).bind(item.qty, item.variantId, now)
-  );
+  const deductStmts = items.flatMap((item) => {
+    const stmts = [
+      db.prepare(
+        `UPDATE inventory_items
+         SET reserved_quantity = reserved_quantity - ?1,
+             quantity = quantity - ?1,
+             updated_at = ?3
+         WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
+      ).bind(item.qty, item.variantId, now),
+    ];
+    if (item.reservationId) {
+      stmts.push(
+        db.prepare(
+          `UPDATE stock_reservations
+           SET status = 'confirmed', updated_at = ?2
+           WHERE id = ?1 AND status = 'active'`
+        ).bind(item.reservationId, now),
+      );
+    }
+    return stmts;
+  });
   const results = await db.batch(deductStmts, { atomic: true });
-  const failedIndex = results.findIndex(r => r.meta.changes !== 1);
+  const failedIndex = items.findIndex((item, index) => {
+    const inventoryResult = results[index * (item.reservationId ? 2 : 1)];
+    return inventoryResult?.meta.changes !== 1;
+  });
   if (failedIndex === -1) {
-    if (env.VARIANT_INVENTORY_DO) {
-      await Promise.all(items.map(item => doConfirm(env, item.variantId, item.qty, item.reservationId)));
-    }
-    if (env.VARIANT_INVENTORY_DO) {
-      await Promise.all(items.map(async item => {
-        const row = await db
-          .prepare(
-            `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
-             FROM inventory_items WHERE variant_id = ?1`,
-          )
-          .bind(item.variantId)
-          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
-        if (row) await doSyncFromD1(env, item.variantId, row.quantity, row.reserved_quantity, row.sold_quantity);
-      }));
-    }
+    await syncConfirmedReservationsDoState(env, items);
     return { ok: true };
   }
   return { ok: false, failedVariantId: items[failedIndex].variantId };

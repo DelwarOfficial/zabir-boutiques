@@ -13,6 +13,7 @@
 export type PaymentStatus = 'created' | 'pending' | 'processing' | 'paid' | 'partially_paid' | 'failed' | 'cancelled' | 'expired' | 'refunded' | 'partially_refunded';
 
 import { UddoktaPayClient } from './integrations/uddoktapay';
+import { syncConfirmedReservationsDoState, syncReleasedReservationsDoState } from './inventory';
 
 export interface VerifiedPayment {
   status: PaymentStatus;
@@ -297,6 +298,10 @@ export async function applyPaymentVerified(
     .first<{ status: string }>();
 
   if (orderAfter?.status === 'payment_verified') {
+    await syncConfirmedReservationsDoState(
+      env,
+      reservationRows.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
+    );
     return {
       ok: true,
       status: 'paid',
@@ -306,15 +311,15 @@ export async function applyPaymentVerified(
   }
 
   // P0-002: over-allocated transition is now a single atomic batch.
-  // Either all three statements commit (stock_reservations cancelled,
+  // Either all three statements commit (stock_reservations released,
   // order moved to paid_over_allocated, alert written) or none do.
   await db.batch(
     [
       db
         .prepare(
           `UPDATE stock_reservations
-           SET status = 'cancelled', updated_at = ?2
-           WHERE order_id = ?1 AND status = 'active'`,
+           SET status = 'released', updated_at = ?2
+            WHERE order_id = ?1 AND status = 'active'`,
         )
         .bind(payment.order_id, now),
       db
@@ -331,6 +336,10 @@ export async function applyPaymentVerified(
         .bind(crypto.randomUUID(), reservationRows[0]?.variant_id ?? 'unknown', now),
     ],
     { atomic: true },
+  );
+  await syncReleasedReservationsDoState(
+    env,
+    reservationRows.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
   );
 
   return {

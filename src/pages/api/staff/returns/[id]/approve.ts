@@ -22,6 +22,7 @@ import { writeAuditLog, clientIp, userAgent } from "../../../../../lib/audit";
 import { canTransition } from "../../../../../lib/order-state-machine";
 import { doSyncFromD1 } from "../../../../../lib/do-client";
 import { verifyUddoktaPayment } from "../../../../../lib/payments";
+import { UddoktaPayClient } from "../../../../../lib/integrations/uddoktapay";
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -99,7 +100,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (payment && payment.status === "paid") {
     // Re-verify the payment is actually settled on the gateway side.
-    const verified = await verifyUddoktaPayment(payment.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
+    const verified = await verifyUddoktaPayment(payment.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
     if (verified.status !== "paid") {
       return Response.json({ ok: false, code: "REFUND_FAILED_PAYMENT_UNVERIFIED" }, { status: 409 });
     }
@@ -125,16 +126,12 @@ export async function POST(context: APIContext): Promise<Response> {
       refundAmount = Math.min(requestedRefund, payment.amount_paisa);
 
       try {
-        const r = await fetch(`${env.UDDOKTAPAY_BASE_URL}/api/refund-payment`, {
-          method: "POST",
-          headers: { "RT-UDDOKTAPAY-API-KEY": env.UDDOKTAPAY_API_KEY, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            invoice_id: payment.invoice_id,
-            amount: (refundAmount / 100).toFixed(2),
-            reason: "return_approved",
-          }),
+        const refund = await new UddoktaPayClient(env).refundPayment({
+          invoiceId: payment.invoice_id,
+          amountPaisa: refundAmount,
+          reason: "return_approved",
         });
-        if (!r.ok) {
+        if (!refund.ok) {
           // Roll back the claim so a retry can try again.
           await env.DB
             .prepare(
@@ -142,7 +139,7 @@ export async function POST(context: APIContext): Promise<Response> {
             )
             .bind(payment.id, payment.invoice_id, now)
             .run();
-          return Response.json({ ok: false, code: "REFUND_API_FAILED", status: r.status }, { status: 502 });
+          return Response.json({ ok: false, code: "REFUND_API_FAILED", status: refund.errorCode ?? 'REFUND_FAILED' }, { status: 502 });
         }
         // Mark the payment refunded so future return requests on the
         // same order can short-circuit.

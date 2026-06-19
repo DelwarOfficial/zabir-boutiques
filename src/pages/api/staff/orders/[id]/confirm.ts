@@ -3,6 +3,7 @@ import { getEnv } from '../../../../../lib/env';
 import { nowSql } from '../../../../../lib/dates';
 import { requireAuth, requirePermission, canConfirmOrder, RbacError } from '../../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
+import { syncConfirmedReservationsDoState } from '../../../../../lib/inventory';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -119,7 +120,7 @@ export async function POST(context: APIContext): Promise<Response> {
     );
     const confirmStmts = resRows.map(r =>
       env.DB.prepare(
-        `UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`
+        `UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1 AND status = 'active'`
       ).bind(r.id, now)
     );
     const orderUpdate = env.DB.prepare(
@@ -136,6 +137,10 @@ export async function POST(context: APIContext): Promise<Response> {
     // fails, reservation already confirmed), the whole batch rolls
     // back. A retry returns 200 alreadyConfirmed (idempotent).
     await env.DB.batch([...deductStmts, ...confirmStmts, orderUpdate, historyInsert], { atomic: true });
+    await syncConfirmedReservationsDoState(
+      env as unknown as Parameters<typeof syncConfirmedReservationsDoState>[0],
+      resRows.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
+    );
   } else {
     // 'payment_verified' / 'paid_over_allocated' confirmations: the
     // webhook already deducted stock. We only flip the status. The

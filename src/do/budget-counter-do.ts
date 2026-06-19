@@ -10,6 +10,8 @@
  * stored in the DO so admins can hot-reload them via the
  * staff/dev/api-keys page (or a future admin route).
  */
+import type { BudgetCounterDOContract } from '../lib/contracts/budget-counter-do';
+
 interface Env {
   AI_BUDGET: DurableObjectNamespace;
   DB?: D1Database;
@@ -48,7 +50,7 @@ const DEFAULT_LIMITS: Record<BudgetProvider, { dailyUsdCents: number; monthlyUsd
 
 type ProviderLimits = { dailyUsdCents: number; monthlyUsdCents: number; dailyCalls: number; monthlyCalls: number; ownerOverride: boolean };
 
-export class BudgetCounterDO implements DurableObject {
+export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
   private storage: DurableObjectStorage;
   private env: Env;
   private cfg: BudgetConfig | null = null;

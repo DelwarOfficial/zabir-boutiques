@@ -18,15 +18,24 @@
 | Email | Added canonical `src/lib/integrations/email/{provider}/` adapter layout and `EMAIL_PROVIDER` provider selection; routed transactional email through the factory. |
 | BudgetCounterDO | Added `recordUsage`, `canUseDeepSeek`, `canUseWorkersAI`, and `canUseImagify` methods with strictest-limit-wins defaults. |
 | AI adapters | Added canonical DeepSeek and Workers AI adapter layout, removed direct OpenAI usage, and wired product-content generation through adapters with staff-route budget preflight/fallback/usage recording. |
+| Payment, fraud, and image adapters | Added canonical UddoktaPay, FraudBD, and Tinify adapter layouts; moved payment creation/verification/refund, fraud checks, and Tinify compression flows behind adapters with API audit logging and provider-health hooks. |
+| Cloudflare helper adapters | Added canonical Cloudflare Turnstile and Cloudflare cache purge adapter layouts; routed `verifyTurnstile()` and cache-tag purge through provider clients with API audit logging. |
+| Reservation lifecycle | Threaded reservation IDs through reserve, order insertion, release, confirm, cleanup, and DO sync paths so `stock_reservations.id` is the shared reservation authority. |
+| Reservation cleanup/index repair | Updated cleanup helpers to claim/stamp before release and added migration `0028_fix_stock_reservations_active_index_shape.sql` to align the active-reservation unique index with per-variant reservation rows. |
+| DO contracts | Added contract-style methods and `implements` adoption on the core DO classes so Section 36 contracts are represented directly on the concrete implementations. |
+| Abandoned cart email | Replaced queue-only abandoned-cart logging with a real provider-backed email send path after consumer-side conversion re-check. |
 | Static pages and contracts | Added prerendered legal/info pages and filled the missing Section 36 contract stub files under `src/lib/contracts/`. |
-| Tests | Added `tests/master-plan-v7-guardrails.test.ts` covering rendering, migrations, checkout, POS, FraudBD constants, Buy Now, abandoned cart, budget, and email provider selection. |
+| Tests | Added `tests/master-plan-v7-guardrails.test.ts` and `tests/provider-adapters.test.ts` covering rendering, migrations, checkout, POS, FraudBD constants, Buy Now, abandoned cart, budget, adapterized provider paths, and AI fallback behavior. |
 
 ## Tests Run
 
 | Command | Result | Notes |
 |---|---|---|
 | `npx vitest run tests/master-plan-v7-guardrails.test.ts` | PASS | 14 tests passed. |
-| `npm test` | PASS | 33 files, 303 tests passed. |
+| `npx vitest run tests/provider-adapters.test.ts tests/fraud.test.ts tests/payments.test.ts tests/master-plan-v7-guardrails.test.ts` | PASS | 4 files, 46 tests passed. |
+| `npx vitest run tests/reservation-lifecycle.test.ts tests/payments.test.ts tests/master-plan-v7-guardrails.test.ts` | PASS | 3 files, 28 tests passed. |
+| `npx vitest run tests/migration-fixtures.test.ts tests/abandoned-cart-email.test.ts tests/reservation-lifecycle.test.ts` | PASS | 3 files, 13 tests passed. |
+| `npm test` | PASS | 37 files, 329 tests passed. |
 | `npx tsc --noEmit` | PASS | Passing after the latest AI/provider and Buy Now typing changes; required `npm install` first because declared dependency `web-vitals` was missing from `node_modules`. |
 | `npm run typecheck` | FAIL/BLOCKED | `astro check` starts Wrangler remote proxy and fails Cloudflare auth: `Failed to fetch auth token: 400 Bad Request`. `tsc` passes separately. |
 | `npm run lint` | FAIL/BLOCKED | No `lint` script exists in `package.json`. |
@@ -37,11 +46,9 @@
 
 | Severity | Risk |
 |---|---|
-| P1 | Full FraudBD adapter audit logging to `api_audit_logs` and the complete 25-test Section 37 suite are not fully implemented; current fix aligns core thresholds/fallback behavior. |
-| P1 | AI adapters now exist and the staff product-content path is wired, but adapter-level timeout/mock/audit tests and broader AI route coverage are still incomplete. |
-| P1 | Payment/courier/image external APIs still need full canonical adapter/audit/circuit-breaker coverage beyond email. |
+| P1 | FraudBD adapter audit logging now exists for active request outcomes, but the complete 25-test Section 37 suite and full state-transition coverage are still not fully implemented. |
+| P1 | Courier provider coverage still needs equivalent canonical adapter treatment if courier APIs are brought under the same compliance scope. |
 | P1 | Migration dry-run needs a clean local D1 state or idempotent repair for old migrations before it can validate all migrations end-to-end. |
-| P2 | `stock_reservations` reservation IDs are still not fully threaded through checkout release/confirm calls; new schema constraint is present, but a deeper reservation lifecycle refactor remains. |
 
 ## Files Changed
 
@@ -56,26 +63,37 @@
 - `db/migrations/0024_stock_reservations_unique_constraint.sql`
 - `db/migrations/0025_cart_activity_v7_cleanup.sql`
 - `db/migrations/0026_add_checkout_vat_paisa.sql`
+- `db/migrations/0027_stock_reservations_status_rebuild.sql`
+- `db/migrations/0028_fix_stock_reservations_active_index_shape.sql`
 - `db/migrations/rollback/0021_rollback_create_otp_secrets.sql`
 - `db/migrations/rollback/0022_rollback_create_api_audit_logs.sql`
 - `db/migrations/rollback/0023_rollback_create_ai_budget_limits.sql`
 - `db/migrations/rollback/0024_rollback_stock_reservations_unique_constraint.sql`
 - `db/migrations/rollback/0025_rollback_cart_activity_v7_cleanup.sql`
 - `db/migrations/rollback/0026_rollback_add_checkout_vat_paisa.sql`
+- `db/migrations/rollback/0028_rollback_fix_stock_reservations_active_index_shape.sql`
 - `src/do/budget-counter-do.ts`
 - `src/do/cart-do.ts`
 - `src/do/direct-checkout-session-do.ts`
+- `src/do/idempotency-do.ts`
 - `src/do/provider-health-do.ts`
 - `src/do/variant-inventory-do.ts`
+- `src/lib/api-audit.ts`
 - `src/lib/checkout-pricing.ts`
 - `src/lib/cron-dispatch.ts`
 - `src/lib/ai-content.ts`
+- `src/lib/ai-client.ts`
+- `src/lib/cache-api.ts`
 - `src/lib/do-client.ts`
 - `src/lib/email.ts`
 - `src/lib/invoices.ts`
 - `src/lib/maintenance/abandoned-cart.ts`
+- `src/lib/maintenance/partial-prepay.ts`
+- `src/lib/maintenance/reconciliation.ts`
 - `src/lib/orders.ts`
 - `src/lib/fraud.ts`
+- `src/lib/payments.ts`
+- `src/lib/tinify.ts`
 - `src/lib/contracts/ai-provider.ts`
 - `src/lib/contracts/budget-counter-do.ts`
 - `src/lib/contracts/cart-do.ts`
@@ -91,6 +109,11 @@
 - `src/lib/integrations/deepseek/index.ts`
 - `src/lib/integrations/deepseek/mock.ts`
 - `src/lib/integrations/deepseek/types.ts`
+- `src/lib/integrations/fraudbd/client.ts`
+- `src/lib/integrations/fraudbd/errors.ts`
+- `src/lib/integrations/fraudbd/index.ts`
+- `src/lib/integrations/fraudbd/mock.ts`
+- `src/lib/integrations/fraudbd/types.ts`
 - `src/lib/integrations/email/index.ts`
 - `src/lib/integrations/email/types.ts`
 - `src/lib/integrations/email/resend/client.ts`
@@ -103,17 +126,42 @@
 - `src/lib/integrations/email/cloudflare_email/index.ts`
 - `src/lib/integrations/email/cloudflare_email/mock.ts`
 - `src/lib/integrations/email/cloudflare_email/types.ts`
+- `src/lib/integrations/cloudflare_cache/client.ts`
+- `src/lib/integrations/cloudflare_cache/errors.ts`
+- `src/lib/integrations/cloudflare_cache/index.ts`
+- `src/lib/integrations/cloudflare_cache/mock.ts`
+- `src/lib/integrations/cloudflare_cache/types.ts`
+- `src/lib/integrations/cloudflare_turnstile/client.ts`
+- `src/lib/integrations/cloudflare_turnstile/errors.ts`
+- `src/lib/integrations/cloudflare_turnstile/index.ts`
+- `src/lib/integrations/cloudflare_turnstile/mock.ts`
+- `src/lib/integrations/cloudflare_turnstile/types.ts`
+- `src/lib/integrations/tinify/client.ts`
+- `src/lib/integrations/tinify/errors.ts`
+- `src/lib/integrations/tinify/index.ts`
+- `src/lib/integrations/tinify/mock.ts`
+- `src/lib/integrations/tinify/types.ts`
+- `src/lib/integrations/uddoktapay/client.ts`
+- `src/lib/integrations/uddoktapay/errors.ts`
+- `src/lib/integrations/uddoktapay/index.ts`
+- `src/lib/integrations/uddoktapay/mock.ts`
+- `src/lib/integrations/uddoktapay/types.ts`
 - `src/lib/integrations/workers_ai/client.ts`
 - `src/lib/integrations/workers_ai/errors.ts`
 - `src/lib/integrations/workers_ai/index.ts`
 - `src/lib/integrations/workers_ai/mock.ts`
 - `src/lib/integrations/workers_ai/types.ts`
+- `src/lib/turnstile.ts`
 - `src/pages/about.astro`
 - `src/pages/api/buy-now/session.ts`
 - `src/pages/api/buy-now/submit.ts`
 - `src/pages/api/checkout.ts`
+- `src/pages/api/fraud/check.ts`
+- `src/pages/api/payments/create.ts`
 - `src/pages/api/staff/ai/generate-product-content.ts`
 - `src/pages/api/staff/orders/create.ts`
+- `src/pages/api/staff/returns/[id]/approve.ts`
+- `src/pages/api/staff/uploads.ts`
 - `src/pages/privacy.astro`
 - `src/pages/return-policy.astro`
 - `src/pages/size-guide.astro`
@@ -121,7 +169,11 @@
 - `src/pages/buy-now/[slug].astro`
 - `src/pages/products/[slug].astro`
 - `src/queues/consumers.ts`
+- `tests/abandoned-cart-email.test.ts`
 - `tests/master-plan-v7-guardrails.test.ts`
+- `tests/migration-fixtures.test.ts`
+- `tests/provider-adapters.test.ts`
+- `tests/reservation-lifecycle.test.ts`
 
 ## Section 31 Agent Conflict Checklist
 
@@ -133,9 +185,9 @@
 | Checkout ignores client money/VAT/stock | PASS for checkout parser/tamper detection; VAT now recomputed. |
 | Money uses integer paisa | PASS for changed commerce paths; existing non-money `REAL priority` remains documented risk. |
 | FraudBD circuit breaker 5/60s -> 5min -> score 50 | PARTIAL: core DO/fallback values updated; full Section 37 suite still missing. |
-| Reservation release exists on failure branches | PARTIAL: existing rollback remains; reservation ID lifecycle still needs deeper refactor. |
+| Reservation release exists on failure branches | PASS for audited checkout, Buy Now, reconciliation, and cleanup paths with shared reservation IDs. |
 | `idx_stock_reservations_order_active` migration exists | PASS |
-| Reservation cleanup cron hourly / 15-min release stamp | PARTIAL: migration adds stamp/index; runtime cleanup still has older expiry-query shape. |
+| Reservation cleanup cron hourly / 15-min release stamp | PASS for claim-before-release runtime path and migration support. |
 | Abandoned cart D1 index + 24h + dedup + re-check | PASS for added migration and consumer/scan path. |
 | POS uses invoice ledger and `directSale()` | PASS |
 | POS D1 invoice write failure calls `reverseDirectSale()` | PASS for DO-bound path. |
@@ -145,12 +197,12 @@
 | Buy Now isolated from CartDO and binding-verified | PASS for audited paths. |
 | Staff routes RBAC | Existing tests pass. |
 | Webhooks verify HMAC | Existing webhook tests pass. |
-| External APIs use adapters only | PARTIAL: email and product-content AI paths are adapterized; payment/image/courier and broader AI coverage still need continued hardening. |
+| External APIs use adapters only | PASS for current repo-scoped third-party/provider paths audited: email, AI, payment, fraud, Tinify, Turnstile, and Cloudflare cache purge all route through adapters. Courier coverage remains a future provider-area expansion rather than an active direct-call bypass in current code. |
 | Required D1 tables exist via migrations | PASS |
 | BudgetCounterDO exposes required methods | PASS |
 | No `output: 'static'` in non-Markdown source | PASS |
 | No `prerender = false` in routes | PASS |
-| Tests cover D1 constraints/failure paths | PARTIAL: existing tests plus new guardrails pass; full migration forward/rollback fixture suite remains incomplete. |
+| Tests cover D1 constraints/failure paths | PARTIAL: existing tests plus guardrail, adapter, reservation-lifecycle, and migration-fixture coverage pass; full DB-executed migration fixtures remain incomplete because local migration replay is environment-blocked. |
 
 ## Next Manual Checks
 

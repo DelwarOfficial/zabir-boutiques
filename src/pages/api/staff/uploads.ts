@@ -64,20 +64,20 @@ export async function POST(context: APIContext): Promise<Response> {
   let storedBuffer = buffer;
   let storedContentType = file.type;
 
-  const compressResult = await compressImage(buffer, env.TINIFY_API_KEY);
+  const compressResult = await compressImage(buffer, env.TINIFY_API_KEY, env);
 
   let isCompressed = 0;
   let thumbnailUploaded = false;
 
   if (compressResult.ok) {
-    const downloaded = await downloadCompressed(compressResult.locationUrl, env.TINIFY_API_KEY);
+    const downloaded = await downloadCompressed(compressResult.locationUrl, env.TINIFY_API_KEY, env);
     if (downloaded.ok) {
       await env.MEDIA.put(r2Key, downloaded.compressed, { httpMetadata: { contentType: compressResult.contentType } });
       storedBuffer = downloaded.compressed;
       storedContentType = compressResult.contentType;
       isCompressed = 1;
 
-      const thumbResult = await generateThumbnail(compressResult.locationUrl, env.TINIFY_API_KEY);
+      const thumbResult = await generateThumbnail(compressResult.locationUrl, env.TINIFY_API_KEY, env);
       if (thumbResult.ok) {
         const thumbKey = thumbnailR2Key(r2Key);
         await env.MEDIA.put(thumbKey, thumbResult.data, { httpMetadata: { contentType: 'image/webp' } });

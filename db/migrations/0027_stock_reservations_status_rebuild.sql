@@ -26,5 +26,5 @@ ALTER TABLE stock_reservations_v7 RENAME TO stock_reservations;
 CREATE INDEX IF NOT EXISTS idx_reservations_status_expires ON stock_reservations(status, expires_at);
 CREATE INDEX IF NOT EXISTS idx_reservations_order ON stock_reservations(order_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_reservations_order_active
-  ON stock_reservations(order_id)
+  ON stock_reservations(order_id, variant_id)
   WHERE status = 'active';

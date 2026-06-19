@@ -1,3 +1,5 @@
+import { CloudflareCacheClient } from './integrations/cloudflare_cache';
+
 /**
  * Cloudflare Cache API [Master_Prompt v7.0 §19.1]
  *
@@ -63,11 +65,6 @@ async function revalidate(request: Request, type: CacheType): Promise<Response> 
  * Purge by cache tag via Cloudflare API.
  * Requires env.CF_API_TOKEN + env.CF_ZONE_ID.
  */
-export async function purgeCacheTag(env: { CF_API_TOKEN?: string; CF_ZONE_ID?: string }, tag: string): Promise<void> {
-  if (!env.CF_API_TOKEN || !env.CF_ZONE_ID) return;
-  await fetch(`https://api.cloudflare.com/client/v4/zones/${env.CF_ZONE_ID}/purge_cache`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${env.CF_API_TOKEN}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ tags: [tag] }),
-  }).catch((err) => import('./pii-scrubber').then(({ safeLog }) => safeLog.warn("[cache] purge failed", { error: err instanceof Error ? err.message : String(err) })).catch(() => {}));
+export async function purgeCacheTag(env: { CF_API_TOKEN?: string; CF_ZONE_ID?: string; DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }, tag: string): Promise<void> {
+  await new CloudflareCacheClient(env).purgeTags([tag]);
 }

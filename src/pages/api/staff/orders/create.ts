@@ -12,7 +12,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertSalesAccess, isOwnerTier, RbacError } from '../../../../lib/rbac';
 import { normalizeBangladeshPhone } from '../../../../lib/phone';
-import { reserveVariants, releaseReservedVariants } from '../../../../lib/inventory';
+import { reserveVariants, releaseReservedVariants, syncConfirmedReservationsDoState } from '../../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../../lib/orders';
 import { loadVariantSnapshots, calculateAuthoritativeSubtotal, calculateDeliveryPaisa, type CheckoutCartItem } from '../../../../lib/checkout-pricing';
 import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../../../lib/money';
@@ -145,7 +145,7 @@ export async function POST(context: APIContext): Promise<Response> {
   // FraudBD check (skip for in-store)
   let fraudDecision = 'approved';
   if (!isInStore) {
-    const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
+    const { score } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY, 1500, 'https://fraudbd.com', env);
     fraudDecision = decideFraudRisk(score);
     if (fraudDecision === 'blocked') {
       if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
@@ -208,9 +208,13 @@ export async function POST(context: APIContext): Promise<Response> {
           ).bind(r.quantity, r.variant_id, now)
         );
         const confirmStmts = reservations.results.map(r =>
-          env.DB.prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`).bind(r.id, now)
+          env.DB.prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1 AND status = 'active'`).bind(r.id, now)
         );
         await env.DB.batch([...deductStmts, ...confirmStmts], { atomic: true });
+        await syncConfirmedReservationsDoState(
+          env as unknown as Parameters<typeof syncConfirmedReservationsDoState>[0],
+          reservations.results.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
+        );
       }
 
       // In-store orders are paid at the counter; mark payment_status='paid'

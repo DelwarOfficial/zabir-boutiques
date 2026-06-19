@@ -22,10 +22,6 @@ export type ResizeOptions = {
 
 export type ConvertTarget = 'image/webp' | 'image/avif' | 'image/jpeg' | 'image/png';
 
-function basicAuth(apiKey: string): string {
-  return `Basic ${btoa(`api:${apiKey}`)}`;
-}
-
 function nowSql(): string {
   return new Date().toISOString().replace('T', ' ').slice(0, 19);
 }

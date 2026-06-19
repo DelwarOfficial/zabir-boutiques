@@ -1,3 +1,5 @@
+import type { IdempotencyDOContract } from '../lib/contracts/idempotency-do';
+
 /**
  * IdempotencyDO [Master_Prompt v7.0 §2.3, §6.1]
  *
@@ -18,7 +20,7 @@ export interface IdempotencyRecord {
   expiresAt: number; // epoch ms
 }
 
-export class IdempotencyDO implements DurableObject {
+export class IdempotencyDO implements DurableObject, IdempotencyDOContract {
   private state: DurableObjectState;
   private cache = new Map<string, IdempotencyRecord>();
 
@@ -36,6 +38,18 @@ export class IdempotencyDO implements DurableObject {
     const obj: Record<string, IdempotencyRecord> = {};
     for (const [k, v] of this.cache.entries()) obj[k] = v;
     await this.state.storage.put("keys", obj);
+  }
+
+  async claim(input: { key: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/claim', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
+  }
+
+  async complete(input: { key: string; orderId: string; responseBody: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/complete', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
+  }
+
+  async fail(input: { key: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/fail', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json());
   }
 
   async fetch(request: Request): Promise<Response> {

@@ -55,10 +55,10 @@ export async function reconcilePendingPayments(
     try {
       const fromStatus = row.status;
       const reservations = await env.DB
-        .prepare("SELECT variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'")
+        .prepare("SELECT id, variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'")
         .bind(row.id)
-        .all<{ variant_id: string; quantity: number }>();
-      const items = (reservations.results ?? []).map(r => ({ variantId: r.variant_id, qty: r.quantity }));
+        .all<{ id: string; variant_id: string; quantity: number }>();
+      const items = (reservations.results ?? []).map(r => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id }));
       if (items.length > 0) {
         await releaseReservedVariants(env, items, now);
       }
@@ -121,7 +121,7 @@ export async function reconcilePendingPayments(
   for (const row of stale.results ?? []) {
     result.checked += 1;
     try {
-      const verified = await verifyUddoktaPayment(row.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL);
+      const verified = await verifyUddoktaPayment(row.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
       if (verified.status !== "paid") continue;
       const applyResult = await applyPaymentVerified(
         env,

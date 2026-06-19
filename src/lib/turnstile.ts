@@ -1,3 +1,5 @@
+import { CloudflareTurnstileClient } from './integrations/cloudflare_turnstile';
+
 /**
  * Cloudflare Turnstile [Master_Prompt v7.0 §9.3]
  *
@@ -14,23 +16,9 @@ export interface TurnstileResult {
 }
 
 export async function verifyTurnstile(
-  env: { TURNSTILE_SECRET_KEY?: string },
+  env: { TURNSTILE_SECRET_KEY?: string; DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace },
   token: string,
   remoteIp?: string,
 ): Promise<TurnstileResult> {
-  if (!env.TURNSTILE_SECRET_KEY) {
-    return { ok: true };
-  }
-  if (!token) return { ok: false, errors: ["missing-token"] };
-  const form = new URLSearchParams();
-  form.set("secret", env.TURNSTILE_SECRET_KEY);
-  form.set("response", token);
-  if (remoteIp) form.set("remoteip", remoteIp);
-  const res = await fetch("https://challenges.cloudflare.com/turnstile/v0/siteverify", {
-    method: "POST",
-    body: form,
-  });
-  if (!res.ok) return { ok: false, errors: [`http_${res.status}`] };
-  const data = (await res.json()) as TurnstileResult;
-  return data;
+  return new CloudflareTurnstileClient(env).verify(token, remoteIp);
 }

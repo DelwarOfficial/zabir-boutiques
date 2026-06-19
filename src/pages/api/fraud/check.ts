@@ -37,7 +37,7 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: message }, { status: 400 });
   }
 
-  const { score, rawResponse } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY);
+  const { score, rawResponse } = await checkFraudBD(phoneResult.local, env.FRAUDBD_API_KEY, 1500, 'https://fraudbd.com', env);
   const decision = decideFraudRisk(score);
 
   await writeAuditLog(env.DB, {

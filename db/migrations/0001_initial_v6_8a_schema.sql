@@ -196,6 +196,10 @@ CREATE TABLE IF NOT EXISTS stock_reservations (
   updated_at TEXT NOT NULL
 );
 
+CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_reservations_order_active
+  ON stock_reservations(order_id, variant_id)
+  WHERE status = 'active';
+
 -- 14. order_status_history
 CREATE TABLE IF NOT EXISTS order_status_history (
   id TEXT PRIMARY KEY,
