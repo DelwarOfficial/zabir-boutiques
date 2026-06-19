@@ -21,7 +21,7 @@ type OrderLike = {
   items?: Array<{ product_name: string; variant_label: string; quantity: number; total_price_paisa: number }>;
 };
 
-type EmailType = "order_confirmed" | "payment_confirmed" | "order_shipped" | "order_delivered" | "abandoned_cart_1h" | "abandoned_cart_24h" | "return_confirmed";
+type EmailType = "order_confirmed" | "payment_confirmed" | "order_shipped" | "order_delivered" | "return_confirmed";
 
 type AbandonedCartEmail = {
   session_id: string;
@@ -62,18 +62,6 @@ function templateFor(type: EmailType, order: OrderLike): { subject: string; html
         subject: `Delivered — ${order.order_number}`,
         html: `<h1>Delivered</h1>
 <p>Your order <strong>${order.order_number}</strong> was delivered. Thank you!</p>`,
-      };
-    case "abandoned_cart_1h":
-      return {
-        subject: "You left items in your cart",
-        html: `<h1>Your cart is waiting</h1>
-<p>Hi ${order.name}, you started an order earlier. Pick up where you left off?</p>`,
-      };
-    case "abandoned_cart_24h":
-      return {
-        subject: "Still interested? Your cart is expiring",
-        html: `<h1>Last chance</h1>
-<p>Your cart is still saved. Complete checkout before stock runs out.</p>`,
       };
     case "return_confirmed":
       return {

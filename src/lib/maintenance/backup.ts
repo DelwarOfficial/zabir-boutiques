@@ -61,6 +61,17 @@ const TABLES = [
   "customer_consent",
   "coupon_brute_force",
   "products_fts",
+  "inventory_baseline",
+  "tamper_lockout",
+  "invoices",
+  "invoice_items",
+  "invoice_payments",
+  "invoice_audit",
+  "cart_activity",
+  "otp_secrets",
+  "api_audit_logs",
+  "ai_budget_limits",
+  "customer_phone_otps",
 ];
 
 /** AES-256-GCM encrypt with random 12-byte IV. Output layout: [iv(12) | ciphertext | tag(16)]. */
