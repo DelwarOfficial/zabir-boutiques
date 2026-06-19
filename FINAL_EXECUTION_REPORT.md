@@ -19,7 +19,7 @@
 | BudgetCounterDO | Added `recordUsage`, `canUseDeepSeek`, `canUseWorkersAI`, and `canUseImagify` methods with strictest-limit-wins defaults. |
 | AI adapters | Added canonical DeepSeek and Workers AI adapter layout, removed direct OpenAI usage, and wired product-content generation through adapters with staff-route budget preflight/fallback/usage recording. |
 | Payment, fraud, and image adapters | Added canonical UddoktaPay, FraudBD, and Tinify adapter layouts; moved payment creation/verification/refund, fraud checks, and Tinify compression flows behind adapters with API audit logging and provider-health hooks. |
-| FraudBD breaker semantics | Added Section 37 core circuit-breaker tests and aligned FraudBD adapter behavior so 4xx responses do not trip the breaker while malformed 200 responses do. |
+| FraudBD breaker semantics | Added a 25-test Section 37 FraudBD circuit-breaker suite and aligned FraudBD/queue behavior so 4xx responses do not trip the breaker, malformed 200 responses do, queue retries use 2s backoff, queue timeout uses 3s, half-open is single-flight, and fraud-audit can auto-approve/auto-cancel reviewed orders. |
 | Cloudflare helper adapters | Added canonical Cloudflare Turnstile and Cloudflare cache purge adapter layouts; routed `verifyTurnstile()` and cache-tag purge through provider clients with API audit logging. |
 | Reservation lifecycle | Threaded reservation IDs through reserve, order insertion, release, confirm, cleanup, and DO sync paths so `stock_reservations.id` is the shared reservation authority. |
 | Reservation cleanup/index repair | Updated cleanup helpers to claim/stamp before release and added migration `0028_fix_stock_reservations_active_index_shape.sql` to align the active-reservation unique index with per-variant reservation rows. |
@@ -37,10 +37,10 @@
 | `npx vitest run tests/provider-adapters.test.ts tests/fraud.test.ts tests/payments.test.ts tests/master-plan-v7-guardrails.test.ts` | PASS | 4 files, 46 tests passed. |
 | `npx vitest run tests/reservation-lifecycle.test.ts tests/payments.test.ts tests/master-plan-v7-guardrails.test.ts` | PASS | 3 files, 28 tests passed. |
 | `npx vitest run tests/migration-fixtures.test.ts tests/abandoned-cart-email.test.ts tests/reservation-lifecycle.test.ts` | PASS | 3 files, 13 tests passed. |
-| `npx vitest run tests/fraudbd-circuit-breaker.test.ts tests/fraud.test.ts` | PASS | 2 files, 23 tests passed. |
+| `npx vitest run tests/fraudbd-circuit-breaker.test.ts tests/fraud.test.ts` | PASS | 2 files, 39 tests passed. |
 | `npx vitest run tests/drift-audit-script.test.ts tests/master-plan-v7-guardrails.test.ts` | PASS | 2 files, 15 tests passed. |
 | `npx tsx scripts/audit/audit-drift.ts --scope weekly --output docs/audit/drift-latest-weekly.md` | PASS | Report generated with zero findings. |
-| `npm test` | PASS | 39 files, 339 tests passed. |
+| `npm test` | PASS | 39 files, 355 tests passed. |
 | `npx tsc --noEmit` | PASS | Passing after the latest AI/provider and Buy Now typing changes; required `npm install` first because declared dependency `web-vitals` was missing from `node_modules`. |
 | `npm run typecheck` | FAIL/BLOCKED | `astro check` starts Wrangler remote proxy and fails Cloudflare auth: `Failed to fetch auth token: 400 Bad Request`. `tsc` passes separately. |
 | `npm run lint` | FAIL/BLOCKED | No `lint` script exists in `package.json`. |
@@ -51,7 +51,6 @@
 
 | Severity | Risk |
 |---|---|
-| P1 | FraudBD adapter audit logging and core breaker semantics are covered, but the complete 25-test Section 37 suite and full state-transition/queue-retry coverage are still not fully implemented. |
 | P1 | Courier provider coverage still needs equivalent canonical adapter treatment if courier APIs are brought under the same compliance scope. |
 | P1 | Migration dry-run needs a clean local D1 state or idempotent repair for old migrations before it can validate all migrations end-to-end. |
 

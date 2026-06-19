@@ -1,4 +1,5 @@
 import type { ProviderHealthDOContract } from '../lib/contracts/provider-health-do';
+import { writeApiAuditLog } from '../lib/api-audit';
 
 /**
  * ProviderHealthDO [Master_Prompt v7.0 §6.6]
@@ -27,14 +28,17 @@ export interface ProviderHealth {
   failureThreshold: number;
   recoveryTimeMs: number;
   halfOpenMaxAttempts: number;
+  probeInFlight?: boolean;
 }
 
 export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract {
   private state: DurableObjectState;
+  private env: { DB?: D1Database };
   private health: ProviderHealth | null = null;
 
-  constructor(state: DurableObjectState, _env: unknown) {
+  constructor(state: DurableObjectState, env: { DB?: D1Database }) {
     this.state = state;
+    this.env = env;
   }
 
   private async ensureLoaded(provider: string): Promise<ProviderHealth> {
@@ -53,6 +57,7 @@ export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract
       failureThreshold: 5,
       recoveryTimeMs: 5 * 60 * 1000,
       halfOpenMaxAttempts: 1,
+      probeInFlight: false,
     };
     return this.health;
   }
@@ -60,6 +65,19 @@ export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract
   private async persist(): Promise<void> {
     if (!this.health) return;
     await this.state.storage.put('health', this.health);
+  }
+
+  private async auditTransition(provider: string, circuitState: CircuitState, status: 'success' | 'error', errorCode: string | null = null): Promise<void> {
+    await writeApiAuditLog(this.env.DB, {
+      provider,
+      operation: 'circuit_transition',
+      requestId: crypto.randomUUID(),
+      status,
+      errorCode,
+      circuitState,
+      redactedRequestSummary: JSON.stringify({ provider }),
+      redactedResponseSummary: JSON.stringify({ state: circuitState }),
+    });
   }
 
   async checkCircuit(input: { provider: string }): Promise<{ state: CircuitState; open_until?: string }> {
@@ -97,14 +115,26 @@ export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract
             health.state = 'half_open';
             health.halfOpenAt = new Date().toISOString();
             health.successCount = 0;
+            health.probeInFlight = false;
             await this.persist();
+            await this.auditTransition(provider, 'half_open', 'success');
           }
+        }
+
+        const canProceed = health.state === 'open'
+          ? false
+          : health.state === 'half_open'
+            ? health.probeInFlight !== true
+            : true;
+        if (health.state === 'half_open' && health.probeInFlight !== true) {
+          health.probeInFlight = true;
+          await this.persist();
         }
 
         return Response.json({
           ok: true,
           state: health.state,
-          canProceed: health.state !== 'open',
+          canProceed,
           health,
         });
       }
@@ -124,6 +154,8 @@ export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract
               health.failureTimestamps = [];
               health.openedAt = null;
               health.halfOpenAt = null;
+              health.probeInFlight = false;
+              await this.auditTransition(provider, 'closed', 'success');
             }
           } else if (health.state === 'closed') {
             health.failureCount = Math.max(0, health.failureCount - 1);
@@ -140,10 +172,13 @@ export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract
             health.openedAt = now;
             health.halfOpenAt = null;
             health.successCount = 0;
+            health.probeInFlight = false;
+            await this.auditTransition(provider, 'open', 'error', 'HALF_OPEN_FAILURE');
           } else if (health.state === 'closed') {
             if (health.failureTimestamps.length >= health.failureThreshold) {
               health.state = 'open';
               health.openedAt = now;
+              await this.auditTransition(provider, 'open', 'error', 'FAILURE_THRESHOLD_REACHED');
             }
           }
         }

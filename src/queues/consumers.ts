@@ -18,6 +18,7 @@ import { writeAuditLog } from "../lib/audit";
 import { trackMetric } from "../lib/analytics";
 import { safeLog } from "../lib/pii-scrubber";
 import { sendAbandonedCartEmail, sendTransactionalEmail } from "../lib/email";
+import { confirmReservedVariants, releaseReservedVariants } from '../lib/inventory';
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
@@ -280,12 +281,50 @@ export async function handleFraudAuditBatch(
   for (const msg of batch.messages) {
     try {
       const { checkFraudBD, decideFraudRisk } = await import("../lib/fraud");
-      const { score } = await checkFraudBD(msg.body.phone, env.FRAUDBD_API_KEY, 3000, 'https://fraudbd.com', env);
+      const { score, rawResponse } = await checkFraudBD(msg.body.phone, env.FRAUDBD_API_KEY, 3000, 'https://fraudbd.com', env);
+      if (score === null && /"error"\s*:/.test(rawResponse)) {
+        throw new Error(`fraudbd_retryable_failure:${rawResponse}`);
+      }
       const decision = decideFraudRisk(score);
+      const now = nowSql();
+      const order = await env.DB.prepare(
+        `SELECT id, status FROM orders WHERE id = ?1`,
+      ).bind(msg.body.orderId).first<{ id: string; status: string }>();
+      if (!order) {
+        msg.ack();
+        continue;
+      }
+
       await env.DB
         .prepare("UPDATE orders SET fraud_decision = ?2, updated_at = ?3 WHERE id = ?1")
-        .bind(msg.body.orderId, decision, nowSql())
+        .bind(msg.body.orderId, decision, now)
         .run();
+
+      if (decision === 'approved' && order.status === 'pending_review') {
+        const reservations = await env.DB.prepare(
+          `SELECT id, variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'`,
+        ).bind(msg.body.orderId).all<{ id: string; variant_id: string; quantity: number }>();
+        const items = (reservations.results ?? []).map((row) => ({ variantId: row.variant_id, qty: row.quantity, reservationId: row.id }));
+        const confirmed = await confirmReservedVariants(env, items, now);
+        if (confirmed.ok) {
+          await env.DB.batch([
+            env.DB.prepare(`UPDATE orders SET status = 'staff_confirmed', updated_at = ?2 WHERE id = ?1 AND status = 'pending_review'`).bind(msg.body.orderId, now),
+            env.DB.prepare(`INSERT INTO order_status_history (id, order_id, from_status, to_status, note, created_at) VALUES (?1, ?2, 'pending_review', 'staff_confirmed', 'fraud-audit auto-approved', ?3)`).bind(crypto.randomUUID(), msg.body.orderId, now),
+          ], { atomic: true });
+        }
+      }
+
+      if (decision === 'blocked' && (order.status === 'pending_review' || order.status === 'pending_payment')) {
+        const reservations = await env.DB.prepare(
+          `SELECT id, variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'`,
+        ).bind(msg.body.orderId).all<{ id: string; variant_id: string; quantity: number }>();
+        const items = (reservations.results ?? []).map((row) => ({ variantId: row.variant_id, qty: row.quantity, reservationId: row.id }));
+        await releaseReservedVariants(env, items, now);
+        await env.DB.batch([
+          env.DB.prepare(`UPDATE orders SET status = 'cancelled', updated_at = ?2 WHERE id = ?1 AND status IN ('pending_review','pending_payment')`).bind(msg.body.orderId, now),
+          env.DB.prepare(`INSERT INTO order_status_history (id, order_id, from_status, to_status, note, created_at) VALUES (?1, ?2, ?3, 'cancelled', 'fraud-audit auto-cancelled', ?4)`).bind(crypto.randomUUID(), msg.body.orderId, order.status, now),
+        ], { atomic: true });
+      }
       msg.ack();
     } catch (err) {
       safeLog.error("[fraud-audit-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
