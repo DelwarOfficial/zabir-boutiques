@@ -151,24 +151,24 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
 
     // Direct sale for POS [Master_Prompt v7.0 §15.1]
     // Deducts stock immediately without reservation flow.
+    // D1 MUST be updated before DO state mutation (P1-002 fix).
     if (action === "directSale") {
       const available = this.available();
       if (qty > available) {
         return Response.json({ ok: false, available, requested: qty });
       }
-      this.sold += qty;
-      if (env.DB && body.invoiceId) {
-        const updated = await env.DB.prepare(
-          `UPDATE inventory_items
-           SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
-           WHERE variant_id = ?2`,
-        ).bind(qty, variantId).run();
-        if (updated.meta.changes !== 1) {
-          this.sold = Math.max(0, this.sold - qty);
-          await this.persistState();
-          return Response.json({ ok: false, error: "CONFLICT", available: this.available() }, { status: 409 });
-        }
+      if (!env.DB || !body.invoiceId) {
+        return Response.json({ ok: false, error: "CONFIG_ERROR", available: this.available() }, { status: 500 });
       }
+      const updated = await env.DB.prepare(
+        `UPDATE inventory_items
+         SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
+         WHERE variant_id = ?2`,
+      ).bind(qty, variantId).run();
+      if (updated.meta.changes !== 1) {
+        return Response.json({ ok: false, error: "CONFLICT", available: this.available() }, { status: 409 });
+      }
+      this.sold += qty;
       await this.persistState();
       return Response.json({
         ok: true,
@@ -219,7 +219,9 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
   }
 
   async release(input: { reservation_id: string; reason: string }): Promise<{ released: boolean; already_released?: boolean }> {
-    const res = await this.fetch(new Request('https://do/release', { method: 'POST', body: JSON.stringify({ reservationId: input.reservation_id, qty: 1 }) }));
+    const existing = this.reservations.get(input.reservation_id);
+    const qty = existing?.qty ?? 1;
+    const res = await this.fetch(new Request('https://do/release', { method: 'POST', body: JSON.stringify({ reservationId: input.reservation_id, qty, reason: input.reason }) }));
     return res.ok ? { released: true } : { released: false, already_released: true };
   }
 

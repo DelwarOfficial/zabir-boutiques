@@ -122,14 +122,16 @@
           { "queue": "order-emails", "binding": "ORDER_EMAILS" },
           { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
           { "queue": "fraud-audit", "binding": "FRAUD_AUDIT" },
-          { "queue": "d1-backup", "binding": "D1_BACKUP" }
+          { "queue": "d1-backup", "binding": "D1_BACKUP" },
+          { "queue": "cart-activity", "binding": "CART_ACTIVITY" }
         ],
         "consumers": [
           { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
           { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
           { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2 },
-          { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 }
+          { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 },
+          { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
       "analytics_engine_datasets": [

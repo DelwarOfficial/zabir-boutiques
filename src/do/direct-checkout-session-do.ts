@@ -61,6 +61,7 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
       sessionId?: string;
       origin?: string;
       userAgent?: string;
+      orderId?: string;
     };
 
     switch (action) {
@@ -148,7 +149,12 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
             return Response.json({ ok: false, error: verification }, { status: 403 });
           }
         }
-        await this.state.storage.deleteAll();
+        // Save orderId before cleanup so alarm can check it (Master Plan §6.8)
+        if (body.orderId) {
+          await this.state.storage.put('orderId', body.orderId);
+        }
+        // Delete session data but keep orderId for alarm guardrail
+        await this.state.storage.delete('session');
         this.session = null;
         return Response.json({ ok: true });
       }
@@ -161,14 +167,16 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
   /** Alarm-based cleanup [Master_Prompt v7.0 §6.8] */
   async alarm(): Promise<void> {
     const session = await this.ensureLoaded();
-    if (!session) {
+    const hasOrder = await this.state.storage.get('orderId');
+
+    // If neither session nor orderId exist, clean up fully
+    if (!session && !hasOrder) {
       await this.state.storage.deleteAll();
       return;
     }
 
-    // If no order exists, clean up
-    const hasOrder = await this.state.storage.get('orderId');
-    if (!hasOrder) {
+    // If session exists but no order was created, clean up
+    if (session && !hasOrder) {
       await this.state.storage.deleteAll();
     }
   }

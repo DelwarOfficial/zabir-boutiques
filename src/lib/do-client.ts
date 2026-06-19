@@ -292,7 +292,7 @@ export async function doCreateDirectSession(
   const stub = env.DIRECT_CHECKOUT_DO.get(id);
   const res = await stub.fetch("https://do/create", {
     method: "POST",
-    body: JSON.stringify(body),
+    body: JSON.stringify({ ...body, sessionId }),
   });
   return (await res.json()) as { ok: boolean; session?: DirectCheckoutState; error?: string };
 }

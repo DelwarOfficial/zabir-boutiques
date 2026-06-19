@@ -222,6 +222,15 @@ export async function handleOrderEmailBatch(
         continue;
       }
 
+      // Validate emailType against known types before sending.
+      // The queue consumer could receive stale types from older enqueues.
+      const VALID_EMAIL_TYPES: ReadonlyArray<string> = ["order_confirmed", "payment_confirmed", "order_shipped", "order_delivered", "return_confirmed"];
+      if (!VALID_EMAIL_TYPES.includes(emailType)) {
+        safeLog.warn("[order-email-consumer] unknown emailType, acking", { orderId, emailType });
+        msg.ack();
+        continue;
+      }
+
       // Send via Resend adapter
       const result = await sendTransactionalEmail(env, order.email, emailType as any, orderLike);
 

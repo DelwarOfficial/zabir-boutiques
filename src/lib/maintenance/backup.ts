@@ -1,7 +1,7 @@
 /**
  * D1 Backup → R2 [Master_Prompt v7.0 §19.2, G14]
  *
- * Cron every 6 hours exports all 22 tables to an encrypted SQL dump in
+ * Cron every 6 hours exports all 45 tables to an encrypted SQL dump in
  * R2 under backups/d1-{timestamp}.sql.enc. The plaintext is encrypted
  * with AES-256-GCM using a per-backup random IV, and the ciphertext is
  * prefixed with a 16-byte IV header. An HMAC-SHA256 signature of the
