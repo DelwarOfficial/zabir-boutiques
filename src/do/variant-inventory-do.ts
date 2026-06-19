@@ -156,16 +156,14 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       if (qty > available) {
         return Response.json({ ok: false, available, requested: qty });
       }
-      this.stock -= qty;
       this.sold += qty;
       if (env.DB && body.invoiceId) {
         const updated = await env.DB.prepare(
           `UPDATE inventory_items
-           SET quantity = quantity - ?1, sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
-           WHERE variant_id = ?2 AND quantity >= ?1`,
+           SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
+           WHERE variant_id = ?2`,
         ).bind(qty, variantId).run();
         if (updated.meta.changes !== 1) {
-          this.stock += qty;
           this.sold = Math.max(0, this.sold - qty);
           await this.persistState();
           return Response.json({ ok: false, error: "CONFLICT", available: this.available() }, { status: 409 });
