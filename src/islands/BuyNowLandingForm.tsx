@@ -1,4 +1,4 @@
-import { AlertTriangle, CheckCircle2, Loader2, Minus, Plus } from "lucide-react";
+import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { useMemo, useRef, useState, useTransition } from "react";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
@@ -27,6 +27,7 @@ type Props = {
   outsideDhakaPaisa: Paisa;
   initialDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
   variants: Variant[];
+  selectedVariantId: string;
 };
 
 export function BuyNowLandingForm({
@@ -40,6 +41,7 @@ export function BuyNowLandingForm({
   outsideDhakaPaisa,
   initialDraft,
   variants,
+  selectedVariantId: initialVariantId,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(initialDraft?.name ?? "");
@@ -49,13 +51,12 @@ export function BuyNowLandingForm({
   const [zone, setZone] = useState<DeliveryZone>(
     initialDraft?.shippingZone === "outside_dhaka" ? "outside_dhaka" : "inside_dhaka"
   );
-  const [qty, setQty] = useState(initialQty);
-  const [selectedVariantId, setSelectedVariantId] = useState(variants[0]?.id ?? "");
   const [status, setStatus] = useState<SubmitStatus>({ type: "idle" });
   const idempotencyKeyRef = useRef<string | null>(null);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
-  const selectedVariant = variants.find(v => v.id === selectedVariantId) ?? variants[0];
+  const qty = initialQty;
+  const selectedVariant = variants.find(v => v.id === initialVariantId) ?? variants[0];
   const unitPrice = selectedVariant?.pricePaisa ?? unitPricePaisa;
   const shippingPaisa = zone === "inside_dhaka" ? insideDhakaPaisa : outsideDhakaPaisa;
   const subtotalPaisa = unitPrice * qty;
@@ -175,42 +176,13 @@ export function BuyNowLandingForm({
           <p className="text-xs text-[var(--muted)]">{selectedVariant?.size && selectedVariant?.color ? `${selectedVariant.size} / ${selectedVariant.color}` : variantLabel}</p>
           <p className="mt-1 text-base font-extrabold tabular text-[var(--brand)]">{formatPaisa(unitPrice)}</p>
         </div>
-        <div className="flex flex-col items-center justify-center gap-1">
-          <button type="button" className="press tap-44 grid place-items-center h-8 w-8 rounded-lg border border-[var(--line)] bg-[var(--surface)]" onClick={() => setQty(q => Math.max(1, q - 1))} aria-label="কমান">
-            <Minus className="h-4 w-4" />
-          </button>
+        <div className="flex flex-col items-center justify-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2">
+          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Qty</span>
           <span className="text-sm font-extrabold tabular w-8 text-center">{qty}</span>
-          <button type="button" className="press tap-44 grid place-items-center h-8 w-8 rounded-lg border border-[var(--line)] bg-[var(--surface)]" onClick={() => setQty(q => q + 1)} aria-label="বাড়ান">
-            <Plus className="h-4 w-4" />
-          </button>
         </div>
       </div>
 
-      {/* ── Size/Color variant selector ── */}
-      {variants.length > 1 && (
-        <div>
-          <label className="mb-2 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">সাইজ / কালার</label>
-          <div className="flex flex-wrap gap-2">
-            {variants.map(v => {
-              const label = [v.size, v.color].filter(Boolean).join(" / ") || "Standard";
-              return (
-                <button
-                  key={v.id}
-                  type="button"
-                  onClick={() => setSelectedVariantId(v.id)}
-                  className={`press tap-44 rounded-lg border px-3 py-2 text-xs font-bold transition ${
-                    selectedVariantId === v.id
-                      ? "border-[var(--brand)] bg-[var(--brand)] text-white"
-                      : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]"
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Buy Now stays locked to the signed direct-checkout session SKU. */}
 
       {/* ── Billing fields ── */}
       <div className="space-y-3">

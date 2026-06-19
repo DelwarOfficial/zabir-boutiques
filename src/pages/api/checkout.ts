@@ -20,6 +20,7 @@ import {
   calculateAuthoritativeSubtotal,
   calculateDeliveryPaisa,
   parseCheckoutCart,
+  resolveShippingZone,
   type CheckoutCartItem,
 } from '../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
@@ -179,7 +180,13 @@ export async function POST(context: APIContext): Promise<Response> {
   let discountPaisa = 0;
   let vatPaisa = 0;
   let totalPaisa: number;
+  let advancePaisa = 0;
+  let balancePaisa = 0;
   let snapshots: Awaited<ReturnType<typeof loadVariantSnapshots>>;
+  let resolvedShippingZone: 'inside_dhaka' | 'outside_dhaka' = 'outside_dhaka';
+  let createdOrderId: string | null = null;
+  let createdOrderNumber: string | null = null;
+  let orderPersisted = false;
 
   try {
     snapshots = await loadVariantSnapshots(env.DB, items);
@@ -192,7 +199,8 @@ export async function POST(context: APIContext): Promise<Response> {
       }, { status: 409 });
     }
     subtotalPaisa = calculateAuthoritativeSubtotal(items, snapshots);
-    deliveryPaisa = await calculateDeliveryPaisa(env.DB, parsed.shippingZone, subtotalPaisa);
+    resolvedShippingZone = resolveShippingZone(addressInput, parsed.shippingZone);
+    deliveryPaisa = await calculateDeliveryPaisa(env.DB, resolvedShippingZone, subtotalPaisa);
   } catch (err) {
     const code = err instanceof Error ? err.message : 'PRICING_ERROR';
     if (code.startsWith('INVALID_CART_SIZE')) {
@@ -250,8 +258,8 @@ export async function POST(context: APIContext): Promise<Response> {
       }, { status: 402 });
     }
 
-    let advancePaisa = 0;
-    let balancePaisa = totalPaisa;
+    advancePaisa = 0;
+    balancePaisa = totalPaisa;
     if (paymentMethod === 'uddoktapay') {
       advancePaisa = totalPaisa;
       balancePaisa = 0;
@@ -308,7 +316,7 @@ export async function POST(context: APIContext): Promise<Response> {
       phone: phoneResult.phone,
       name: nameInput,
       address: addressInput,
-      shipping_zone: parsed.shippingZone,
+      shipping_zone: resolvedShippingZone,
       note: parsed.note,
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
@@ -318,6 +326,9 @@ export async function POST(context: APIContext): Promise<Response> {
       payment_method: paymentMethod,
       fraud_decision: fraudDecision,
     }, orderItems, now);
+    createdOrderId = orderId;
+    createdOrderNumber = orderNumber;
+    orderPersisted = true;
 
     await recordOrderInProgress(env.DB, idempotencyKey, orderId);
 
@@ -344,6 +355,24 @@ export async function POST(context: APIContext): Promise<Response> {
 
     return Response.json(response, { status: 201 });
   } catch (err) {
+    if (orderPersisted && createdOrderId && createdOrderNumber) {
+      const response = {
+        ok: true,
+        order_id: createdOrderId,
+        order_number: createdOrderNumber,
+        status: 'created',
+        advance_paisa: advancePaisa,
+        balance_paisa: balancePaisa,
+        payment_method: paymentMethod,
+      };
+      await env.DB.prepare(
+        `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
+      ).bind(createdOrderId, advancePaisa, balancePaisa, now).run().catch(() => {});
+      await completeIdempotency(env.DB, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
+      await doComplete(env, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
+      safeLog.error('[checkout] Recovered after post-order failure', { error: err instanceof Error ? err.message : String(err), orderId: createdOrderId });
+      return Response.json(response, { status: 201 });
+    }
     if (couponClaimed && couponClaim) {
       await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
       couponClaimed = false;

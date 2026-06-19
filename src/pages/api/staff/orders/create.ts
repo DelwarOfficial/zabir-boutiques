@@ -14,7 +14,7 @@ import { requireAuth, assertSalesAccess, isOwnerTier, RbacError } from '../../..
 import { normalizeBangladeshPhone } from '../../../../lib/phone';
 import { reserveVariants, releaseReservedVariants, syncConfirmedReservationsDoState } from '../../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../../lib/orders';
-import { loadVariantSnapshots, calculateAuthoritativeSubtotal, calculateDeliveryPaisa, type CheckoutCartItem } from '../../../../lib/checkout-pricing';
+import { loadVariantSnapshots, calculateAuthoritativeSubtotal, calculateDeliveryPaisa, resolveShippingZone, type CheckoutCartItem } from '../../../../lib/checkout-pricing';
 import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../../../lib/money';
 import { checkFraudBD, decideFraudRisk } from '../../../../lib/fraud';
 import { calculatePrepayment } from '../../../../lib/prepayment';
@@ -94,6 +94,8 @@ export async function POST(context: APIContext): Promise<Response> {
   let discountPaisa = 0;
   let couponClaim: CouponClaim | null = null;
   let snapshots: Awaited<ReturnType<typeof loadVariantSnapshots>>;
+  let resolvedShippingZone: 'inside_dhaka' | 'outside_dhaka' = 'outside_dhaka';
+  let orderPersisted = false;
 
   try {
     snapshots = await loadVariantSnapshots(env.DB, items);
@@ -102,7 +104,8 @@ export async function POST(context: APIContext): Promise<Response> {
       return Response.json({ ok: false, code: 'VARIANT_UNAVAILABLE', message: 'One item is no longer available.' }, { status: 409 });
     }
     subtotalPaisa = calculateAuthoritativeSubtotal(items, snapshots);
-    deliveryPaisa = isInStore ? 0 : await calculateDeliveryPaisa(env.DB, body.shipping_zone, subtotalPaisa);
+    resolvedShippingZone = resolveShippingZone(String(body.address ?? ''), typeof body.shipping_zone === 'string' ? body.shipping_zone : undefined);
+    deliveryPaisa = isInStore ? 0 : await calculateDeliveryPaisa(env.DB, resolvedShippingZone, subtotalPaisa);
   } catch (err) {
     safeLog.error('[staff/orders/create] Pricing error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price the cart.' }, { status: 409 });
@@ -177,7 +180,7 @@ export async function POST(context: APIContext): Promise<Response> {
       phone: phoneResult.phone,
       name: body.name ?? '',
       address: body.address ?? (isInStore ? 'In-store pickup' : ''),
-      shipping_zone: body.shipping_zone,
+      shipping_zone: isInStore ? undefined : resolvedShippingZone,
       note: body.note,
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
@@ -188,6 +191,7 @@ export async function POST(context: APIContext): Promise<Response> {
       fraud_decision: fraudDecision,
       status
     }, orderItems, now);
+    orderPersisted = true;
 
     // Set extra columns via UPDATE (since insertReservedOrderWithRetry doesn't support them natively)
     await env.DB.prepare(
@@ -245,8 +249,10 @@ export async function POST(context: APIContext): Promise<Response> {
       prepayment: prepayment.required ? { advance_paisa: prepayment.advancePaisa, balance_paisa: prepayment.balancePaisa, message: prepayment.message } : null
     }, { status: 201 });
   } catch (err) {
-    await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
-    if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
+    if (!orderPersisted) {
+      await releaseReservedVariants(env as unknown as Parameters<typeof releaseReservedVariants>[0], items, now);
+      if (couponClaim) await releaseCouponUsageAtomic(env.DB, orderIdempotencyKey, couponClaim);
+    }
     safeLog.error('[staff/orders/create] Error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'ORDER_FAILED', message: 'Internal error creating order.' }, { status: 500 });
   }

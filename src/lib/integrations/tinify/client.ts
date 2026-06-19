@@ -59,14 +59,21 @@ export class TinifyClient {
   async downloadCompressed(locationUrl: string, apiKey: string): Promise<CompressResult> {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
+    const health = await this.checkCircuit();
+    if (!health.canProceed) {
+      await this.audit('download_compressed', requestId, startedAt, 'circuit_open', 'CIRCUIT_OPEN', JSON.stringify({ location_url: '[redacted]' }), '{"error":"circuit_open"}', health.state);
+      return { ok: false, error: 'Tinify circuit open' };
+    }
     try {
       const res = await fetch(locationUrl, { headers: { Authorization: basicAuth(apiKey) } });
       if (!res.ok) {
-        await this.audit('download_compressed', requestId, startedAt, 'error', `HTTP_${res.status}`, JSON.stringify({ location_url: '[redacted]' }), '{}', 'closed');
+        await this.record(false);
+        await this.audit('download_compressed', requestId, startedAt, 'error', `HTTP_${res.status}`, JSON.stringify({ location_url: '[redacted]' }), '{}', health.state);
         return { ok: false, error: `Tinify download HTTP ${res.status}` };
       }
       const compressed = await res.arrayBuffer();
-      await this.audit('download_compressed', requestId, startedAt, 'success', null, JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ bytes: compressed.byteLength }), 'closed');
+      await this.record(true);
+      await this.audit('download_compressed', requestId, startedAt, 'success', null, JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ bytes: compressed.byteLength }), health.state);
       return {
         ok: true,
         compressed,
@@ -76,7 +83,8 @@ export class TinifyClient {
         contentType: res.headers.get('Content-Type') ?? 'application/octet-stream',
       };
     } catch (err) {
-      await this.audit('download_compressed', requestId, startedAt, 'error', 'REQUEST_FAILED', JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ error: err instanceof Error ? err.message : 'unknown' }), 'closed');
+      await this.record(false);
+      await this.audit('download_compressed', requestId, startedAt, 'error', 'REQUEST_FAILED', JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ error: err instanceof Error ? err.message : 'unknown' }), health.state);
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown Tinify download error' };
     }
   }
@@ -84,6 +92,11 @@ export class TinifyClient {
   async processImage(locationUrl: string, apiKey: string, options: { resize?: ResizeOptions; convert?: ConvertTarget | ConvertTarget[] | '*/*' } = {}): Promise<TinifyProcessResult> {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
+    const health = await this.checkCircuit();
+    if (!health.canProceed) {
+      await this.audit('process_image', requestId, startedAt, 'circuit_open', 'CIRCUIT_OPEN', JSON.stringify({ location_url: '[redacted]' }), '{"error":"circuit_open"}', health.state);
+      return { ok: false, error: 'Tinify circuit open' };
+    }
     const body: Record<string, unknown> = {};
     if (options.resize) body.resize = options.resize;
     if (options.convert) body.convert = { type: options.convert };
@@ -94,14 +107,17 @@ export class TinifyClient {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        await this.audit('process_image', requestId, startedAt, 'error', `HTTP_${res.status}`, JSON.stringify({ location_url: '[redacted]' }), '{}', 'closed');
+        await this.record(false);
+        await this.audit('process_image', requestId, startedAt, 'error', `HTTP_${res.status}`, JSON.stringify({ location_url: '[redacted]' }), '{}', health.state);
         return { ok: false, error: `Tinify process HTTP ${res.status}` };
       }
       const data = await res.arrayBuffer();
-      await this.audit('process_image', requestId, startedAt, 'success', null, JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ bytes: data.byteLength }), 'closed');
+      await this.record(true);
+      await this.audit('process_image', requestId, startedAt, 'success', null, JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ bytes: data.byteLength }), health.state);
       return { ok: true, data, contentType: res.headers.get('Content-Type') ?? 'image/webp' };
     } catch (err) {
-      await this.audit('process_image', requestId, startedAt, 'error', 'REQUEST_FAILED', JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ error: err instanceof Error ? err.message : 'unknown' }), 'closed');
+      await this.record(false);
+      await this.audit('process_image', requestId, startedAt, 'error', 'REQUEST_FAILED', JSON.stringify({ location_url: '[redacted]' }), JSON.stringify({ error: err instanceof Error ? err.message : 'unknown' }), health.state);
       return { ok: false, error: err instanceof Error ? err.message : 'Unknown Tinify process error' };
     }
   }

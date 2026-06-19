@@ -62,6 +62,7 @@ export type Env = {
   // Master_Prompt v7.0 §2.6 Turnstile
   TURNSTILE_SITE_KEY?: string;
   TURNSTILE_SECRET_KEY?: string;
+  ALLOW_DEV_PHONE_OTP?: string;
   // Master_Prompt v7.0 §2.10 Email
   RESEND_API_KEY?: string;
   RESEND_FROM_EMAIL?: string;

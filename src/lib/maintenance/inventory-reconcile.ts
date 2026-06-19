@@ -179,7 +179,7 @@ export async function reconcileInventory(
 
     if (env?.VARIANT_INVENTORY_DO) {
       try {
-        await doSyncFromD1(env as { DB: D1Database; VARIANT_INVENTORY_DO: DurableObjectNamespace }, row.variant_id, row.live_quantity, row.live_reserved);
+        await doSyncFromD1(env as { DB: D1Database; VARIANT_INVENTORY_DO: DurableObjectNamespace }, row.variant_id, row.live_quantity, row.live_reserved, row.live_sold);
         report.dosResynced += 1;
       } catch (err) {
         safeLog.warn('[inventory-reconcile] doSyncFromD1 failed (non-fatal)', { variantId: row.variant_id, error: err instanceof Error ? err.message : String(err) });

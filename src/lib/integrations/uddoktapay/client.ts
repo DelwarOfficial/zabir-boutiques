@@ -21,6 +21,10 @@ const STATUS_MAP: Record<string, PaymentStatus> = {
 export class UddoktaPayClient {
   constructor(private readonly env: UddoktaPayEnv) {}
 
+  private summarizeCheckoutResponse(data: { payment_url?: string }): string {
+    return JSON.stringify({ payment_url: typeof data.payment_url === 'string' ? '[redacted]' : null });
+  }
+
   async createCheckout(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
@@ -47,9 +51,10 @@ export class UddoktaPayClient {
       });
       const data = (await res.json().catch(() => ({}))) as { payment_url?: string };
       const rawResponse = JSON.stringify(data);
+      const auditResponse = this.summarizeCheckoutResponse(data);
       const ok = res.ok && typeof data.payment_url === 'string' && data.payment_url.length > 0;
       await this.record(ok);
-      await this.audit('checkout', requestId, startedAt, ok ? 'success' : 'error', ok ? null : `HTTP_${res.status}`, JSON.stringify({ invoice_id: input.invoiceId, order_id: input.orderId }), rawResponse, input.orderId, input.invoiceId, health.state);
+      await this.audit('checkout', requestId, startedAt, ok ? 'success' : 'error', ok ? null : `HTTP_${res.status}`, JSON.stringify({ invoice_id: input.invoiceId, order_id: input.orderId }), auditResponse, input.orderId, input.invoiceId, health.state);
       return ok ? { ok: true, paymentUrl: data.payment_url, rawResponse } : { ok: false, rawResponse, errorCode: `HTTP_${res.status}` };
     } catch (err) {
       const code = err instanceof DOMException && err.name === 'AbortError' ? 'TIMEOUT' : 'REQUEST_FAILED';

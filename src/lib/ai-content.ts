@@ -60,6 +60,6 @@ export async function generateProductContent(
     const result = await new DeepSeekClient(env).generateProductDescription(prompt);
     return { ...parseContentResponse(result.text, product.name), provider: 'deepseek', tokens_used: result.tokens_used, cost_usd: result.cost_usd };
   }
-  const fallback = await new WorkersAIClient(env.AI).generateProductDescription(prompt);
+  const fallback = await new WorkersAIClient(env as unknown as { AI?: Ai; DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }).generateProductDescription(prompt);
   return { ...parseContentResponse(fallback.text, product.name), provider: 'workers_ai', tokens_used: fallback.tokens_used, cost_usd: fallback.cost_usd };
 }

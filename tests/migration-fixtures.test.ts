@@ -190,4 +190,28 @@ describe('migration fixtures — DDL execution', () => {
     const idx = d.getSchema().indexes.get('idx_stock_reservations_order_active')!;
     expect(idx.columns).toEqual(['order_id']);
   });
+
+  // 0029: customer phone OTPs
+  it('0029 creates customer_phone_otps table and pending index', () => {
+    const d = db('db/migrations/0029_customer_phone_otp.sql');
+    expect(d.hasTable('customer_phone_otps')).toBe(true);
+    expect(d.hasColumn('customer_phone_otps', 'phone')).toBe(true);
+    expect(d.hasColumn('customer_phone_otps', 'code_hash')).toBe(true);
+    expect(d.hasColumn('customer_phone_otps', 'consumed_at')).toBe(true);
+    expect(d.hasIndex('idx_customer_phone_otps_phone')).toBe(true);
+  });
+
+  // 0030: staff step-up timestamp
+  it('0030 adds step_up_at to staff_sessions', () => {
+    const base = 'CREATE TABLE staff_sessions (id TEXT PRIMARY KEY, staff_user_id TEXT, token_hash TEXT, is_revoked INTEGER, expires_at TEXT, absolute_expires_at TEXT, last_active_at TEXT, created_at TEXT);';
+    const d = dbWithBase('db/migrations/0030_staff_sessions_step_up.sql', base);
+    expect(d.hasColumn('staff_sessions', 'step_up_at')).toBe(true);
+  });
+
+  it('0030 rollback does not throw and leaves column in place', () => {
+    const base = 'CREATE TABLE staff_sessions (id TEXT PRIMARY KEY, staff_user_id TEXT, token_hash TEXT, is_revoked INTEGER, expires_at TEXT, absolute_expires_at TEXT, last_active_at TEXT, created_at TEXT);';
+    const d = dbWithBase('db/migrations/0030_staff_sessions_step_up.sql', base);
+    expect(() => { d.exec(read('db/migrations/rollback/0030_rollback_staff_sessions_step_up.sql')); }).not.toThrow();
+    expect(d.hasColumn('staff_sessions', 'step_up_at')).toBe(true);
+  });
 });

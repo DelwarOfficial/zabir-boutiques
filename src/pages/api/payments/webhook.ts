@@ -18,11 +18,12 @@ export async function POST(context: APIContext): Promise<Response> {
   const rawBody = await context.request.text().catch(() => '');
 
   const webhookSecret = env.UDDOKTAPAY_WEBHOOK_SECRET;
-  if (webhookSecret) {
-    const receivedSig = readWebhookSignature(context.request);
-    if (!(await verifyPaymentWebhookSignature(rawBody, receivedSig, webhookSecret))) {
-      return Response.json({ error: 'Unauthorized' }, { status: 401 });
-    }
+  if (!webhookSecret) {
+    return Response.json({ error: 'Webhook secret not configured' }, { status: 503 });
+  }
+  const receivedSig = readWebhookSignature(context.request);
+  if (!(await verifyPaymentWebhookSignature(rawBody, receivedSig, webhookSecret))) {
+    return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
   const ipnKey = context.request.headers.get('RT-UDDOKTAPAY-API-KEY');

@@ -14,7 +14,7 @@
  */
 import { nowSql } from "../dates";
 import { applyPaymentVerified, verifyUddoktaPayment } from "../payments";
-import { releaseReservedVariants } from "../inventory";
+import { claimReservationsForRelease, releaseReservedVariants } from "../inventory";
 import { writeAuditLog } from "../audit";
 import { trackMetric } from "../analytics";
 import { safeLog } from "../pii-scrubber";
@@ -59,8 +59,9 @@ export async function reconcilePendingPayments(
         .bind(row.id)
         .all<{ id: string; variant_id: string; quantity: number }>();
       const items = (reservations.results ?? []).map(r => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id }));
-      if (items.length > 0) {
-        await releaseReservedVariants(env, items, now);
+      const claimedItems = await claimReservationsForRelease(env.DB, items, now);
+      if (claimedItems.length > 0) {
+        await releaseReservedVariants(env, claimedItems, now);
       }
       // Atomic order status flip + history + reservation release. The
       // status guard (`AND status = ?3`) means a concurrent verify that

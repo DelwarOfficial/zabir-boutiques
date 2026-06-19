@@ -81,10 +81,10 @@ export async function POST(context: APIContext): Promise<Response> {
     if (env.VARIANT_INVENTORY_DO) {
       for (const it of items) {
         const row = await env.DB
-          .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+          .prepare("SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1")
           .bind(it.variant_id)
-          .first<{ quantity: number; reserved_quantity: number }>();
-        if (row) await doSyncFromD1(env, it.variant_id, row.quantity, row.reserved_quantity);
+          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
+        if (row) await doSyncFromD1(env, it.variant_id, row.quantity, row.reserved_quantity, row.sold_quantity);
       }
     }
   }

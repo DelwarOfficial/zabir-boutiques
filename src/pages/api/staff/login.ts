@@ -114,6 +114,9 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // TOTP 2FA enforcement for owner/super_admin [Master_Prompt v7.0 §18.1]
   const totpRequired = staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin';
+  if (totpRequired && !staff.totp_secret) {
+    return Response.json({ error: 'Two-factor authentication enrollment required. Contact an administrator.', totp_enrollment_required: true }, { status: 403 });
+  }
   if (totpRequired && staff.totp_secret) {
     const totpCode = typeof body.totp_code === 'string' ? body.totp_code.trim() : '';
     if (!totpCode) {
@@ -174,8 +177,8 @@ export async function POST(context: APIContext): Promise<Response> {
     await env.DB.batch(
       [
         env.DB.prepare(
-          `INSERT INTO staff_sessions (id, staff_user_id, token_hash, is_revoked, expires_at, absolute_expires_at, last_active_at, created_at)
-           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?6)`,
+          `INSERT INTO staff_sessions (id, staff_user_id, token_hash, is_revoked, expires_at, absolute_expires_at, last_active_at, step_up_at, created_at)
+           VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6, ?6, ?6)`,
         ).bind(sessionId, staff.id, tokenHash, expiresAt, absoluteExpiresAt, now),
         env.DB.prepare(
           `UPDATE staff_users SET last_login_at = ?2 WHERE id = ?1`,

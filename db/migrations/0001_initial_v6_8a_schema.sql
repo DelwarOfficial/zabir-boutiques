@@ -37,6 +37,7 @@ CREATE TABLE IF NOT EXISTS staff_sessions (
   expires_at TEXT NOT NULL,
   absolute_expires_at TEXT NOT NULL,
   last_active_at TEXT NOT NULL,
+  step_up_at TEXT,
   created_at TEXT NOT NULL
 );
 

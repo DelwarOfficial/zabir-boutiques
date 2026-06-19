@@ -1,6 +1,6 @@
 /**
  * POST /api/staff/step-up — Re-authenticate for step-up operations.
- * Verifies the current staff user's password and refreshes last_active_at
+ * Verifies the current staff user's password and stamps step_up_at
  * to reset the step-up window (10 minutes).
  *
  * Does NOT create a new session — just proves recent identity.
@@ -67,10 +67,10 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Invalid password' }, { status: 401 });
   }
 
-  // Update last_active_at to reset step-up window
+  // Stamp dedicated step_up_at so ordinary traffic cannot refresh it.
   const now = nowSql();
   await env.DB.prepare(
-    `UPDATE staff_sessions SET last_active_at = ?1 WHERE id = ?2 AND staff_user_id = ?3`
+    `UPDATE staff_sessions SET step_up_at = ?1 WHERE id = ?2 AND staff_user_id = ?3`
   ).bind(now, user.sessionId, user.id).run();
 
   await writeAuditLog(env.DB, {

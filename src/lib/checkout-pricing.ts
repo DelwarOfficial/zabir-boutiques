@@ -307,6 +307,29 @@ const DELIVERY_DEFAULTS = {
   outsideDhakaPaisa: 13000
 } as const;
 
+const DHAKA_CITY_HINTS = [
+  'dhaka', 'ঢাকা', 'gulshan', 'banani', 'dhanmondi', 'mirpur', 'uttara', 'mohammadpur',
+  'badda', 'rampura', 'motijheel', 'tejgaon', 'khilgaon', 'bashundhara', 'farmgate',
+  'moghbazar', 'shyamoli', 'adabor', 'pallabi', 'cantonment', 'niketon', 'baridhara',
+];
+
+const DHAKA_OUTSIDE_CITY_HINTS = [
+  'savar', 'dhamrai', 'dohar', 'nawabganj', 'keraniganj', 'gazipur', 'narayanganj', 'munshiganj',
+];
+
+export function resolveShippingZone(address: string, shippingZoneHint?: string): 'inside_dhaka' | 'outside_dhaka' {
+  const normalizedAddress = address.toLowerCase();
+  if (DHAKA_OUTSIDE_CITY_HINTS.some((hint) => normalizedAddress.includes(hint))) {
+    return 'outside_dhaka';
+  }
+  if (DHAKA_CITY_HINTS.some((hint) => normalizedAddress.includes(hint))) {
+    return 'inside_dhaka';
+  }
+
+  void shippingZoneHint;
+  return 'outside_dhaka';
+}
+
 /**
  * Compute delivery cost server-side from trusted site settings.
  * The v6.8A migration does not seed shipping rows, so safe integer-paisa
@@ -316,11 +339,11 @@ const DELIVERY_DEFAULTS = {
  */
 export async function calculateDeliveryPaisa(
   db: D1Database,
-  shippingZone: string | undefined,
+  shippingZone: string | 'inside_dhaka' | 'outside_dhaka',
   _subtotalPaisa: Paisa
 ): Promise<Paisa> {
-  const zone = (shippingZone ?? '').toLowerCase();
-  const isInsideDhaka = zone.includes('inside') || zone === 'dhaka';
+  const normalizedZone = shippingZone.toLowerCase();
+  const isInsideDhaka = normalizedZone === 'inside_dhaka' || normalizedZone.includes('inside') || normalizedZone === 'dhaka';
   const settingKey = isInsideDhaka ? 'delivery_inside_dhaka_paisa' : 'delivery_outside_dhaka_paisa';
   const fallback = isInsideDhaka ? DELIVERY_DEFAULTS.insideDhakaPaisa : DELIVERY_DEFAULTS.outsideDhakaPaisa;
 

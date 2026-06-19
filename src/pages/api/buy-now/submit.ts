@@ -17,6 +17,7 @@ import {
   loadVariantSnapshots,
   calculateAuthoritativeSubtotal,
   calculateDeliveryPaisa,
+  resolveShippingZone,
 } from '../../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../../lib/fraud';
 import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../../lib/prepayment';
@@ -80,7 +81,7 @@ export async function POST(context: APIContext): Promise<Response> {
   const nameInput = (body.name ?? '').toString().trim();
   const phoneInput = (body.phone ?? '').toString();
   const addressInput = (body.address ?? '').toString().trim();
-  const shippingZone = typeof body.shipping_zone === 'string' ? body.shipping_zone : 'inside_dhaka';
+  const shippingZoneHint = typeof body.shipping_zone === 'string' ? body.shipping_zone : 'inside_dhaka';
   const paymentMethodRaw = typeof body.payment_method === 'string' ? body.payment_method : 'cod';
   const paymentMethod = (paymentMethodRaw === 'uddoktapay' || paymentMethodRaw === 'partial_prepay')
     ? paymentMethodRaw
@@ -143,13 +144,15 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Authoritative pricing
   let snapshots, subtotalPaisa, deliveryPaisa;
+  let resolvedShippingZone: 'inside_dhaka' | 'outside_dhaka' = 'outside_dhaka';
   try {
     snapshots = await loadVariantSnapshots(env.DB, items);
     if (snapshots.size !== items.length) {
       return Response.json({ ok: false, code: 'VARIANT_UNAVAILABLE', message: 'Product unavailable.' }, { status: 409 });
     }
     subtotalPaisa = calculateAuthoritativeSubtotal(items, snapshots);
-    deliveryPaisa = await calculateDeliveryPaisa(env.DB, shippingZone, subtotalPaisa);
+    resolvedShippingZone = resolveShippingZone(addressInput, shippingZoneHint);
+    deliveryPaisa = await calculateDeliveryPaisa(env.DB, resolvedShippingZone, subtotalPaisa);
   } catch {
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price your order.' }, { status: 409 });
   }
@@ -196,6 +199,9 @@ export async function POST(context: APIContext): Promise<Response> {
   await claimIdempotency(env.DB, idempotencyKey, now);
 
   let stockReserved = false;
+  let createdOrderId: string | null = null;
+  let createdOrderNumber: string | null = null;
+  let orderPersisted = false;
 
   try {
     // Fraud check [Master Plan §11.1 step 12]
@@ -236,7 +242,7 @@ export async function POST(context: APIContext): Promise<Response> {
       phone: phoneResult.phone,
       name: nameInput,
       address: addressInput,
-      shipping_zone: shippingZone,
+      shipping_zone: resolvedShippingZone,
       note: typeof body.note === 'string' ? body.note : undefined,
       subtotal_paisa: subtotalPaisa,
       delivery_paisa: deliveryPaisa,
@@ -246,6 +252,9 @@ export async function POST(context: APIContext): Promise<Response> {
       payment_method: paymentMethod,
       fraud_decision: fraudDecision,
     }, orderItems, now);
+    createdOrderId = orderId;
+    createdOrderNumber = orderNumber;
+    orderPersisted = true;
 
     await recordOrderInProgress(env.DB, idempotencyKey, orderId);
 
@@ -274,6 +283,25 @@ export async function POST(context: APIContext): Promise<Response> {
 
     return Response.json(response, { status: 201 });
   } catch (err) {
+    if (orderPersisted && createdOrderId && createdOrderNumber) {
+      const response = {
+        ok: true,
+        order_id: createdOrderId,
+        order_number: createdOrderNumber,
+        status: 'created',
+        advance_paisa: advancePaisa,
+        balance_paisa: balancePaisa,
+        payment_method: paymentMethod,
+      };
+      await env.DB.prepare(
+        `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
+      ).bind(createdOrderId, advancePaisa, balancePaisa, now).run().catch(() => {});
+      await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) }).catch(() => {});
+      await completeIdempotency(env.DB, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
+      await doComplete(env, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
+      safeLog.error('[buy-now/submit] Recovered after post-order failure', { error: err instanceof Error ? err.message : String(err), orderId: createdOrderId });
+      return Response.json(response, { status: 201 });
+    }
     if (stockReserved) {
       await releaseReservedVariants(env, items, now);
     }

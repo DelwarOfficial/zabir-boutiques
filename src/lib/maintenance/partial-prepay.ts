@@ -15,7 +15,7 @@
  * staff dashboard surfaces it.
  */
 import { nowSql } from '../dates';
-import { releaseReservedVariants } from '../inventory';
+import { claimReservationsForRelease, releaseReservedVariants } from '../inventory';
 
 const PARTIAL_PREPAY_MAX_AGE_HOURS = 24;
 
@@ -55,12 +55,17 @@ export async function sweepStalePartialPrepayOrders(db: D1Database): Promise<{ c
 
     const resRows = reservations.results ?? [];
     if (resRows.length > 0) {
-      await releaseReservedVariants(
-        { DB: db },
+      const claimedItems = await claimReservationsForRelease(
+        db,
         resRows.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
         now,
       );
-      releasedReservations += resRows.length;
+      await releaseReservedVariants(
+        { DB: db },
+        claimedItems,
+        now,
+      );
+      releasedReservations += claimedItems.length;
     }
 
     // Atomic order status flip + history row so the audit chain is

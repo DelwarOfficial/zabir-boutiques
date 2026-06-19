@@ -18,7 +18,7 @@ import { writeAuditLog } from "../lib/audit";
 import { trackMetric } from "../lib/analytics";
 import { safeLog } from "../lib/pii-scrubber";
 import { sendAbandonedCartEmail, sendTransactionalEmail } from "../lib/email";
-import { confirmReservedVariants, releaseReservedVariants } from '../lib/inventory';
+import { claimReservationsForRelease, confirmReservedVariants, releaseReservedVariants } from '../lib/inventory';
 
 // ─── payment-webhooks ─────────────────────────────────────────────────────
 
@@ -319,7 +319,8 @@ export async function handleFraudAuditBatch(
           `SELECT id, variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'`,
         ).bind(msg.body.orderId).all<{ id: string; variant_id: string; quantity: number }>();
         const items = (reservations.results ?? []).map((row) => ({ variantId: row.variant_id, qty: row.quantity, reservationId: row.id }));
-        await releaseReservedVariants(env, items, now);
+        const claimedItems = await claimReservationsForRelease(env.DB, items, now);
+        await releaseReservedVariants(env, claimedItems, now);
         await env.DB.batch([
           env.DB.prepare(`UPDATE orders SET status = 'cancelled', updated_at = ?2 WHERE id = ?1 AND status IN ('pending_review','pending_payment')`).bind(msg.body.orderId, now),
           env.DB.prepare(`INSERT INTO order_status_history (id, order_id, from_status, to_status, note, created_at) VALUES (?1, ?2, ?3, 'cancelled', 'fraud-audit auto-cancelled', ?4)`).bind(crypto.randomUUID(), msg.body.orderId, order.status, now),

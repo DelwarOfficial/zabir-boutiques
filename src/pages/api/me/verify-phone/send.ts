@@ -21,7 +21,8 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'PHONE_REQUIRED' }, { status: 400 });
   }
 
-  const result = await sendPhoneOtp(env.DB, body.phone);
+  const allowDevCode = (env as unknown as { ALLOW_DEV_PHONE_OTP?: string }).ALLOW_DEV_PHONE_OTP === '1';
+  const result = await sendPhoneOtp(env.DB, body.phone, { allowDevCode });
   if (!result.ok) {
     const status = result.code === 'INVALID_PHONE' ? 400 : result.code === 'RATE_LIMITED' ? 429 : 500;
     return Response.json({ ok: false, code: result.code }, { status });

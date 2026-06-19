@@ -3,7 +3,6 @@ import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 import { getEnv } from '../../../lib/env';
-export const prerender = true;
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');

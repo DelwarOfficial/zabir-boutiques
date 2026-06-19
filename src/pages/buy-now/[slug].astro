@@ -253,6 +253,7 @@ const features = (product.description ?? "")
         outsideDhakaPaisa={OUTSIDE_DHAKA}
         initialDraft={session.formDraft}
         variants={variantList.map(v => ({ id: v.id, size: v.size, color: v.color, pricePaisa: v.price_paisa }))}
+        selectedVariantId={selectedVariant?.id ?? ''}
       />
     </section>
 

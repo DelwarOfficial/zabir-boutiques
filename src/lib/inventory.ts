@@ -171,6 +171,28 @@ export async function releaseReservedVariants(
   await syncReleasedReservationsDoState(env, items);
 }
 
+export async function claimReservationsForRelease(
+  db: D1Database,
+  items: ReservableItem[],
+  now: string,
+): Promise<ReservableItem[]> {
+  const claimable = items.filter((item) => item.reservationId);
+  if (claimable.length === 0) return [];
+
+  const results = await db.batch(
+    claimable.map((item) =>
+      db.prepare(
+        `UPDATE stock_reservations
+         SET release_requested_at = ?2, status = 'release_requested', updated_at = ?2
+         WHERE id = ?1 AND release_requested_at IS NULL AND status = 'active'`,
+      ).bind(item.reservationId, now),
+    ),
+    { atomic: true },
+  );
+
+  return claimable.filter((_, index) => results[index]?.meta.changes === 1);
+}
+
 /**
  * Release expired active reservations and mark them released.
  * Called by the hourly cron job (Master Plan V7 §12.3).

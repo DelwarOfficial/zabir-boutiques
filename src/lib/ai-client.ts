@@ -98,7 +98,7 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
 }
 
 async function runWorkersAi(env: Env, task: AiTask, prompt: string): Promise<AiCallResult> {
-  const client = new WorkersAIClient(env.AI);
+  const client = new WorkersAIClient(env as unknown as { AI?: Ai; DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace });
   const text = (await client.generateProductDescription(
     `Task: ${task}\nYou write concise, brand-appropriate copy for a Bangladeshi boutique. Stay under 80 words.\n\n${prompt}`,
   )).text;

@@ -33,7 +33,7 @@ function generateOtpCode(): string {
   return String(num % 1_000_000).padStart(OTP_LENGTH, '0');
 }
 
-async function sha256Hex(value: string): Promise<string> {
+export async function sha256Hex(value: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(value));
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
 }
@@ -70,6 +70,10 @@ export interface SendOtpFailure {
   code: 'INVALID_PHONE' | 'RATE_LIMITED' | 'INTERNAL_ERROR';
 }
 
+type SendPhoneOtpOptions = {
+  allowDevCode?: boolean;
+};
+
 /**
  * Generate and store an OTP for the given phone number.
  * Returns the plaintext code only in dev mode (no SMS provider).
@@ -77,6 +81,7 @@ export interface SendOtpFailure {
 export async function sendPhoneOtp(
   db: D1Database,
   rawPhone: string,
+  options: SendPhoneOtpOptions = {},
 ): Promise<SendOtpResult | SendOtpFailure> {
   const normalized = normalizeBangladeshPhone(rawPhone);
   if (!normalized.ok) return { ok: false, code: 'INVALID_PHONE' };
@@ -101,9 +106,11 @@ export async function sendPhoneOtp(
      VALUES (?1, ?2, ?3, 0, ?4, ?5, ?6)`
   ).bind(id, normalized.phone, codeHash, MAX_ATTEMPTS, now, expiresAt).run();
 
-  // In production, send the OTP via SMS provider here.
-  // For now, return the code in the response for development.
-  return { ok: true, ttl_seconds: Math.floor(OTP_TTL_MS / 1000), dev_code: code };
+  const result: SendOtpResult = { ok: true, ttl_seconds: Math.floor(OTP_TTL_MS / 1000) };
+  if (options.allowDevCode) {
+    result.dev_code = code;
+  }
+  return result;
 }
 
 export interface ConfirmOtpResult {

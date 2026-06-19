@@ -460,11 +460,11 @@ export async function createInvoice(
   if (env.VARIANT_INVENTORY_DO) {
     for (const l of lines) {
       const row = await db
-        .prepare("SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?1")
+        .prepare("SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1")
         .bind(l.variantId)
-        .first<{ quantity: number; reserved_quantity: number }>();
+        .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
       if (row) {
-        await doSyncFromD1(env as any, l.variantId, row.quantity, row.reserved_quantity ?? 0).catch(() => {});
+        await doSyncFromD1(env as any, l.variantId, row.quantity, row.reserved_quantity ?? 0, row.sold_quantity ?? 0).catch(() => {});
       }
     }
   }
@@ -562,10 +562,22 @@ export async function voidInvoice(
     .bind(invoiceId)
     .all<{ variant_id: string; quantity: number }>();
   const itemRows = items.results ?? [];
+  const reversedItems: Array<{ variantId: string; quantity: number }> = [];
 
   if (env.VARIANT_INVENTORY_DO) {
-    for (const item of itemRows) {
-      await doReverseDirectSale(env, item.variant_id, item.quantity, invoiceId, "same_day_void");
+    try {
+      for (const item of itemRows) {
+        const reversal = await doReverseDirectSale(env, item.variant_id, item.quantity, invoiceId, "same_day_void");
+        if (!reversal.ok || !reversal.reversed) {
+          throw new Error(reversal.error ?? reversal.message ?? 'reverse_direct_sale_failed');
+        }
+        reversedItems.push({ variantId: item.variant_id, quantity: item.quantity });
+      }
+    } catch (err) {
+      for (const item of reversedItems) {
+        await doDirectSale(env, item.variantId, item.quantity, invoiceId, actorStaffId).catch(() => {});
+      }
+      throw err;
     }
   }
 
@@ -579,24 +591,34 @@ export async function voidInvoice(
           .bind(it.quantity, now, it.variant_id),
       );
 
-  const batch = await db.batch(
-    [
-      db
-        .prepare(
-          `UPDATE invoices SET status='voided', voided_reason=?2, voided_by=?3, voided_at=?4, updated_at=?4
-           WHERE id=?1 AND status IN ('issued','paid')`,
-        )
-        .bind(invoiceId, reason.trim(), actorStaffId, now),
-      ...restockStmts,
-      db
-        .prepare(
-          `INSERT INTO invoice_audit (id, invoice_id, actor_staff_id, action, from_status, to_status, metadata_json, created_at)
-           VALUES (?1, ?2, ?3, 'invoice.void', 'paid', 'voided', ?4, ?5)`,
-        )
-        .bind(crypto.randomUUID(), invoiceId, actorStaffId, JSON.stringify({ reason: reason.trim() }), now),
-    ],
-    { atomic: true },
-  );
+  let batch;
+  try {
+    batch = await db.batch(
+      [
+        db
+          .prepare(
+            `UPDATE invoices SET status='voided', voided_reason=?2, voided_by=?3, voided_at=?4, updated_at=?4
+             WHERE id=?1 AND status IN ('issued','paid')`,
+          )
+          .bind(invoiceId, reason.trim(), actorStaffId, now),
+        ...restockStmts,
+        db
+          .prepare(
+            `INSERT INTO invoice_audit (id, invoice_id, actor_staff_id, action, from_status, to_status, metadata_json, created_at)
+             VALUES (?1, ?2, ?3, 'invoice.void', 'paid', 'voided', ?4, ?5)`,
+          )
+          .bind(crypto.randomUUID(), invoiceId, actorStaffId, JSON.stringify({ reason: reason.trim() }), now),
+      ],
+      { atomic: true },
+    );
+  } catch (err) {
+    if (env.VARIANT_INVENTORY_DO && reversedItems.length > 0) {
+      for (const item of reversedItems) {
+        await doDirectSale(env, item.variantId, item.quantity, invoiceId, actorStaffId).catch(() => {});
+      }
+    }
+    throw err;
+  }
 
   // The status UPDATE returning 0 changes means another operator
   // voided this invoice first.
