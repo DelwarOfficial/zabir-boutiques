@@ -50,6 +50,7 @@ const ALL: MenuItem[] = [
   { label: 'Site Settings', href: '/staff/settings', roles: ['owner-tier'] },
   { label: 'Media / R2', href: '/staff/media-admin', roles: ['owner-tier'] },
   { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier', 'auditor'] },
+  { label: 'Guardrails', href: '/staff/guardrails', roles: ['owner-tier', 'auditor'] },
   // Platform-control (super_admin ONLY)
   { label: 'API Code / Developer', href: '/staff/api-code', roles: ['super-admin-only', 'developer'] },
   { label: 'Backups', href: '/staff/backups', roles: ['super-admin-only'] },

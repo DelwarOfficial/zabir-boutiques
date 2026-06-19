@@ -2,19 +2,73 @@
 export const prerender = true;
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
-import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.ship')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+const packedOrders = await env.DB.prepare(
+  `SELECT id, order_number, name, phone, status
+   FROM orders WHERE status = 'packed'
+   ORDER BY updated_at DESC LIMIT 20`
+).all<any>();
 ---
+
 <StaffLayout title="Courier Handoff" user={user}>
-  <PageHeader title="Courier Handoff" subtitle="Hand packed orders to the courier for delivery." />
-  <ComingSoon title="Courier handoff flow is planned" description="Mark parcels as dispatched and record which courier took them, in one pass.">
-    <ul class="list-disc pl-5 space-y-1">
-      <li>Move packed orders to shipped in bulk</li>
-      <li>Record courier name and tracking reference</li>
-      <li>Auto-update order status and customer-facing tracking</li>
-    </ul>
-  </ComingSoon>
+  <PageHeader title="Courier Handoff" subtitle="Print labels and hand packed orders to courier." />
+
+  <div class="mb-6">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Packed Orders (last 20)</h2>
+    {packedOrders.results?.length ? (
+      <div class="overflow-x-auto border border-line rounded-lg">
+        <table class="w-full border-collapse text-xs">
+          <thead><tr class="bg-surface-soft text-left">
+            <th class="px-2.5 py-2 font-semibold">Order</th>
+            <th class="px-2.5 py-2 font-semibold">Customer</th>
+            <th class="px-2.5 py-2 font-semibold">Label</th>
+          </tr></thead>
+          <tbody>{packedOrders.results.map(o => (
+            <tr class="border-t border-line-soft">
+              <td class="px-2.5 py-1.5 font-mono">{o.order_number}</td>
+              <td class="px-2.5 py-1.5">{o.name}</td>
+              <td class="px-2.5 py-1.5">
+                <div class="flex flex-wrap gap-1">
+                  <a href={`/api/staff/orders/${o.id}/label?courier=generic`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Generic</a>
+                  <a href={`/api/staff/orders/${o.id}/label?courier=pathao`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Pathao</a>
+                  <a href={`/api/staff/orders/${o.id}/label?courier=steadfast`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Steadfast</a>
+                  <a href={`/api/staff/orders/${o.id}/label?courier=redx`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Redx</a>
+                </div>
+              </td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>
+    ) : <p class="text-muted text-sm">No packed orders awaiting courier handoff.</p>}
+  </div>
+
+  <div class="bg-surface border border-line rounded-lg p-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-2">Label Format Reference</h2>
+    <table class="w-full border-collapse text-xs">
+      <thead><tr class="border-b border-line text-left">
+        <th class="px-2 py-1.5 font-semibold">Param</th>
+        <th class="px-2 py-1.5 font-semibold">Values</th>
+        <th class="px-2 py-1.5 font-semibold">Description</th>
+      </tr></thead>
+      <tbody>
+        <tr class="border-b border-line-soft">
+          <td class="px-2 py-1.5 font-mono">courier</td>
+          <td class="px-2 py-1.5">generic, pathao, steadfast, redx</td>
+          <td class="px-2 py-1.5">Label template with courier branding</td>
+        </tr>
+        <tr class="border-b border-line-soft">
+          <td class="px-2 py-1.5 font-mono">format</td>
+          <td class="px-2 py-1.5">thermal</td>
+          <td class="px-2 py-1.5">4x6 inch (101.6mm × 152.4mm) for thermal printers</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
 </StaffLayout>

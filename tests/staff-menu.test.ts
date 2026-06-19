@@ -7,7 +7,7 @@ const SUPER_ADMIN_ONLY_HREFS = ['/staff/api-code', '/staff/backups'];
 
 // Business owner items visible to both super_admin + owner
 const OWNER_TIER_HREFS = [
-  '/staff/users', '/staff/roles', '/staff/settings', '/staff/media-admin', '/staff/audit', '/staff/coupons'
+  '/staff/users', '/staff/roles', '/staff/settings', '/staff/media-admin', '/staff/audit', '/staff/guardrails', '/staff/coupons'
 ];
 
 describe('Role-aware staff menu — platform security hardening', () => {
@@ -46,7 +46,7 @@ describe('Role-aware staff menu — platform security hardening', () => {
 
   it('auditor sees Dashboard, Reports, and Audit Logs only', () => {
     const hrefs = menuForRole('auditor').map(m => m.href).sort();
-    expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/reports']);
+    expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/guardrails', '/staff/reports']);
   });
 
   it('packing sees packing queue, not product management', () => {

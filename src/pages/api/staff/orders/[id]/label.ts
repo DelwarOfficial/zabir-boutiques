@@ -5,18 +5,21 @@
  * printed or screenshot. Returns HTML that auto-triggers print dialog.
  *
  * Dimensions: 210mm × 99mm (3 labels fit vertically on A4).
+ * ?format=thermal: 4x6 inch (101.6mm × 152.4mm) for thermal printers.
+ * ?courier=pathao|steadfast|redx: courier-specific label template.
+ * ?courier=generic (default): plain store-branded label.
  *
  * RBAC: Requires orders.view permission.
- * No external dependencies — pure HTML/SVG rendering.
  */
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../../lib/env';
 import { requireAuth, requirePermission, RbacError } from '../../../../../lib/rbac';
+import { renderLabel, validateProvider } from '../../../../../lib/integrations/courier/index';
+import type { LabelData } from '../../../../../lib/integrations/courier/types';
 
 export async function GET(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const orderId = context.params.id;
-
   if (!orderId) return Response.json({ error: 'Missing order ID' }, { status: 400 });
 
   let user;
@@ -40,7 +43,38 @@ export async function GET(context: APIContext): Promise<Response> {
 
   if (!order) return Response.json({ error: 'Order not found' }, { status: 404 });
 
-  // Determine payment status label
+  const q = new URL(context.request.url).searchParams;
+  const courierParam = q.get('courier') || 'generic';
+  const thermal = q.get('format') === 'thermal';
+
+  const provider = validateProvider(courierParam);
+
+  const labelData: LabelData = {
+    orderNumber: order.order_number,
+    customerName: order.name,
+    customerPhone: order.phone,
+    customerAddress: order.address,
+    paymentMethod: order.payment_method,
+    totalPaisa: order.total_paisa,
+    advancePaisa: order.advance_paisa,
+    balancePaisa: order.balance_paisa,
+    paymentStatus: order.payment_status,
+    storeName: 'Zabir Boutiques',
+    storeAddress: 'Wari, Dhaka',
+    storePhone: '+880 1985-516000',
+  };
+
+  if (provider) {
+    const result = renderLabel(provider, labelData, thermal);
+    return new Response(result.html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `inline; filename="${result.filename}"`,
+      },
+    });
+  }
+
+  // Fallback: generic store-branded label
   let paymentLabel = 'COD';
   if (order.payment_method === 'in_store') paymentLabel = 'PAID (In-Store)';
   else if (order.payment_method === 'uddoktapay' && order.payment_status === 'paid') paymentLabel = 'PAID (Online)';
@@ -48,25 +82,19 @@ export async function GET(context: APIContext): Promise<Response> {
   else if (order.payment_method === 'uddoktapay') paymentLabel = 'PENDING PAYMENT';
 
   const totalTaka = `৳${Math.floor(order.total_paisa / 100)}`;
+  const w = thermal ? '101.6mm' : '210mm';
+  const h = thermal ? '152.4mm' : '99mm';
 
-  // Generate a self-contained HTML page that renders the label and auto-prints
   const html = `<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8"/>
 <title>Label - ${escapeHtml(order.order_number)}</title>
 <style>
-  @page { size: 210mm 99mm; margin: 0; }
+  @page { size: ${w} ${h}; margin: 0; }
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, -apple-system, sans-serif; }
-  .label {
-    width: 210mm; height: 99mm;
-    padding: 6mm 8mm;
-    border: 1px dashed #999;
-    display: grid;
-    grid-template-rows: auto 1fr auto;
-    gap: 3mm;
-  }
+  .label { width: ${w}; height: ${h}; padding: 6mm 8mm; border: 1px dashed #999; display: grid; grid-template-rows: auto 1fr auto; gap: 3mm; }
   .header { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 1px solid #333; padding-bottom: 3mm; }
   .brand { font-weight: 900; font-size: 14pt; }
   .order-num { font-size: 12pt; font-weight: 700; font-family: monospace; }
@@ -108,8 +136,8 @@ export async function GET(context: APIContext): Promise<Response> {
   return new Response(html, {
     headers: {
       'Content-Type': 'text/html; charset=utf-8',
-      'Content-Disposition': `inline; filename="label-${order.order_number}.html"`
-    }
+      'Content-Disposition': `inline; filename="label-${order.order_number}.html"`,
+    },
   });
 }
 

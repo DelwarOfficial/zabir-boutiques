@@ -1,0 +1,167 @@
+---
+export const prerender = true;
+import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
+import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { getEnv } from "../../../lib/env";
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect("/staff/login");
+if (!can(user.role, "reports.view")) return new Response("Forbidden", { status: 403 });
+
+const env = getEnv(Astro);
+
+const clusters = [
+  { id: 'A', name: 'Astro & Rendering', guards: '1, 2', domain: 'Frontend platform' },
+  { id: 'B', name: 'Pricing & Money', guards: '3, 4, 5, 41', domain: 'Checkout engineering' },
+  { id: 'C', name: 'Cart & Buy Now', guards: '6, 7, 8, 9, 40', domain: 'Cart/checkout engineering' },
+  { id: 'D', name: 'Reservation & Inventory', guards: '10, 11, 12, 43', domain: 'Inventory engineering' },
+  { id: 'E', name: 'DO & Cron Lifecycle', guards: '13', domain: 'Platform engineering' },
+  { id: 'F', name: 'FraudBD', guards: '14', domain: 'Risk engineering' },
+  { id: 'G', name: 'COD & POS', guards: '15, 16, 17', domain: 'POS engineering' },
+  { id: 'H', name: 'Staff & Security', guards: '18, 19, 20, 21, 22', domain: 'Security engineering' },
+  { id: 'I', name: 'External APIs & Adapters', guards: '23, 24, 29, 30', domain: 'Integrations engineering' },
+  { id: 'J', name: 'Payments', guards: '25', domain: 'Payments engineering' },
+  { id: 'K', name: 'Images & Media', guards: '26, 27', domain: 'Media engineering' },
+  { id: 'L', name: 'CartDO Persistence', guards: '28, 39', domain: 'Cart engineering' },
+  { id: 'M', name: 'Migrations & D1 Schema', guards: '31, 32, 38', domain: 'Database engineering' },
+  { id: 'N', name: 'Performance Budget', guards: '33', domain: 'Frontend platform' },
+  { id: 'O', name: 'Accessibility', guards: '34', domain: 'Frontend platform' },
+  { id: 'P', name: 'AI & Budget', guards: '35, 42', domain: 'AI engineering' },
+  { id: 'Q', name: 'Cost & Owner Authority', guards: '36, 37', domain: 'Owner / Lead Engineer' },
+];
+
+const providerHealth = await env.DB.prepare(
+  `SELECT provider,
+          COUNT(*) as total,
+          SUM(CASE WHEN status = 'success' THEN 1 ELSE 0 END) as ok,
+          SUM(CASE WHEN status = 'error' THEN 1 ELSE 0 END) as err,
+          SUM(CASE WHEN status = 'timeout' THEN 1 ELSE 0 END) as tos,
+          SUM(CASE WHEN status = 'circuit_open' THEN 1 ELSE 0 END) as opens,
+          ROUND(AVG(duration_ms)) as avg_ms,
+          MAX(created_at) as last_call
+   FROM api_audit_logs
+   GROUP BY provider ORDER BY provider`
+).all<any>();
+
+const recentApiEvents = await env.DB.prepare(
+  `SELECT provider, operation, status, duration_ms, circuit_state, created_at
+   FROM api_audit_logs
+   ORDER BY created_at DESC LIMIT 20`
+).all<any>();
+---
+
+<StaffLayout title="Guardrails" user={user}>
+  <PageHeader title="Guardrail Dashboard"
+    subtitle="Cluster map, provider health, open waivers, and GV incidents. Read-only. RBAC: reports.view." />
+
+  <!-- Cluster Map -->
+  <div class="bg-surface border border-line rounded-lg p-4 mb-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Cluster Map (17 clusters, 43 guardrails)</h2>
+    <div class="overflow-x-auto">
+      <table class="w-full border-collapse text-xs">
+        <thead><tr class="border-b border-line text-left">
+          <th class="px-2 py-1.5 font-semibold">Cluster</th>
+          <th class="px-2 py-1.5 font-semibold">Guardrail #s</th>
+          <th class="px-2 py-1.5 font-semibold">GO Domain</th>
+          <th class="px-2 py-1.5 font-semibold">GO Name</th>
+        </tr></thead>
+        <tbody>{clusters.map(c => (
+          <tr class="border-b border-line-soft">
+            <td class="px-2 py-1.5 font-mono">{c.id}. {c.name}</td>
+            <td class="px-2 py-1.5 text-muted">{c.guards}</td>
+            <td class="px-2 py-1.5">{c.domain}</td>
+            <td class="px-2 py-1.5 text-muted italic">TBD</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>
+    <p class="text-[10px] text-muted mt-2 mb-0">GO assignments maintained in <code>docs/guardrail-owners.md</code></p>
+  </div>
+
+  <!-- Provider Health -->
+  <div class="bg-surface border border-line rounded-lg p-4 mb-4">
+    <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Provider Health (api_audit_logs)</h2>
+    {providerHealth.results?.length ? (
+      <div class="overflow-x-auto">
+        <table class="w-full border-collapse text-xs">
+          <thead><tr class="border-b border-line text-left">
+            <th class="px-2 py-1.5 font-semibold">Provider</th>
+            <th class="px-2 py-1.5 font-semibold">Total</th>
+            <th class="px-2 py-1.5 font-semibold">OK</th>
+            <th class="px-2 py-1.5 font-semibold">Error</th>
+            <th class="px-2 py-1.5 font-semibold">Timeout</th>
+            <th class="px-2 py-1.5 font-semibold">Circuit Open</th>
+            <th class="px-2 py-1.5 font-semibold">Avg (ms)</th>
+            <th class="px-2 py-1.5 font-semibold">Last Call</th>
+          </tr></thead>
+          <tbody>{providerHealth.results.map(p => {
+            const healthPct = p.total > 0 ? (p.ok / p.total * 100).toFixed(1) : '—';
+            const healthClass = p.total > 0 && healthPct < 90 ? 'text-red-500' : healthPct < 99 ? 'text-yellow-600' : '';
+            return (
+              <tr class="border-b border-line-soft">
+                <td class="px-2 py-1.5 font-mono">{p.provider}</td>
+                <td class="px-2 py-1.5">{p.total}</td>
+                <td class="px-2 py-1.5 text-green-700">{p.ok}</td>
+                <td class="px-2 py-1.5 text-red-600">{p.err}</td>
+                <td class="px-2 py-1.5 text-yellow-600">{p.tos}</td>
+                <td class="px-2 py-1.5 text-red-600">{p.opens || '—'}</td>
+                <td class="px-2 py-1.5">{p.avg_ms ?? '—'}</td>
+                <td class="px-2 py-1.5 text-muted whitespace-nowrap">{p.last_call ? p.last_call.slice(0, 19).replace('T', ' ') : '—'}</td>
+              </tr>
+            );
+          })}</tbody>
+        </table>
+      </div>
+    ) : <p class="text-muted text-sm m-0">No API audit data yet. Provider calls will appear here once they begin.</p>}
+  </div>
+
+  <!-- Recent API Events -->
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Recent API Events</h2>
+      {recentApiEvents.results?.length ? (
+        <div class="overflow-x-auto">
+          <table class="w-full border-collapse text-xs">
+            <thead><tr class="border-b border-line text-left">
+              <th class="px-2 py-1.5 font-semibold">Time</th>
+              <th class="px-2 py-1.5 font-semibold">Provider</th>
+              <th class="px-2 py-1.5 font-semibold">Op</th>
+              <th class="px-2 py-1.5 font-semibold">Status</th>
+            </tr></thead>
+            <tbody>{recentApiEvents.results.map(e => (
+              <tr class="border-b border-line-soft">
+                <td class="px-2 py-1.5 whitespace-nowrap text-muted">{e.created_at.slice(0, 19).replace('T', ' ')}</td>
+                <td class="px-2 py-1.5 font-mono">{e.provider}</td>
+                <td class="px-2 py-1.5">{e.operation}</td>
+                <td class="px-2 py-1.5">
+                  <span class="inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold {{
+                    'success': 'bg-green-100 text-green-800',
+                    'error': 'bg-red-100 text-red-800',
+                    'timeout': 'bg-yellow-100 text-yellow-800',
+                    'circuit_open': 'bg-orange-100 text-orange-800'
+                  }[e.status] || 'bg-gray-100 text-gray-800'}">{e.status}</span>
+                </td>
+              </tr>
+            ))}</tbody>
+          </table>
+        </div>
+      ) : <p class="text-muted text-sm m-0">No events yet.</p>}
+    </div>
+
+    <div class="bg-surface border border-line rounded-lg p-4">
+      <h2 class="text-xs font-semibold uppercase tracking-wider text-muted m-0 mb-3">Open Waivers &amp; GV Incidents</h2>
+      <div class="text-muted text-sm">
+        <p class="mb-2">No open waivers. (View <code>docs/audit/waivers.md</code> for the full register.)</p>
+        <p class="m-0">No GV incidents in the last 30 days. GV identifiers follow <code>GV-{YYYY}-{NN}</code> format and are tracked monthly per Section 34.6.</p>
+      </div>
+      <hr class="border-line my-3" />
+      <h3 class="text-[10px] uppercase tracking-wider text-muted font-semibold m-0 mb-2">Quick Links</h3>
+      <ul class="list-none p-0 m-0 text-xs space-y-1">
+        <li><a href="/staff/audit" class="text-brand no-underline hover:underline">Audit Logs</a></li>
+        <li><a href="/staff/reports" class="text-brand no-underline hover:underline">Reports</a></li>
+        <li><a href="/staff/fraud" class="text-brand no-underline hover:underline">Fraud Review</a></li>
+      </ul>
+    </div>
+  </div>
+</StaffLayout>
