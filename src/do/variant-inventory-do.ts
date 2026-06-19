@@ -49,9 +49,12 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
         this.sold = row.sold_quantity;
       }
     }
-    // Load persisted reservations
+    // Load persisted reservations and schedule next alarm
     const stored = await this.state.storage.get<Record<string, { qty: number; expiresAt: number }>>('reservations');
-    if (stored) this.reservations = new Map(Object.entries(stored));
+    if (stored) {
+      this.reservations = new Map(Object.entries(stored));
+    }
+    await this.scheduleNextAlarm();
     this.initialized = true;
   }
 
@@ -62,6 +65,41 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       sold: this.sold,
       reservations: Object.fromEntries(this.reservations),
     });
+    await this.scheduleNextAlarm();
+  }
+
+  /** Sweep expired reservations and persist if any were removed. */
+  private async sweepExpiredReservations(): Promise<boolean> {
+    const now = Date.now();
+    let changed = false;
+    for (const [id, res] of this.reservations) {
+      if (res.expiresAt <= now) {
+        this.reserved = Math.max(0, this.reserved - res.qty);
+        this.reservations.delete(id);
+        changed = true;
+      }
+    }
+    return changed;
+  }
+
+  /** Schedule alarm at the nearest reservation expiry. */
+  private async scheduleNextAlarm(): Promise<void> {
+    let earliest = Infinity;
+    for (const res of this.reservations.values()) {
+      if (res.expiresAt < earliest) earliest = res.expiresAt;
+    }
+    if (Number.isFinite(earliest) && earliest > Date.now()) {
+      await this.state.storage.setAlarm(earliest);
+    }
+  }
+
+  async alarm(): Promise<void> {
+    const changed = await this.sweepExpiredReservations();
+    if (changed) {
+      await this.persistState();
+    } else {
+      await this.scheduleNextAlarm();
+    }
   }
 
   async fetch(request: Request): Promise<Response> {
@@ -187,9 +225,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
         return Response.json({ ok: true, reversed: false, auditEventId: existing, message: "already_reversed" });
       }
 
-      this.stock += qty;
-      this.sold = Math.max(0, this.sold - qty);
-
+      // D1 FIRST — source of truth [P1-01: DO state must not mutate before D1]
       if (env.DB) {
         await env.DB.batch([
           env.DB.prepare(
@@ -203,6 +239,10 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
           ).bind(auditEventId, variantId, qty),
         ], { atomic: true });
       }
+
+      // THEN mutate DO state
+      this.stock += qty;
+      this.sold = Math.max(0, this.sold - qty);
 
       await this.state.storage.put(reversalKey, auditEventId);
       await this.persistState();
