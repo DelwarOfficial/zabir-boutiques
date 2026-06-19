@@ -3,6 +3,7 @@ import Header from "@/components/shell/Header.astro";
 import CategoryRail from "@/components/shell/CategoryRail.astro";
 import Footer from "@/components/shell/Footer.astro";
 import { BottomNav } from "@/islands/BottomNav";
+import { PwaInstallHint } from "@/islands/PwaInstallHint";
 import "@/styles/global.css";
 
 type Props = {
@@ -31,9 +32,17 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
     <meta property="og:url" content={canonicalUrl} />
     {ogImage && <meta property="og:image" content={ogImage} />}
 
+    <!-- PWA -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Zabir" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+
     <!-- Icons -->
-    <link rel="icon" href="/assets/zabir-logo.jpg" />
-    <link rel="apple-touch-icon" href="/assets/zabir-logo.jpg" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
 
     <!-- Theme: prevent flash by applying stored preference synchronously -->
     <script is:inline>
@@ -62,10 +71,13 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
     </div>
     <!-- Bottom nav: idle-hydrated (not blocking LCP) -->
     <BottomNav client:idle />
+    <PwaInstallHint client:idle />
     <!-- Web Vitals RUM [Master_Prompt v7.0 §21] -->
     <script>
       import { initWebVitals } from '../lib/web-vitals';
+      import { registerServiceWorker } from '../lib/pwa/register';
       initWebVitals();
+      registerServiceWorker();
     </script>
   </body>
 </html>

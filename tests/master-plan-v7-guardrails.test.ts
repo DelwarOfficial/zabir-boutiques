@@ -160,6 +160,18 @@ describe('Master Plan V7 payment and image adapters', () => {
   });
 });
 
+describe('PWA storefront guardrails', () => {
+  it('ships manifest, offline shell, and e-commerce-safe service worker', () => {
+    const manifest = JSON.parse(read('public/manifest.json'));
+    expect(manifest.display).toBe('standalone');
+    expect(existsSync('public/offline.html')).toBe(true);
+    expect(read('src/layouts/RootLayout.astro')).toContain('rel="manifest"');
+    expect(read('src/middleware.ts')).toContain("worker-src 'self'");
+    expect(read('src/pwa/sw.template.js')).toContain('/checkout');
+    expect(read('src/pwa/sw.template.js')).toContain('/api');
+  });
+});
+
 describe('Master Plan V7 email provider selection', () => {
   it('defaults to Resend and selects Cloudflare Email by EMAIL_PROVIDER', () => {
     expect(getEmailProvider({}).constructor.name).toBe('ResendEmailProvider');

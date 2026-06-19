@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="robots" content="noindex" />
+  <meta name="theme-color" content="#faf9f7" />
+  <title>Offline — Zabir Boutiques</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; }
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      background: #faf9f7;
+      color: #1c1917;
+      min-height: 100dvh;
+      display: grid;
+      place-items: center;
+      padding: 2rem;
+      text-align: center;
+    }
+    .card {
+      max-width: 22rem;
+      background: #fff;
+      border: 1px solid #e7e5e4;
+      border-radius: 1rem;
+      padding: 2rem 1.5rem;
+    }
+    h1 { font-size: 1.25rem; margin-bottom: 0.5rem; }
+    p { color: #78716c; font-size: 0.9rem; line-height: 1.5; margin-bottom: 1.25rem; }
+    a, button {
+      display: inline-block;
+      background: #a16207;
+      color: #fff;
+      border: 0;
+      border-radius: 0.5rem;
+      padding: 0.65rem 1.25rem;
+      font-weight: 600;
+      font-size: 0.875rem;
+      text-decoration: none;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>You are offline</h1>
+    <p>Check your connection and try again. Checkout, cart, and order pages need an active internet connection.</p>
+    <button type="button" onclick="location.reload()">Try again</button>
+    <p style="margin-top:1rem;margin-bottom:0"><a href="/">Back to home</a></p>
+  </div>
+</body>
+</html>

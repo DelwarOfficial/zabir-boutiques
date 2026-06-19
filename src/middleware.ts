@@ -152,6 +152,7 @@ function withSecurityHeaders(response: Response, nonce: string, request: Request
     "img-src 'self' https://cdn.zabirboutiques.com data: blob:",
     "font-src 'self'",
     "connect-src 'self'",
+    "worker-src 'self'",
     "frame-ancestors 'none'",
     "base-uri 'self'",
     "form-action 'self'",

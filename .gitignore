@@ -15,6 +15,7 @@ dist/
 
 # build-time snapshots (generated, not committed)
 src/data/*.json
+public/sw.js
 
 # typescript
 *.tsbuildinfo

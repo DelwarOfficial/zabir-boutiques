@@ -156,7 +156,7 @@ export class SSLCommerzClient {
     operation: string,
     requestId: string,
     startedAt: number,
-    status: string,
+    status: 'success' | 'error' | 'timeout' | 'circuit_open',
     errorCode: string | null,
     requestSummary: string,
     responseSummary: string,
@@ -168,15 +168,15 @@ export class SSLCommerzClient {
     await writeApiAuditLog(this.env.DB, {
       provider: 'sslcommerz',
       operation,
-      request_id: requestId,
-      order_id: orderId,
-      invoice_id: invoiceId,
-      duration_ms: Date.now() - startedAt,
+      requestId,
+      orderId,
+      invoiceId,
+      durationMs: Date.now() - startedAt,
       status,
-      error_code: errorCode,
-      circuit_state: circuitState ?? null,
-      redacted_request_summary: requestSummary,
-      redacted_response_summary: responseSummary,
+      errorCode,
+      circuitState: (circuitState as 'closed' | 'open' | 'half_open' | null) ?? null,
+      redactedRequestSummary: requestSummary,
+      redactedResponseSummary: responseSummary,
     });
   }
 }
