@@ -163,6 +163,8 @@ const features = (product.description ?? "")
 
 <RootLayout title={`${product.name} | Zabir Boutiques`} description={product.description ?? product.name} ogImage={ogImage}>
   <Fragment slot="head">
+    <meta name="robots" content="noindex, follow" />
+    <link rel="canonical" href={buyNowUrl} />
     <script type="application/ld+json" set:html={productJsonLd} />
     <script type="application/ld+json" set:html={faqJsonLd} />
   </Fragment>

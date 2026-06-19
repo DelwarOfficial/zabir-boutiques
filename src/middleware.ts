@@ -15,6 +15,7 @@ import { safeLog } from './lib/pii-scrubber';
 import { isLocalHttpDev } from './lib/staff-cookies';
 import { validateCsrfDoubleSubmit } from './lib/csrf';
 import { getRequiredStaffPermission } from './lib/staff-route-rbac';
+import { trackMetric } from './lib/analytics';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
@@ -23,11 +24,11 @@ const CSRF_EXEMPT_PATHS = new Set(['/api/staff/login']);
 const AUTH_EXEMPT_PATHS = new Set(['/staff/login', '/api/staff/login']);
 // Matches /staff, /staff/, /staff/*, and /api/staff/* for the auth guard.
 const STAFF_PROTECTED = /^(?:\/api\/staff\/|\/staff(?:\/|$))/;
-const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number }> = [
-  { pattern: /^\/api\/checkout$/, limit: 20, windowSeconds: 60 },
+const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number; critical?: boolean }> = [
+  { pattern: /^\/api\/checkout$/, limit: 20, windowSeconds: 60, critical: true },
   { pattern: /^\/api\/orders\/track$/, limit: 30, windowSeconds: 60 },
-  { pattern: /^\/api\/staff\/login$/, limit: 10, windowSeconds: 60 },
-  { pattern: /^\/api\/payments\/create$/, limit: 20, windowSeconds: 60 },
+  { pattern: /^\/api\/staff\/login$/, limit: 10, windowSeconds: 60, critical: true },
+  { pattern: /^\/api\/payments\/create$/, limit: 20, windowSeconds: 60, critical: true },
   { pattern: /^\/api\/fraud\/check$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/fraud\/override$/, limit: 10, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/api-keys$/, limit: 20, windowSeconds: 60 },
@@ -122,7 +123,18 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
     }
     await cache.put(key, String(current + 1), { expirationTtl: rule.windowSeconds * 2 });
   } catch (err) {
-    safeLog.warn('[rate-limit] fail-open', { error: err instanceof Error ? err.message : String(err) });
+    safeLog.warn('[rate-limit] kv-error', { error: err instanceof Error ? err.message : String(err), pathname, critical: !!rule.critical });
+    trackMetric(cloudflareEnv as { ANALYTICS?: AnalyticsEngineDataset }, {
+      name: 'rate-limit.kv-error',
+      indexes: [pathname],
+      blobs: [err instanceof Error ? err.message : String(err)],
+    }).catch(() => {});
+    if (rule.critical) {
+      return Response.json(
+        { error: 'Service temporarily unavailable. Please try again.' },
+        { status: 503, headers: { 'Retry-After': '30' } },
+      );
+    }
   }
 
   return null;

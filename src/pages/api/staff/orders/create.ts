@@ -139,7 +139,8 @@ export async function POST(context: APIContext): Promise<Response> {
   // Determine payment method and prepayment
   let paymentMethod: string = isInStore ? 'in_store' : (body.payment_method ?? 'cod');
   const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
-  const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
+  const distinctItemCount = new Set(items.map((i) => i.variantId)).size;
+  const prepayment = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
   // If prepayment is required but caller sent 'cod', upgrade to 'partial_prepay'
   if (prepayment.required && paymentMethod === 'cod') {
     paymentMethod = 'partial_prepay';
