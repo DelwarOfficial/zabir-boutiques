@@ -280,7 +280,7 @@ export async function handleFraudAuditBatch(
   for (const msg of batch.messages) {
     try {
       const { checkFraudBD, decideFraudRisk } = await import("../lib/fraud");
-      const { score } = await checkFraudBD(msg.body.phone, env.FRAUDBD_API_KEY, 1500, 'https://fraudbd.com', env);
+      const { score } = await checkFraudBD(msg.body.phone, env.FRAUDBD_API_KEY, 3000, 'https://fraudbd.com', env);
       const decision = decideFraudRisk(score);
       await env.DB
         .prepare("UPDATE orders SET fraud_decision = ?2, updated_at = ?3 WHERE id = ?1")

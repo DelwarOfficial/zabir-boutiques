@@ -2,6 +2,10 @@ import { writeApiAuditLog } from '../../api-audit';
 import { doCheckProviderHealth, doRecordProviderResult } from '../../do-client';
 import type { FraudBDEnv, FraudBDResult } from './types';
 
+function isFraudBDSchema(data: unknown): data is { status: boolean; data?: Record<string, unknown> } {
+  return typeof data === 'object' && data !== null && 'status' in data && typeof (data as { status?: unknown }).status === 'boolean';
+}
+
 export class FraudBDClient {
   constructor(private readonly env: FraudBDEnv) {}
 
@@ -30,8 +34,22 @@ export class FraudBDClient {
       });
       const data = await res.json().catch(() => null);
       const rawResponse = JSON.stringify(data ?? { error: 'invalid_json' });
-      await this.record(res.ok);
-      await this.audit(requestId, startedAt, res.ok ? 'success' : 'error', res.ok ? null : `HTTP_${res.status}`, JSON.stringify({ phone_number: '[redacted]' }), rawResponse, health.state);
+      const isSchemaValid = isFraudBDSchema(data);
+      const isCircuitFailure = res.status >= 500 || (res.ok && !isSchemaValid);
+      if (isCircuitFailure) {
+        await this.record(false);
+      } else if (res.ok) {
+        await this.record(true);
+      }
+      await this.audit(
+        requestId,
+        startedAt,
+        res.ok && isSchemaValid ? 'success' : 'error',
+        res.ok ? (isSchemaValid ? null : 'INVALID_SCHEMA') : `HTTP_${res.status}`,
+        JSON.stringify({ phone_number: '[redacted]' }),
+        rawResponse,
+        health.state,
+      );
       return { data, rawResponse, circuitOpen: false };
     } catch (err) {
       const code = err instanceof DOMException && err.name === 'AbortError' ? 'TIMEOUT' : 'REQUEST_FAILED';

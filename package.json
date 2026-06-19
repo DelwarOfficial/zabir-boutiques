@@ -17,6 +17,7 @@
     "typecheck": "astro check && tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "audit:drift": "tsx scripts/audit/audit-drift.ts --scope weekly",
     "bundlewatch": "node scripts/bundlewatch.mjs",
     "bundlewatch:update": "node scripts/bundlewatch.mjs --update",
     "cwv": "node scripts/cwv-budget.mjs",

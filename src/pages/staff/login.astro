@@ -1,6 +1,7 @@
 ---
 import { getCurrentStaffUser } from '../../lib/rbac';
 import "@/styles/global.css";
+export const prerender = true;
 
 const user = await getCurrentStaffUser(Astro);
 if (user) {
