@@ -100,6 +100,58 @@ const subtotalPaisa = unitPrice * session.quantity;
 const hasDiscount = product.compare_price_paisa && product.compare_price_paisa > unitPrice;
 const discountPercent = hasDiscount ? Math.round((1 - unitPrice / product.compare_price_paisa!) * 100) : 0;
 const savingsPaisa = hasDiscount ? (product.compare_price_paisa! - unitPrice) : 0;
+const site = Astro.site?.origin ?? "https://zabirboutiques.com";
+const buyNowUrl = Astro.url.href;
+const ogImage = primaryImage.startsWith("http") ? primaryImage : new URL(primaryImage, site).href;
+const faqItems = [
+  {
+    question: "ডেলিভারি কত দিনে পাব?",
+    answer: "ঢাকায় সাধারণত ১-৩ কার্যদিবস, ঢাকার বাইরে ২-৫ কার্যদিবস সময় লাগতে পারে।",
+  },
+  {
+    question: "সাইজ ঠিক না হলে কী হবে?",
+    answer: "সাইজ সমস্যা হলে এক্সচেঞ্জ সাপোর্ট থাকবে, তবে পণ্য অক্ষত রাখতে হবে।",
+  },
+  {
+    question: "ক্যাশ অন ডেলিভারি আছে?",
+    answer: "হ্যাঁ, পণ্য হাতে পেয়ে মূল্য পরিশোধ করতে পারবেন।",
+  },
+  {
+    question: "অর্ডার কনফার্ম কিভাবে হবে?",
+    answer: "ফর্ম পূরণ করার পর আমাদের টিম অর্ডার রিভিউ ও কনফার্ম করবে।",
+  },
+];
+const productJsonLd = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "Product",
+  name: product.name,
+  image: [ogImage],
+  description: product.description ?? `${product.name} at Zabir Boutiques`,
+  sku: selectedVariant?.sku ?? selectedVariant?.id ?? product.id,
+  brand: { "@type": "Brand", name: "Zabir Boutiques" },
+  category: "Fashion",
+  offers: {
+    "@type": "Offer",
+    price: (unitPrice / 100).toFixed(2),
+    priceCurrency: "BDT",
+    availability: "https://schema.org/InStock",
+    url: buyNowUrl,
+    seller: { "@type": "Organization", name: "Zabir Boutiques" },
+    itemCondition: "https://schema.org/NewCondition",
+  },
+});
+const faqJsonLd = JSON.stringify({
+  "@context": "https://schema.org",
+  "@type": "FAQPage",
+  mainEntity: faqItems.map((item) => ({
+    "@type": "Question",
+    name: item.question,
+    acceptedAnswer: {
+      "@type": "Answer",
+      text: item.answer,
+    },
+  })),
+});
 
 // Parse product description into feature list
 const features = (product.description ?? "")
@@ -108,22 +160,42 @@ const features = (product.description ?? "")
   .filter(l => l.length > 0);
 ---
 
-<RootLayout title={`${product.name} | Zabir Boutiques`} description={product.description ?? product.name}>
+<RootLayout title={`${product.name} | Zabir Boutiques`} description={product.description ?? product.name} ogImage={ogImage}>
+  <Fragment slot="head">
+    <script type="application/ld+json" set:html={productJsonLd} />
+    <script type="application/ld+json" set:html={faqJsonLd} />
+  </Fragment>
   <article class="max-w-5xl mx-auto fade-up px-4 sm:px-6 pb-24">
 
     <style is:inline>
+      article { position: relative; }
+      article::before {
+        content: "";
+        position: absolute;
+        inset: -2rem auto auto 12%;
+        width: 240px;
+        height: 240px;
+        border-radius: 999px;
+        background: radial-gradient(circle, rgba(184,134,11,.14), rgba(184,134,11,0));
+        pointer-events: none;
+        filter: blur(6px);
+      }
       .bn-shell { display: grid; gap: 1.25rem; }
-      .bn-card { background: var(--surface); border: 1px solid var(--line); border-radius: 24px; box-shadow: 0 18px 48px rgba(15, 23, 42, 0.06); }
+      .bn-card { background: color-mix(in srgb, var(--surface) 94%, #fff 6%); border: 1px solid color-mix(in srgb, var(--line) 82%, var(--brand) 18%); border-radius: 24px; box-shadow: 0 18px 48px rgba(15, 23, 42, 0.06); }
       .bn-pill { display:inline-flex; align-items:center; gap:.35rem; border-radius:999px; padding:.45rem .8rem; font-size:.75rem; font-weight:800; }
       .bn-grid { display:grid; gap:1rem; }
       .bn-trust { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.75rem; }
-      .bn-trust div { background: var(--surface); border: 1px solid var(--line); border-radius: 18px; padding: .9rem; font-size: .85rem; font-weight: 700; }
+      .bn-trust div { background: linear-gradient(180deg, color-mix(in srgb, var(--surface) 94%, #fff 6%), var(--surface)); border: 1px solid color-mix(in srgb, var(--line) 78%, var(--brand) 22%); border-radius: 18px; padding: .95rem; font-size: .85rem; font-weight: 700; }
       .bn-gallery { display:grid; gap:.75rem; }
       .bn-thumbs { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.6rem; }
       .bn-checklist { display:grid; gap:.75rem; }
       .bn-checklist li { display:flex; gap:.65rem; align-items:flex-start; }
       .bn-checklist li span:first-child { flex-shrink:0; }
       .bn-reviews { display:grid; gap:.9rem; }
+      .bn-eyebrow { letter-spacing: .2em; text-transform: uppercase; font-size: .72rem; font-weight: 900; color: var(--brand); }
+      .bn-hero-copy { max-width: 32rem; }
+      .bn-soft-panel { background: linear-gradient(180deg, color-mix(in srgb, var(--surface-soft) 86%, #fff 14%), var(--surface-soft)); }
+      .bn-metric { border-radius: 18px; padding: .95rem 1rem; background: linear-gradient(180deg, rgba(184,134,11,.08), rgba(184,134,11,.02)); border: 1px solid rgba(184,134,11,.14); }
       .bn-faq details { border-top:1px solid var(--line); padding: .95rem 0; }
       .bn-faq details:first-child { border-top: 0; padding-top: 0; }
       .bn-faq summary { cursor:pointer; list-style:none; font-weight:800; }
@@ -142,13 +214,14 @@ const features = (product.description ?? "")
     <div class="bn-shell">
       <section class="bn-card overflow-hidden bn-grid p-4 sm:p-6 bn-hero">
         <div class="flex flex-col justify-between gap-4">
-          <div>
+          <div class="bn-hero-copy">
+            <p class="bn-eyebrow mb-3">Curated Everyday Tailoring</p>
             <div class="flex flex-wrap gap-2 mb-3">
               {hasDiscount && <span class="bn-pill bg-[var(--danger)]/10 text-[var(--danger)]">🔥 {discountPercent}% ছাড়</span>}
               <span class="bn-pill bg-[var(--success)]/10 text-[var(--success)]">ক্যাশ অন ডেলিভারি</span>
             </div>
             <h1 class="text-3xl sm:text-4xl font-extrabold tracking-tight leading-tight">{product.name}</h1>
-            <p class="mt-2 text-sm sm:text-base text-[var(--muted)]">প্রিমিয়াম ফ্যাব্রিক, স্মার্ট ফিট, আরামদায়ক পরিধান। {variantLabel} ভ্যারিয়েন্টে ফোকাসড দ্রুত অর্ডার অভিজ্ঞতা।</p>
+            <p class="mt-2 text-sm sm:text-base text-[var(--muted)]">প্রিমিয়াম ফ্যাব্রিক, স্মার্ট ফিট, আরামদায়ক পরিধান। {variantLabel} ভ্যারিয়েন্টে দ্রুত, ঝামেলাহীন, ট্রাস্ট-ফার্স্ট অর্ডার অভিজ্ঞতা।</p>
 
             <div class="mt-5 flex flex-wrap items-end gap-3">
               <span class="text-4xl sm:text-5xl font-extrabold text-[var(--brand)] tabular">{formatPaisa(unitPrice)}</span>
@@ -159,10 +232,10 @@ const features = (product.description ?? "")
               <p class="mt-2 text-sm font-bold text-[var(--danger)]">আজই অর্ডার করলে সাশ্রয় {formatPaisa(savingsPaisa)} পর্যন্ত।</p>
             )}
 
-            <div class="mt-5 grid gap-2 text-sm font-semibold text-[var(--ink-secondary)]">
-              <div>✓ ঢাকার ভিতরে দ্রুত ডেলিভারি</div>
-              <div>✓ সাইজ মিস হলে এক্সচেঞ্জ সাপোর্ট</div>
-              <div>✓ Facebook / TikTok থেকে আসা কাস্টমারের জন্য সহজ অর্ডার ফ্লো</div>
+            <div class="mt-5 grid gap-3 sm:grid-cols-3 text-sm font-semibold text-[var(--ink-secondary)]">
+              <div class="bn-metric">ঢাকার ভিতরে দ্রুত ডেলিভারি</div>
+              <div class="bn-metric">সাইজ মিস হলে এক্সচেঞ্জ সাপোর্ট</div>
+              <div class="bn-metric">Ad traffic-এর জন্য সহজ অর্ডার ফ্লো</div>
             </div>
           </div>
 
@@ -172,7 +245,7 @@ const features = (product.description ?? "")
           </div>
         </div>
 
-        <div class="bn-card bg-[var(--surface-soft)] p-3">
+        <div class="bn-card bn-soft-panel p-3">
           <div class="aspect-[4/5] overflow-hidden rounded-[20px] bg-[var(--surface)]">
             <img
               src={primaryImage}
@@ -215,10 +288,10 @@ const features = (product.description ?? "")
               <span class="bn-pill bg-[var(--brand)]/10 text-[var(--brand)]">স্টক সীমিত</span>
             </div>
             <div class="grid sm:grid-cols-2 gap-3 mt-4 text-sm">
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>ভ্যারিয়েন্ট</strong><br />{variantLabel}</div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>অর্ডার টাইপ</strong><br />দ্রুত Buy Now</div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>ডেলিভারি</strong><br />২-৫ কার্যদিবস</div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>পেমেন্ট</strong><br />ক্যাশ অন ডেলিভারি</div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>ভ্যারিয়েন্ট</strong><br />{variantLabel}</div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>অর্ডার টাইপ</strong><br />দ্রুত Buy Now</div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>ডেলিভারি</strong><br />২-৫ কার্যদিবস</div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>পেমেন্ট</strong><br />ক্যাশ অন ডেলিভারি</div>
             </div>
           </section>
 
@@ -260,7 +333,7 @@ const features = (product.description ?? "")
           <section class="bn-card p-5 sm:p-6">
             <h2 class="text-xl font-extrabold mb-4">📏 সাইজ ও ফিট গাইড</h2>
             <div class="grid gap-4 sm:grid-cols-[1.1fr_.9fr] items-start">
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4 text-sm leading-6">
+              <div class="rounded-2xl bn-soft-panel p-4 text-sm leading-6">
                 <p class="font-bold">সাইজ নির্বাচন টিপস</p>
                 <ul class="mt-2 space-y-2 text-[var(--ink-secondary)]">
                   <li>• আপনার নিয়মিত ব্যবহৃত প্যান্টের কোমর মেপে মিলিয়ে নিন</li>
@@ -291,21 +364,21 @@ const features = (product.description ?? "")
           <section class="bn-card p-5 sm:p-6">
             <h2 class="text-xl font-extrabold mb-4">🛡️ আমাদের থেকে কেন নিবেন?</h2>
             <div class="grid gap-3 sm:grid-cols-2 text-sm">
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4">✔️ ছবি ও বাস্তবের মিলের প্রতি জোর</div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4">✔️ ক্যাশ অন ডেলিভারি সুবিধা</div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4">✔️ সাইজ ছোট/বড় হলে এক্সচেঞ্জ সাপোর্ট</div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4">✔️ কল / WhatsApp দিয়ে সরাসরি সাপোর্ট</div>
+               <div class="rounded-2xl bn-soft-panel p-4">✔️ ছবি ও বাস্তবের মিলের প্রতি জোর</div>
+               <div class="rounded-2xl bn-soft-panel p-4">✔️ ক্যাশ অন ডেলিভারি সুবিধা</div>
+               <div class="rounded-2xl bn-soft-panel p-4">✔️ সাইজ ছোট/বড় হলে এক্সচেঞ্জ সাপোর্ট</div>
+               <div class="rounded-2xl bn-soft-panel p-4">✔️ কল / WhatsApp দিয়ে সরাসরি সাপোর্ট</div>
             </div>
           </section>
 
           <section class="bn-card p-5 sm:p-6">
             <h2 class="text-xl font-extrabold mb-4">🚚 ডেলিভারি তথ্য</h2>
             <div class="grid grid-cols-2 gap-3 text-sm">
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4 text-center">
+              <div class="rounded-2xl bn-soft-panel p-4 text-center">
                 <p class="font-bold">ঢাকার ভিতরে</p>
                 <p class="text-2xl font-extrabold text-[var(--brand)] tabular">{formatPaisa(INSIDE_DHAKA)}</p>
               </div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4 text-center">
+              <div class="rounded-2xl bn-soft-panel p-4 text-center">
                 <p class="font-bold">ঢাকার বাইরে</p>
                 <p class="text-2xl font-extrabold text-[var(--brand)] tabular">{formatPaisa(OUTSIDE_DHAKA)}</p>
               </div>
@@ -315,9 +388,9 @@ const features = (product.description ?? "")
           <section class="bn-card p-5 sm:p-6">
             <h2 class="text-xl font-extrabold mb-4">💬 কাস্টমার ফিডব্যাক</h2>
             <div class="bn-reviews text-sm">
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>★★★★★</strong><p class="mt-2">ফিটিং অনেক ভালো, অফিসে পরার জন্য একদম পারফেক্ট।</p><p class="mt-2 text-[var(--muted)]">Tanvir, Dhaka</p></div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>★★★★★</strong><p class="mt-2">কাপড়টা আরামদায়ক, আর ডেলিভারিও দ্রুত ছিল।</p><p class="mt-2 text-[var(--muted)]">Hasib, Chattogram</p></div>
-              <div class="rounded-2xl bg-[var(--surface-soft)] p-4"><strong>★★★★★</strong><p class="mt-2">সাইজ এক্সচেঞ্জ সাপোর্ট থাকায় নিশ্চিন্তে অর্ডার করতে পেরেছি।</p><p class="mt-2 text-[var(--muted)]">Rafi, Narayanganj</p></div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>★★★★★</strong><p class="mt-2">ফিটিং অনেক ভালো, অফিসে পরার জন্য একদম পারফেক্ট।</p><p class="mt-2 text-[var(--muted)]">Tanvir, Dhaka</p></div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>★★★★★</strong><p class="mt-2">কাপড়টা আরামদায়ক, আর ডেলিভারিও দ্রুত ছিল।</p><p class="mt-2 text-[var(--muted)]">Hasib, Chattogram</p></div>
+              <div class="rounded-2xl bn-soft-panel p-4"><strong>★★★★★</strong><p class="mt-2">সাইজ এক্সচেঞ্জ সাপোর্ট থাকায় নিশ্চিন্তে অর্ডার করতে পেরেছি।</p><p class="mt-2 text-[var(--muted)]">Rafi, Narayanganj</p></div>
             </div>
           </section>
 

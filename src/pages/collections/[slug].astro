@@ -1,0 +1,29 @@
+---
+import RootLayout from "@/layouts/RootLayout.astro";
+import ProductCard from "@/components/product/ProductCard.astro";
+import { COLLECTIONS } from "@/data/collections";
+import { productsForCatalogCategory } from "@/data/catalog";
+
+export const prerender = true;
+
+export function getStaticPaths() {
+  return COLLECTIONS.map((collection) => ({ params: { slug: collection.slug }, props: { collection } }));
+}
+
+const { collection } = Astro.props;
+const products = productsForCatalogCategory(collection.slug);
+const site = Astro.site?.origin ?? 'https://zabirboutiques.com';
+---
+
+<RootLayout title={`${collection.name} Collection | Zabir Boutiques`}>
+  <section class="py-2">
+    <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Collection</p>
+    <h1 class="mt-1 text-3xl font-black">{collection.name}</h1>
+    <p class="mt-2 text-sm leading-6 text-[var(--muted)]">{collection.description}</p>
+    <link rel="canonical" href={`${site}/collections/${collection.slug}`} />
+  </section>
+
+  <section class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+    {products.slice(0, 8).map((product) => <ProductCard product={product} />)}
+  </section>
+</RootLayout>

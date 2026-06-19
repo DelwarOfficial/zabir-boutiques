@@ -1,0 +1,1 @@
+export { MockTinifyClient as ImagifyMockClient } from '../tinify/mock';

@@ -1,0 +1,1 @@
+export type { TinifyEnv as ImagifyEnv } from '../tinify/types';

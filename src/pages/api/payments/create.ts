@@ -2,7 +2,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { nowSql } from '../../../lib/dates';
 import { safeLog } from '../../../lib/pii-scrubber';
-import { UddoktaPayClient } from '../../../lib/integrations/uddoktapay';
+import { createPaymentCheckout } from '../../../lib/integrations/payments';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -48,7 +48,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const invoiceId = crypto.randomUUID();
-  const checkout = await new UddoktaPayClient(env).createCheckout({
+  const checkout = await createPaymentCheckout(env, {
     invoiceId,
     amountPaisa: paymentAmountPaisa,
     customerName: body.customer_name ?? '',
@@ -60,15 +60,15 @@ export async function POST(context: APIContext): Promise<Response> {
   });
 
   if (!checkout.ok || !checkout.paymentUrl) {
-    safeLog.error('[payments/create] provider error', { body: checkout.rawResponse, errorCode: checkout.errorCode });
+    safeLog.error('[payments/create] provider error', { body: checkout.rawResponse, errorCode: checkout.errorCode, provider: checkout.provider });
     return Response.json({ error: 'Payment provider error' }, { status: 502 });
   }
 
   const paymentId = crypto.randomUUID();
   await env.DB.prepare(
     `INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, created_at, updated_at)
-     VALUES (?1, ?2, ?3, 'uddoktapay', ?4, 'pending', ?5, ?6, ?6)`
-  ).bind(paymentId, orderId, invoiceId, paymentAmountPaisa, checkout.paymentUrl, now).run();
+     VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)`
+  ).bind(paymentId, orderId, invoiceId, checkout.provider, paymentAmountPaisa, checkout.paymentUrl, now).run();
 
   await env.DB.prepare(
     `UPDATE orders SET payment_status = 'pending', updated_at = ?2 WHERE id = ?1`

@@ -1,0 +1,1 @@
+export { TinifyError as ImagifyError } from '../tinify/errors';

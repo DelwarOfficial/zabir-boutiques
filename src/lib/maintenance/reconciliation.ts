@@ -13,7 +13,8 @@
  * contradictory state (status='cancelled' but payment_status='paid').
  */
 import { nowSql } from "../dates";
-import { applyPaymentVerified, verifyUddoktaPayment } from "../payments";
+import { applyPaymentVerified } from "../payments";
+import { verifyPaymentForProvider, type PaymentProviderName } from "../integrations/payments";
 import { claimReservationsForRelease, releaseReservedVariants } from "../inventory";
 import { writeAuditLog } from "../audit";
 import { trackMetric } from "../analytics";
@@ -30,7 +31,17 @@ export interface ReconcileResult {
 }
 
 export async function reconcilePendingPayments(
-  env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
+  env: {
+    DB: D1Database;
+    UDDOKTAPAY_API_KEY: string;
+    UDDOKTAPAY_BASE_URL: string;
+    SSLCOMMERZ_STORE_ID?: string;
+    SSLCOMMERZ_STORE_PASSWORD?: string;
+    SSLCOMMERZ_BASE_URL?: string;
+    PROVIDER_HEALTH_DO?: DurableObjectNamespace;
+    ANALYTICS?: AnalyticsEngineDataset;
+    VARIANT_INVENTORY_DO?: DurableObjectNamespace;
+  },
   now: string = nowSql(),
 ): Promise<ReconcileResult> {
   const result: ReconcileResult = { checked: 0, fixed: 0, abandoned: 0, errors: 0 };
@@ -107,7 +118,7 @@ export async function reconcilePendingPayments(
   // undo this verify.
   const stale = await env.DB
     .prepare(
-      `SELECT o.id AS order_id, p.invoice_id
+      `SELECT o.id AS order_id, p.invoice_id, p.provider
        FROM orders o
        JOIN payments p ON p.order_id = o.id
        WHERE o.payment_status IN ('created','pending','processing')
@@ -118,11 +129,12 @@ export async function reconcilePendingPayments(
        LIMIT 50`,
     )
     .bind(staleCutoff, abandonedCutoff)
-    .all<{ order_id: string; invoice_id: string }>();
+    .all<{ order_id: string; invoice_id: string; provider: string }>();
   for (const row of stale.results ?? []) {
     result.checked += 1;
     try {
-      const verified = await verifyUddoktaPayment(row.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
+      const provider = (row.provider === 'sslcommerz' ? 'sslcommerz' : 'uddoktapay') as PaymentProviderName;
+      const verified = await verifyPaymentForProvider(env, provider, row.invoice_id);
       if (verified.status !== "paid") continue;
       const applyResult = await applyPaymentVerified(
         env,
@@ -135,7 +147,7 @@ export async function reconcilePendingPayments(
         await trackMetric(env, {
           name: "payment_webhook_failures",
           doubles: { count: 1 },
-          indexes: ["provider:uddoktapay", "recovered:true"],
+          indexes: [`provider:${provider}`, "recovered:true"],
         });
       }
     } catch (err) {

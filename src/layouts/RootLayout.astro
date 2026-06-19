@@ -47,6 +47,8 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
 
+    <slot name="head" />
+
     <title>{title}</title>
   </head>
   <body class="font-sans antialiased">
