@@ -80,14 +80,62 @@ function findLine(content: string, needle: string): number | undefined {
   return content.slice(0, idx).split('\n').length;
 }
 
-function staticRouteFiles(): string[] {
-  return listFiles('src/pages', (file) => {
+/** Section 3.4 static routes that must opt in with prerender = true. */
+const STATIC_PRERENDER_ROUTES = [
+  'src/pages/index.astro',
+  'src/pages/products/[slug].astro',
+  'src/pages/categories/[slug].astro',
+  'src/pages/collections/[slug].astro',
+  'src/pages/blog/[slug].astro',
+  'src/pages/about.astro',
+  'src/pages/privacy.astro',
+  'src/pages/terms.astro',
+  'src/pages/return-policy.astro',
+  'src/pages/size-guide.astro',
+  'src/pages/sitemap.xml.ts',
+  'src/pages/robots.txt.ts',
+];
+
+function isStaticPrerenderRoute(normalized: string): boolean {
+  if (STATIC_PRERENDER_ROUTES.includes(normalized)) return true;
+  return /^src\/pages\/(products|categories|collections|blog)\/\[slug\]\.astro$/.test(normalized);
+}
+
+function prerenderRouteChecks(): Finding[] {
+  const findings: Finding[] = [];
+  const pageFiles = listFiles('src/pages', (file) => {
     const normalized = rel(file);
-    return ['.astro', '.ts'].includes(extname(file))
-      && !normalized.includes('/api/')
-      && !normalized.includes('[')
-      && !normalized.endsWith('.d.ts');
+    return ['.astro', '.ts'].includes(extname(file)) && !normalized.includes('/api/');
   });
+
+  for (const file of pageFiles) {
+    const normalized = rel(file);
+    const content = read(file);
+    const hasPrerenderTrue = /export\s+const\s+prerender\s*=\s*true/.test(content);
+    const isStatic = isStaticPrerenderRoute(normalized);
+
+    if (isStatic && existsSync(resolve(file)) && !hasPrerenderTrue) {
+      findings.push(makeFinding(
+        'D-03',
+        'P1',
+        normalized,
+        'Static route missing `export const prerender = true`.',
+        'Add `export const prerender = true` to the static route. See Section 38.2 D-03.',
+        findLine(content, '---'),
+      ));
+    }
+    if (!isStatic && hasPrerenderTrue) {
+      findings.push(makeFinding(
+        'D-03',
+        'P0',
+        normalized,
+        'Dynamic route must not set `export const prerender = true` (server output default).',
+        'Remove prerender = true. Dynamic routes omit the flag per Section 3.4. See Section 38.2 D-03.',
+        findLine(content, 'prerender'),
+      ));
+    }
+  }
+  return findings;
 }
 
 function migrationBases(): string[] {
@@ -100,11 +148,7 @@ function migrationBases(): string[] {
 const checks: Check[] = [
   { code: 'D-01', severity: 'P0', fix: 'Replace with `output: \'server\'`. See Section 38.2 D-01.', run: () => withMeta({ code: 'D-01', severity: 'P0', fix: 'Replace with `output: \'server\'`. See Section 38.2 D-01.' }, runRg("output:\\s*['\"](static|hybrid)['\"]", ['--glob', '!**/*.md', '-t', 'ts', '-t', 'tsx', '-t', 'js', '-t', 'mjs'])) },
   { code: 'D-02', severity: 'P1', fix: 'Delete the line. See Section 38.2 D-02.', run: () => withMeta({ code: 'D-02', severity: 'P1', fix: 'Delete the line. See Section 38.2 D-02.' }, runRg('prerender\\s*=\\s*false', ['src/pages/', '--glob', '!**/*.md'])) },
-  { code: 'D-03', severity: 'P1', fix: 'Add `export const prerender = true` to the static route. See Section 38.2 D-03.', run: () => staticRouteFiles().flatMap((file) => {
-    const content = read(file);
-    if (/export\s+const\s+prerender\s*=\s*true/.test(content)) return [];
-    return [makeFinding('D-03', 'P1', rel(file), 'Static route missing `export const prerender = true`.', 'Add `export const prerender = true` to the static route. See Section 38.2 D-03.')];
-  }) },
+  { code: 'D-03', severity: 'P1', fix: 'Static routes need prerender = true; dynamic routes must omit it. See Section 3.4 / 38.2 D-03.', run: () => prerenderRouteChecks() },
   { code: 'D-04', severity: 'P0', fix: 'Replace with abandoned_email_sent_at. See Section 38.2 D-04.', run: () => withMeta({ code: 'D-04', severity: 'P0', fix: 'Replace with abandoned_email_sent_at. See Section 38.2 D-04.' }, runRg('abandoned_1h_sent_at|abandoned_24h_sent_at', ['-t', 'ts', '-t', 'sql', '-t', 'md'])) },
   { code: 'D-05', severity: 'P1', fix: 'Ensure every CartDO mutation arms the 5-minute alarm. See Section 38.2 D-05.', run: () => {
     const content = read('src/do/cart-do.ts');

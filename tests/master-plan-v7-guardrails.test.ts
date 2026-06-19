@@ -31,6 +31,18 @@ describe('Master Plan V7 rendering guardrails', () => {
       expect(read(file), file).toMatch(/export\s+const\s+prerender\s*=\s*true/);
     }
   });
+
+  it('dynamic commerce and staff routes do not opt into prerendering', () => {
+    for (const file of [
+      'src/pages/checkout.astro',
+      'src/pages/orders.astro',
+      'src/pages/order-track.astro',
+      'src/pages/staff/login.astro',
+      'src/pages/staff/sales/pos.astro',
+    ]) {
+      expect(read(file), file).not.toMatch(/export\s+const\s+prerender\s*=\s*true/);
+    }
+  });
 });
 
 describe('Master Plan V7 migration guardrails', () => {
@@ -48,6 +60,8 @@ describe('Master Plan V7 migration guardrails', () => {
       'db/migrations/rollback/0024_rollback_stock_reservations_unique_constraint.sql',
       'db/migrations/rollback/0025_rollback_cart_activity_v7_cleanup.sql',
       'db/migrations/rollback/0026_rollback_add_checkout_vat_paisa.sql',
+      'db/migrations/0029_customer_phone_otp.sql',
+      'db/migrations/rollback/0029_rollback_customer_phone_otp.sql',
     ]) {
       expect(existsSync(file), file).toBe(true);
     }

@@ -135,7 +135,7 @@ export function BuyNowLandingForm({
   // ── SUCCESS STATE ──
   if (status.type === "success") {
     return (
-      <div className="shell-card p-5 text-center fade-up">
+      <div className="rounded-[22px] border border-[var(--line)] bg-[var(--surface-soft)] p-5 text-center fade-up">
         <div className="mx-auto h-20 w-20 grid place-items-center rounded-full bg-[var(--success)]/10 pop">
           <CheckCircle2 className="h-10 w-10 text-[var(--success)]" />
         </div>
@@ -155,7 +155,7 @@ export function BuyNowLandingForm({
   // ── ORDER FORM ──
   return (
     <form
-      className="shell-card p-4 sm:p-5 space-y-5"
+      className="space-y-5"
       onSubmit={(e) => { e.preventDefault(); submitOrder(); }}
     >
       {/* Error alert */}
@@ -259,6 +259,10 @@ export function BuyNowLandingForm({
       <div className="rounded-xl border-2 border-[var(--brand)] bg-[var(--brand)]/5 p-4 text-center">
         <p className="text-base font-extrabold">💵 ক্যাশ অন ডেলিভারি</p>
         <p className="mt-1 text-sm text-[var(--muted)]">পণ্য হাতে পেয়ে মূল্য পরিশোধ করুন</p>
+      </div>
+
+      <div className="rounded-xl bg-[var(--surface-soft)] p-3 text-center text-xs font-semibold text-[var(--muted)]">
+        অর্ডার সাবমিট করার পর আমাদের টিম কনফার্মেশন কল বা মেসেজ দিতে পারে।
       </div>
 
       {/* ── Submit ── */}

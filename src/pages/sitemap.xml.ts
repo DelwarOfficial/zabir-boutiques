@@ -4,7 +4,7 @@
  * Falls back to a basic sitemap if R2 key not found.
  */
 import type { APIContext } from 'astro';
-import { getEnv } from '../../lib/env';
+import { getEnv } from '../lib/env';
 
 export const prerender = true;
 
@@ -33,10 +33,10 @@ export async function GET(context: APIContext) {
 
   const urls = [
     `<url><loc>${site}/</loc><changefreq>daily</changefreq><priority>1.0</priority></url>`,
-    ...((products.results ?? []).map((p) =>
+    ...((products.results ?? []).map((p: { slug: string; updated_at: string }) =>
       `<url><loc>${site}/products/${p.slug}</loc><lastmod>${p.updated_at?.slice(0, 10)}</lastmod><changefreq>weekly</changefreq><priority>0.8</priority></url>`
     )),
-    ...((categories.results ?? []).map((c) =>
+    ...((categories.results ?? []).map((c: { slug: string; updated_at: string }) =>
       `<url><loc>${site}/categories/${c.slug}</loc><lastmod>${c.updated_at?.slice(0, 10)}</lastmod><changefreq>weekly</changefreq><priority>0.6</priority></url>`
     )),
     `<url><loc>${site}/about</loc><changefreq>monthly</changefreq><priority>0.3</priority></url>`,
