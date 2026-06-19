@@ -239,8 +239,9 @@ export async function POST(context: APIContext): Promise<Response> {
     vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa - discountPaisa), 'total_paisa');
 
-    const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
-    const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
+    // Master Plan §11.1 step 10: COD threshold uses distinct item count, not SUM(quantity)
+    const distinctItemCount = items.length;
+    const prepayment = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
     if (prepayment.required && paymentMethod === 'cod') {
       if (couponClaimed && couponClaim) {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
@@ -264,7 +265,7 @@ export async function POST(context: APIContext): Promise<Response> {
       advancePaisa = totalPaisa;
       balancePaisa = 0;
     } else if (paymentMethod === 'partial_prepay') {
-      const split = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
+      const split = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
       advancePaisa = split.advancePaisa;
       balancePaisa = split.balancePaisa;
     }
@@ -304,6 +305,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     stockReserved = true;
 
+    const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
     const orderItems = items.map((item) => ({
       variantId: item.variantId,
       quantity: item.qty,

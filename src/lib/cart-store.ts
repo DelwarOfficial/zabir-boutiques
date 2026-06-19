@@ -16,6 +16,7 @@ export const CART_UPDATED_EVENT = "zb-cart-updated";
 export const EMPTY_CART: LocalCartItem[] = [];
 
 let cachedCart: LocalCartItem[] | null = null;
+let syncInProgress = false;
 
 function loadCart(): LocalCartItem[] {
   if (typeof window === "undefined") return EMPTY_CART;
@@ -59,8 +60,41 @@ export function applyOutOfStockUpdate(variantId: string, availableQuantity = 0) 
     .map((item) => (item.variantId === variantId ? { ...item, quantity: Math.min(item.quantity, Math.max(0, availableQuantity)), availableQuantity } : item))
     .filter((item) => item.quantity > 0);
   writeCart(next);
+  syncCartToServer("replace_all", { items: next }).catch(() => {});
 }
 
 export function invalidateCartCache() {
   cachedCart = null;
+}
+
+export async function fetchCartFromServer(): Promise<void> {
+  if (typeof window === "undefined") return;
+  if (syncInProgress) return;
+  syncInProgress = true;
+  try {
+    const resp = await fetch("/api/cart", { credentials: "include" });
+    if (!resp.ok) return;
+    const data: { ok?: boolean; items?: LocalCartItem[] } = await resp.json();
+    if (data.ok && Array.isArray(data.items)) {
+      writeCart(data.items as LocalCartItem[]);
+    }
+  } catch {
+    // network error — keep localStorage cache
+  } finally {
+    syncInProgress = false;
+  }
+}
+
+export async function syncCartToServer(action: string, body: Record<string, unknown> = {}): Promise<void> {
+  if (typeof window === "undefined") return;
+  try {
+    await fetch("/api/cart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({ action, ...body }),
+    });
+  } catch {
+    // silent — localStorage has the data; next readCart will retry sync
+  }
 }

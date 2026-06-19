@@ -89,6 +89,12 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
     if (req.method === "GET" && url.pathname === "/can-use-deepseek") {
       return Response.json({ allowed: await this.canUseDeepSeek() });
     }
+    if (req.method === "GET" && url.pathname === "/can-use-workers-ai") {
+      return Response.json({ allowed: await this.canUseWorkersAI() });
+    }
+    if (req.method === "GET" && url.pathname === "/can-use-imagify") {
+      return Response.json({ allowed: await this.canUseImagify() });
+    }
     if (req.method === "POST" && url.pathname === "/record-usage") {
       return Response.json(await this.recordUsage(await req.json() as Parameters<BudgetCounterDO['recordUsage']>[0]));
     }
@@ -278,6 +284,22 @@ export async function canUseDeepSeekBudget(env: Env): Promise<boolean> {
   const id = env.AI_BUDGET.idFromName(`deepseek:${new Date().toISOString().slice(0, 10)}`);
   const stub = env.AI_BUDGET.get(id);
   const res = await stub.fetch("https://budget/can-use-deepseek");
+  const data = await res.json() as { allowed?: boolean };
+  return data.allowed === true;
+}
+
+export async function canUseWorkersAIBudget(env: Env): Promise<boolean> {
+  const id = env.AI_BUDGET.idFromName(`workers_ai:${new Date().toISOString().slice(0, 10)}`);
+  const stub = env.AI_BUDGET.get(id);
+  const res = await stub.fetch("https://budget/can-use-workers-ai");
+  const data = await res.json() as { allowed?: boolean };
+  return data.allowed === true;
+}
+
+export async function canUseImagifyBudget(env: Env): Promise<boolean> {
+  const id = env.AI_BUDGET.idFromName(`imagify:${new Date().toISOString().slice(0, 10)}`);
+  const stub = env.AI_BUDGET.get(id);
+  const res = await stub.fetch("https://budget/can-use-imagify");
   const data = await res.json() as { allowed?: boolean };
   return data.allowed === true;
 }

@@ -144,13 +144,13 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
     <script nonce={Astro.locals.cspNonce} is:inline>
       (function(){
         const params = new URLSearchParams(window.location.search);
-        if (params.has('identifier') || params.has('password') || params.has('totp')) {
+        if (params.has('identifier') || params.has('totp')) {
           history.replaceState(null, '', window.location.pathname);
         }
 
-        // State
+        // State — only identifier is accepted from URL (not password)
         let identifier = params.get('identifier') || '';
-        let password = params.get('password') || '';
+        let password = '';
 
         // DOM refs
         const step1 = document.getElementById('step1');
@@ -168,7 +168,6 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
         const digitInputs = Array.from(document.querySelectorAll('.digit-box'));
 
         if (identifier) idInput.value = identifier;
-        if (password) pwInput.value = password;
 
         function showStep(n) {
           const show = n === 1 ? step1 : step2;
@@ -327,10 +326,8 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
           loginBtn.textContent = 'Sign in';
         });
 
-        // Auto-login if params pre-filled
-        if (identifier && password) {
-          void submitLogin();
-        }
+        // Auto-login is intentionally removed: URL parameters must not
+        // trigger automatic authentication (#P1-05)
       })();
     </script>
   </body>

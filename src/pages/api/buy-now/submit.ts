@@ -162,14 +162,10 @@ export async function POST(context: APIContext): Promise<Response> {
   const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa), 'total_paisa');
 
   // COD quantity rule [Master Plan §11.1 step 10]
-  // Auto-upgrade to partial_prepay when COD is not allowed
-  const totalQuantity = session.quantity;
-  const paymentMethod2 = (paymentMethod: string): string => {
-    const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
-    if (prepayment.required && paymentMethod === 'cod') return 'partial_prepay';
-    return paymentMethod;
-  };
-  const resolvedPaymentMethod = paymentMethod2(paymentMethod);
+  // Buy Now is always a single-variant order; distinct item count = items.length
+  const distinctItemCount = items.length;
+  const prepayDecision = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
+  const resolvedPaymentMethod = prepayDecision.required && paymentMethod === 'cod' ? 'partial_prepay' : paymentMethod;
 
   let advancePaisa = 0;
   let balancePaisa = totalPaisa;
@@ -177,7 +173,7 @@ export async function POST(context: APIContext): Promise<Response> {
     advancePaisa = totalPaisa;
     balancePaisa = 0;
   } else if (resolvedPaymentMethod === 'partial_prepay') {
-    const split = calculatePrepayment(totalQuantity, totalPaisa, resolvedPaymentMethod);
+    const split = calculatePrepayment(distinctItemCount, totalPaisa, resolvedPaymentMethod);
     advancePaisa = split.advancePaisa;
     balancePaisa = split.balancePaisa;
   }
@@ -226,7 +222,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     stockReserved = true;
 
-    // Create order [Master Plan §11.1 step 16]
+    const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
     const orderItems = items.map((item) => ({
       variantId: item.variantId,
       quantity: item.qty,
@@ -288,14 +284,37 @@ export async function POST(context: APIContext): Promise<Response> {
           ).bind(orderId, now).run();
         }
       } catch {
+        // P0-06: Payment creation failed after order persisted with stock reserved.
+        // Release stock reservations and cancel the order immediately.
         safeLog.error('[buy-now/submit] payment checkout creation failed', { orderId });
+        if (orderPersisted && createdOrderId) {
+          await releaseReservedVariants(env, items, now);
+          stockReserved = false;
+          await env.DB.prepare(
+            `UPDATE orders SET status = 'cancelled', updated_at = ?2 WHERE id = ?1`
+          ).bind(createdOrderId, now).run().catch(() => {});
+          orderPersisted = false;
+          checkoutUrl = null;
+        }
       }
     }
 
+    // If payment checkout creation failed and order was cancelled, return error
+    if (!orderPersisted && createdOrderId) {
+      await failIdempotency(env.DB, idempotencyKey).catch(() => {});
+      await doFail(env, idempotencyKey).catch(() => {});
+      return Response.json({
+        ok: false, code: 'PAYMENT_INITIATION_FAILED',
+        message: 'Payment could not be initiated. Please try again or contact support.',
+      }, { status: 502 });
+    }
+
     // Mark cart_activity as converted (AUDIT-B-004)
-    await env.DB.prepare(
-      `UPDATE cart_activity SET converted_order_id = ?2, consent_status = 'allowed', updated_at = ?3 WHERE session_id = ?1`
-    ).bind(sessionId, orderId, now).run().catch(() => {});
+    if (createdOrderId) {
+      await env.DB.prepare(
+        `UPDATE cart_activity SET converted_order_id = ?2, consent_status = 'allowed', updated_at = ?3 WHERE session_id = ?1`
+      ).bind(sessionId, createdOrderId, now).run().catch(() => {});
+    }
 
     const response = {
       ok: true,

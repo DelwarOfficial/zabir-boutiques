@@ -1,5 +1,5 @@
-import { useMemo, useSyncExternalStore } from "react";
-import { CART_UPDATED_EVENT, EMPTY_CART, invalidateCartCache, readCart, summarizeCart, writeCart, type LocalCartItem } from "../lib/cart-store";
+import { useEffect, useMemo, useSyncExternalStore } from "react";
+import { CART_UPDATED_EVENT, EMPTY_CART, fetchCartFromServer, invalidateCartCache, readCart, summarizeCart, syncCartToServer, writeCart, type LocalCartItem } from "../lib/cart-store";
 
 function subscribe(onStoreChange: () => void) {
   const sync = () => {
@@ -21,6 +21,10 @@ function getServerSnapshot(): LocalCartItem[] {
 export function useLocalCart() {
   const items = useSyncExternalStore(subscribe, readCart, getServerSnapshot);
 
+  useEffect(() => {
+    fetchCartFromServer();
+  }, []);
+
   const snapshot = useMemo(() => summarizeCart(items), [items]);
 
   return {
@@ -36,15 +40,23 @@ export function useLocalCart() {
           )
         : [...current, item];
       writeCart(next);
+      syncCartToServer("add", { variantId: item.variantId, quantity: item.quantity });
     },
     updateQuantity(variantId: string, quantity: number) {
       const next = readCart()
         .map((item) => (item.variantId === variantId ? { ...item, quantity } : item))
         .filter((item) => item.quantity > 0);
+      const removed = next.length < readCart().length;
       writeCart(next);
+      if (removed) {
+        syncCartToServer("remove", { variantId });
+      } else {
+        syncCartToServer("quantity", { variantId, quantity });
+      }
     },
     clear() {
       writeCart([]);
+      syncCartToServer("clear");
     },
   };
 }
