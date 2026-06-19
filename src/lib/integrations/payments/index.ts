@@ -1,3 +1,4 @@
+import type { PaymentProviderContract } from '../../contracts/payment-provider';
 import { UddoktaPayClient, type CreateCheckoutInput as UddoktaCheckoutInput } from '../uddoktapay';
 import { SSLCommerzClient } from '../sslcommerz';
 import type { VerifiedPayment } from '../../payments';

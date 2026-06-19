@@ -3,6 +3,7 @@ import type { PaymentStatus, VerifiedPayment } from '../../payments';
 export interface UddoktaPayEnv {
   UDDOKTAPAY_API_KEY?: string;
   UDDOKTAPAY_BASE_URL?: string;
+  UDDOKTAPAY_WEBHOOK_SECRET?: string;
   DB?: D1Database;
   PROVIDER_HEALTH_DO?: DurableObjectNamespace;
 }

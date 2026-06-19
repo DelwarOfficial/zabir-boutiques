@@ -17,6 +17,7 @@ export const EMPTY_CART: LocalCartItem[] = [];
 
 let cachedCart: LocalCartItem[] | null = null;
 let syncInProgress = false;
+let pendingSyncCount = 0;
 
 function loadCart(): LocalCartItem[] {
   if (typeof window === "undefined") return EMPTY_CART;
@@ -70,12 +71,13 @@ export function invalidateCartCache() {
 export async function fetchCartFromServer(): Promise<void> {
   if (typeof window === "undefined") return;
   if (syncInProgress) return;
+  if (pendingSyncCount > 0) return;
   syncInProgress = true;
   try {
     const resp = await fetch("/api/cart", { credentials: "include" });
     if (!resp.ok) return;
     const data: { ok?: boolean; items?: LocalCartItem[] } = await resp.json();
-    if (data.ok && Array.isArray(data.items)) {
+    if (data.ok && Array.isArray(data.items) && data.items.length > 0) {
       writeCart(data.items as LocalCartItem[]);
     }
   } catch {
@@ -87,6 +89,7 @@ export async function fetchCartFromServer(): Promise<void> {
 
 export async function syncCartToServer(action: string, body: Record<string, unknown> = {}): Promise<void> {
   if (typeof window === "undefined") return;
+  pendingSyncCount++;
   try {
     await fetch("/api/cart", {
       method: "POST",
@@ -96,5 +99,7 @@ export async function syncCartToServer(action: string, body: Record<string, unkn
     });
   } catch {
     // silent — localStorage has the data; next readCart will retry sync
+  } finally {
+    pendingSyncCount--;
   }
 }

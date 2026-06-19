@@ -1,5 +1,6 @@
 import { writeApiAuditLog } from '../../api-audit';
 import { doCheckProviderHealth, doRecordProviderResult } from '../../do-client';
+import type { PaymentProviderContract } from '../../contracts/payment-provider';
 import { takaStringToPaisa, type VerifiedPayment } from '../../payments';
 import type { CreateCheckoutInput, CreateCheckoutResult, SSLCommerzEnv } from './types';
 
@@ -11,7 +12,7 @@ const STATUS_MAP: Record<string, VerifiedPayment['status']> = {
   CANCELLED: 'cancelled',
 };
 
-export class SSLCommerzClient {
+export class SSLCommerzClient implements PaymentProviderContract {
   constructor(private readonly env: SSLCommerzEnv) {}
 
   private configured(): boolean {
@@ -88,6 +89,25 @@ export class SSLCommerzClient {
       await this.record(false);
       await this.audit('create_payment', requestId, startedAt, code === 'TIMEOUT' ? 'timeout' : 'error', code, JSON.stringify({ tran_id: input.invoiceId }), JSON.stringify({ error: code }), input.orderId, input.invoiceId, health.state);
       return { ok: false, rawResponse: JSON.stringify({ error: code }), errorCode: code };
+    }
+  }
+
+  /** PaymentProviderContract: alias for createCheckout */
+  async createPayment(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
+    return this.createCheckout(input);
+  }
+
+  /** PaymentProviderContract: parse SSLCommerz POST form-data webhook */
+  async parseWebhook(request: Request): Promise<unknown> {
+    const text = await request.text().catch(() => '');
+    if (!text) return null;
+    try {
+      const params = new URLSearchParams(text);
+      const entries: Record<string, string> = {};
+      for (const [k, v] of params.entries()) entries[k] = v;
+      return entries;
+    } catch {
+      return null;
     }
   }
 

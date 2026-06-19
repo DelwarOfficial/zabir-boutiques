@@ -1,5 +1,7 @@
 import { writeApiAuditLog } from '../../api-audit';
 import { doCheckProviderHealth, doRecordProviderResult } from '../../do-client';
+import type { PaymentProviderContract } from '../../contracts/payment-provider';
+import { hmacSha256Hex, timingSafeEqualHex } from '../../security';
 import type { PaymentStatus, VerifiedPayment } from '../../payments';
 import type { CreateCheckoutInput, CreateCheckoutResult, RefundPaymentInput, RefundPaymentResult, UddoktaPayEnv } from './types';
 
@@ -18,7 +20,7 @@ const STATUS_MAP: Record<string, PaymentStatus> = {
   EXPIRED: 'expired',
 };
 
-export class UddoktaPayClient {
+export class UddoktaPayClient implements PaymentProviderContract {
   constructor(private readonly env: UddoktaPayEnv) {}
 
   private summarizeCheckoutResponse(data: { payment_url?: string }): string {
@@ -101,6 +103,30 @@ export class UddoktaPayClient {
       await this.record(false);
       await this.audit('verify_payment', requestId, startedAt, code === 'TIMEOUT' ? 'timeout' : 'error', code, JSON.stringify({ invoice_id: invoiceId }), JSON.stringify({ error: code }), null, invoiceId, health.state);
       return { ...empty, rawResponse: JSON.stringify({ error: code }) };
+    }
+  }
+
+  /** PaymentProviderContract: alias for createCheckout */
+  async createPayment(input: CreateCheckoutInput): Promise<CreateCheckoutResult> {
+    return this.createCheckout(input);
+  }
+
+  /** PaymentProviderContract: parse + verify webhook signature */
+  async parseWebhook(request: Request): Promise<unknown> {
+    const rawBody = await request.text().catch(() => '');
+    const sigHeader = request.headers.get('X-UddoktaPay-Signature')
+      || request.headers.get('X-Signature')
+      || request.headers.get('Signature')
+      || '';
+    const normalizedSig = sigHeader.replace(/^sha256=/i, '').trim().toLowerCase();
+    const expectedSig = await hmacSha256Hex(rawBody, this.env.UDDOKTAPAY_WEBHOOK_SECRET ?? '');
+    if (!normalizedSig || !timingSafeEqualHex(normalizedSig, expectedSig)) {
+      return null;
+    }
+    try {
+      return JSON.parse(rawBody);
+    } catch {
+      return null;
     }
   }
 

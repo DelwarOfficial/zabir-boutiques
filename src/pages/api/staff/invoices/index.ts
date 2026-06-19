@@ -120,6 +120,27 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: "INVALID_AMOUNT" }, { status: 400 });
   }
 
+  // Auto-compute VAT from items subtotal if vat_paisa not provided
+  if (vatPaisa === undefined) {
+    const variantIds = [...new Set(items.map((it) => it.variantId))];
+    const placeholders = variantIds.map((_, i) => `?${i + 1}`).join(",");
+    const priceRows = await env.DB
+      .prepare(
+        `SELECT v.id, COALESCE(v.price_paisa, p.price_paisa) AS price_paisa
+         FROM product_variants v
+         JOIN products p ON p.id = v.product_id
+         WHERE v.id IN (${placeholders})`,
+      )
+      .bind(...variantIds)
+      .all<{ id: string; price_paisa: number | null }>();
+    const priceMap = new Map((priceRows.results ?? []).map((r) => [r.id, r.price_paisa ?? 0]));
+    const subtotalPaisa = items.reduce((sum, it) => sum + (priceMap.get(it.variantId) ?? 0) * it.quantity, 0);
+    const vatRate = Number((env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT ?? 0);
+    if (vatRate > 0 && subtotalPaisa > 0) {
+      vatPaisa = assertPaisa(Math.round((subtotalPaisa * vatRate) / 100), "vat_paisa");
+    }
+  }
+
   const result = await createInvoice(
     env as any,
     {
