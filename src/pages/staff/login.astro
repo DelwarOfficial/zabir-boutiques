@@ -1,5 +1,8 @@
 ---
 import "@/styles/global.css";
+
+const env = (Astro.locals as any).runtime?.env;
+const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
 ---
 
 <!doctype html>
@@ -11,6 +14,9 @@ import "@/styles/global.css";
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
+    {TURNSTILE_SITE_KEY ? (
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+    ) : null}
     <style is:global>
       :root {
         --bg: #f5f4f0; --surface: #fff; --line: #e6e3dd; --ink: #1a1816;
@@ -106,6 +112,7 @@ import "@/styles/global.css";
               <input name="password" type="password" autocomplete="current-password" required
                 style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:0.9rem;outline:none;" />
             </div>
+            {TURNSTILE_SITE_KEY ? <div class="cf-turnstile mb-3 flex justify-center" data-sitekey={TURNSTILE_SITE_KEY}></div> : null}
             <button type="submit" id="login-btn" class="brand-btn">Sign in</button>
             <p id="error1" class="error-msg"></p>
           </form>
@@ -194,11 +201,14 @@ import "@/styles/global.css";
           identifier = idInput.value.trim();
           password = pwInput.value;
 
+          var turnstileToken = '';
+          try { turnstileToken = turnstile.getResponse(); } catch (_) {}
+
           const res = await fetch('/api/staff/login', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ identifier, password })
+            body: JSON.stringify({ identifier, password, turnstile: turnstileToken })
           });
 
           if (res.status === 401 || res.status === 403) {

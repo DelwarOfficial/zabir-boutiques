@@ -30,7 +30,7 @@ export async function DELETE(context: APIContext): Promise<Response> {
   const phoneHash = await sha256Hex(normalized.phone);
 
   await env.DB.batch([
-    env.DB.prepare(`UPDATE orders SET name = ?2, address = ?3, email = NULL, updated_at = ?4 WHERE phone IN (?1, ?5)`).bind(normalized.phone, anon, anon, now, normalized.local),
+    env.DB.prepare(`UPDATE orders SET name = ?2, address = ?3, email = NULL, phone = ?2, updated_at = ?4 WHERE phone IN (?1, ?5)`).bind(normalized.phone, anon, anon, now, normalized.local),
     env.DB.prepare(`UPDATE cart_activity SET customer_name = ?2, customer_email = NULL, customer_phone = NULL WHERE customer_phone IN (?1, ?3)`).bind(normalized.phone, anon, normalized.local),
   ]);
 

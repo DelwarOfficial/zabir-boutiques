@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
 
@@ -28,6 +28,7 @@ type Props = {
   initialDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
   variants: Variant[];
   selectedVariantId: string;
+  turnstileSiteKey?: string;
 };
 
 export function BuyNowLandingForm({
@@ -42,6 +43,7 @@ export function BuyNowLandingForm({
   initialDraft,
   variants,
   selectedVariantId: initialVariantId,
+  turnstileSiteKey,
 }: Props) {
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(initialDraft?.name ?? "");
@@ -53,6 +55,37 @@ export function BuyNowLandingForm({
   );
   const [status, setStatus] = useState<SubmitStatus>({ type: "idle" });
   const idempotencyKeyRef = useRef<string | null>(null);
+  const turnstileRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!turnstileSiteKey) return;
+    const id = 'cf-turnstile-script';
+    if (document.getElementById(id)) return;
+    const s = document.createElement('script');
+    s.id = id;
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=turnstileOnLoad&render=explicit';
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  }, [turnstileSiteKey]);
+
+  useEffect(() => {
+    if (!turnstileSiteKey || !turnstileRef.current) return;
+    if (turnstileWidgetId.current) return;
+    const win = window as any;
+    const render = () => {
+      if (!win.turnstile || !turnstileRef.current) { setTimeout(render, 100); return; }
+      turnstileWidgetId.current = win.turnstile.render(turnstileRef.current, { sitekey: turnstileSiteKey });
+    };
+    render();
+    return () => {
+      if (turnstileWidgetId.current && win.turnstile) {
+        try { win.turnstile.remove(turnstileWidgetId.current); } catch {}
+        turnstileWidgetId.current = null;
+      }
+    };
+  }, [turnstileSiteKey]);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
   const qty = initialQty;
@@ -92,6 +125,7 @@ export function BuyNowLandingForm({
             shipping_zone: zone,
             payment_method: "cod",
             note: note.trim() || undefined,
+            turnstile: turnstileWidgetId.current ? (window as any).turnstile?.getResponse(turnstileWidgetId.current) ?? "" : "",
           }),
         });
 
@@ -264,6 +298,9 @@ export function BuyNowLandingForm({
       <div className="rounded-xl bg-[var(--surface-soft)] p-3 text-center text-xs font-semibold text-[var(--muted)]">
         অর্ডার সাবমিট করার পর আমাদের টিম কনফার্মেশন কল বা মেসেজ দিতে পারে।
       </div>
+
+      {/* ── Turnstile ── */}
+      {turnstileSiteKey ? <div ref={turnstileRef} className="flex justify-center"></div> : null}
 
       {/* ── Submit ── */}
       <button

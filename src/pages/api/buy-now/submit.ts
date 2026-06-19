@@ -21,6 +21,7 @@ import {
 } from '../../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../../lib/fraud';
 import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../../lib/prepayment';
+import { createPaymentCheckout } from '../../../lib/integrations/payments';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { clientIp } from '../../../lib/audit';
 import { safeLog } from '../../../lib/pii-scrubber';
@@ -161,26 +162,22 @@ export async function POST(context: APIContext): Promise<Response> {
   const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa), 'total_paisa');
 
   // COD quantity rule [Master Plan §11.1 step 10]
+  // Auto-upgrade to partial_prepay when COD is not allowed
   const totalQuantity = session.quantity;
-  const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
-  if (prepayment.required && paymentMethod === 'cod') {
-    return Response.json({
-      ok: false,
-      code: 'PREPAYMENT_REQUIRED',
-      message: PREPAYMENT_MESSAGE,
-      advance_paisa: prepayment.advancePaisa,
-      balance_paisa: prepayment.balancePaisa,
-      payment_method_required: 'partial_prepay',
-    }, { status: 402 });
-  }
+  const paymentMethod2 = (paymentMethod: string): string => {
+    const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
+    if (prepayment.required && paymentMethod === 'cod') return 'partial_prepay';
+    return paymentMethod;
+  };
+  const resolvedPaymentMethod = paymentMethod2(paymentMethod);
 
   let advancePaisa = 0;
   let balancePaisa = totalPaisa;
-  if (paymentMethod === 'uddoktapay') {
+  if (resolvedPaymentMethod === 'uddoktapay') {
     advancePaisa = totalPaisa;
     balancePaisa = 0;
-  } else if (paymentMethod === 'partial_prepay') {
-    const split = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
+  } else if (resolvedPaymentMethod === 'partial_prepay') {
+    const split = calculatePrepayment(totalQuantity, totalPaisa, resolvedPaymentMethod);
     advancePaisa = split.advancePaisa;
     balancePaisa = split.balancePaisa;
   }
@@ -265,6 +262,41 @@ export async function POST(context: APIContext): Promise<Response> {
     // Clear the direct checkout session
     await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) });
 
+    // Create payment checkout URL for prepaid orders (AUDIT-B-014)
+    let checkoutUrl: string | null = null;
+    if (advancePaisa > 0) {
+      try {
+        const paymentInvoiceId = crypto.randomUUID();
+        const checkout = await createPaymentCheckout(env, {
+          invoiceId: paymentInvoiceId,
+          amountPaisa: advancePaisa,
+          customerName: nameInput,
+          customerPhone: phoneResult.phone,
+          orderId,
+          type: resolvedPaymentMethod === 'partial_prepay' ? 'partial_prepay' : 'full',
+          redirectUrl: `${context.request.headers.get('Origin') ?? env.PUBLIC_SITE_URL}/order-track`,
+          cancelUrl: `${context.request.headers.get('Origin') ?? env.PUBLIC_SITE_URL}/buy-now/${sessionId}`,
+        });
+        if (checkout.ok && checkout.paymentUrl) {
+          checkoutUrl = checkout.paymentUrl;
+          await env.DB.prepare(
+            `INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)`
+          ).bind(crypto.randomUUID(), orderId, paymentInvoiceId, checkout.provider, advancePaisa, checkout.paymentUrl, now).run();
+          await env.DB.prepare(
+            `UPDATE orders SET payment_status = 'pending', updated_at = ?2 WHERE id = ?1`
+          ).bind(orderId, now).run();
+        }
+      } catch {
+        safeLog.error('[buy-now/submit] payment checkout creation failed', { orderId });
+      }
+    }
+
+    // Mark cart_activity as converted (AUDIT-B-004)
+    await env.DB.prepare(
+      `UPDATE cart_activity SET converted_order_id = ?2, consent_status = 'allowed', updated_at = ?3 WHERE session_id = ?1`
+    ).bind(sessionId, orderId, now).run().catch(() => {});
+
     const response = {
       ok: true,
       order_id: orderId,
@@ -272,7 +304,8 @@ export async function POST(context: APIContext): Promise<Response> {
       status: 'created',
       advance_paisa: advancePaisa,
       balance_paisa: balancePaisa,
-      payment_method: paymentMethod,
+      payment_method: resolvedPaymentMethod,
+      checkout_url: checkoutUrl,
     };
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
     await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
@@ -291,7 +324,7 @@ export async function POST(context: APIContext): Promise<Response> {
         status: 'created',
         advance_paisa: advancePaisa,
         balance_paisa: balancePaisa,
-        payment_method: paymentMethod,
+        payment_method: resolvedPaymentMethod,
       };
       await env.DB.prepare(
         `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,

@@ -1,5 +1,5 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronRight, Loader2, MapPin, Minus, Package, Plus, ShieldCheck, Sparkles, Trash2, Truck, User } from "lucide-react";
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useLocalCart } from "../hooks/useLocalCart";
 import { applyOutOfStockUpdate } from "../lib/cart-store";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
@@ -25,7 +25,7 @@ const STEPS: Array<{ id: Step; label: string; icon: typeof User }> = [
   { id: 3, label: "Review", icon: Package },
 ];
 
-export function GuestCheckout() {
+export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
   const cart = useLocalCart();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
@@ -36,6 +36,37 @@ export function GuestCheckout() {
   const [status, setStatus] = useState<CheckoutStatus>({ type: "idle" });
   const [step, setStep] = useState<Step>(0);
   const idempotencyKeyRef = useRef<string | null>(null);
+  const turnstileRef = useRef<HTMLDivElement>(null);
+  const turnstileWidgetId = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (!turnstileSiteKey) return;
+    const id = 'cf-turnstile-script';
+    if (document.getElementById(id)) return;
+    const s = document.createElement('script');
+    s.id = id;
+    s.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?onload=turnstileOnLoad&render=explicit';
+    s.async = true;
+    s.defer = true;
+    document.head.appendChild(s);
+  }, [turnstileSiteKey]);
+
+  useEffect(() => {
+    if (!turnstileSiteKey || !turnstileRef.current) return;
+    if (turnstileWidgetId.current) return;
+    const win = window as any;
+    const render = () => {
+      if (!win.turnstile || !turnstileRef.current) { setTimeout(render, 100); return; }
+      turnstileWidgetId.current = win.turnstile.render(turnstileRef.current, { sitekey: turnstileSiteKey });
+    };
+    render();
+    return () => {
+      if (turnstileWidgetId.current && win.turnstile) {
+        try { win.turnstile.remove(turnstileWidgetId.current); } catch {}
+        turnstileWidgetId.current = null;
+      }
+    };
+  }, [turnstileSiteKey]);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
   const shippingPaisa = SHIPPING_COST[zone];
@@ -61,6 +92,7 @@ export function GuestCheckout() {
         const idempotencyKey = idempotencyKeyRef.current;
 
         async function postCheckout(method: PaymentMethod | "partial_prepay") {
+          const turnstile = turnstileWidgetId.current ? (window as any).turnstile?.getResponse(turnstileWidgetId.current) ?? "" : "";
           return fetch("/api/checkout", {
             method: "POST",
             headers: {
@@ -79,6 +111,7 @@ export function GuestCheckout() {
               },
               payment_method: method,
               shipping_zone: zone,
+              turnstile,
             }),
           });
         }
@@ -356,6 +389,8 @@ export function GuestCheckout() {
                   <dd className="font-semibold">{paymentMethod === "cod" ? "Cash on Delivery" : "UddoktaPay"}</dd>
                 </div>
               </dl>
+
+              {turnstileSiteKey ? <div ref={turnstileRef} className="mb-3"></div> : null}
 
               {status.type === "error" ? (
                 <div className="flex gap-2 rounded-xl border border-[var(--danger)] bg-[var(--danger)]/10 p-3 text-sm font-semibold text-[var(--danger)] fade-in">

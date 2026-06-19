@@ -349,6 +349,13 @@ export async function POST(context: APIContext): Promise<Response> {
     await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
     claimHeld = false;
 
+    // Mark cart_activity as converted (AUDIT-B-004/B-002)
+    if (sessionId) {
+      await env.DB.prepare(
+        `UPDATE cart_activity SET converted_order_id = ?2, consent_status = 'allowed', updated_at = ?3 WHERE session_id = ?1`
+      ).bind(sessionId, orderId, now).run().catch(() => {});
+    }
+
     // Enqueue order confirmation email [Master_Prompt v7.0 §17.2]
     await enqueueOrderEmail(env, orderId, 'order_confirmed').catch(() => {});
     await enqueueFraudAudit(env, orderId, phoneResult.local, score === 50 ? 'fraud_check_review' : 'post_checkout_audit').catch(() => {});

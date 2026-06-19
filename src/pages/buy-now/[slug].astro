@@ -19,6 +19,7 @@ if (!sid) {
 
 // Load session from DirectCheckoutSessionDO
 const env = (Astro.locals as any).runtime?.env;
+const turnstileSiteKey: string | undefined = env?.TURNSTILE_SITE_KEY;
 if (!env?.DIRECT_CHECKOUT_DO) {
   return Astro.redirect(`/products/${slug ?? ""}`);
 }
@@ -436,6 +437,7 @@ const features = (product.description ?? "")
               initialDraft={session.formDraft}
               variants={variantList.map(v => ({ id: v.id, size: v.size, color: v.color, pricePaisa: v.price_paisa }))}
               selectedVariantId={selectedVariant?.id ?? ''}
+              turnstileSiteKey={turnstileSiteKey}
             />
           </section>
         </aside>
