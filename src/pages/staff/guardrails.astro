@@ -1,8 +1,8 @@
 ---
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import PageHeader from "@/components/staff/PageHeader.astro";
-import { getCurrentStaffUser, can } from "../../../lib/rbac";
-import { getEnv } from "../../../lib/env";
+import { getCurrentStaffUser, can } from "@/lib/rbac";
+import { getEnv } from "@/lib/env";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");

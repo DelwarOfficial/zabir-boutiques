@@ -7,10 +7,10 @@
   "scripts": {
     "predev": "npm run pwa:generate",
     "dev": "astro dev",
-    "build": "npm run build:snapshots && npm run pwa:generate && astro build && npm run bundlewatch",
+    "build": "npm run build:snapshots && npm run pwa:generate && node scripts/astro-build.mjs && npm run bundlewatch",
     "build:snapshots": "tsx scripts/build-static-snapshots.ts",
-    "build:with-snapshots": "npm run build:snapshots && npm run pwa:generate && astro build",
-    "build:skip-snapshots": "npm run pwa:generate && astro build",
+    "build:with-snapshots": "npm run build:snapshots && npm run pwa:generate && node scripts/astro-build.mjs",
+    "build:skip-snapshots": "npm run pwa:generate && node scripts/astro-build.mjs",
     "pwa:generate": "node scripts/generate-sw.mjs",
     "preview": "astro preview",
     "deploy": "npm run build:with-snapshots && wrangler deploy",
