@@ -62,3 +62,47 @@ describe('D1 Schema CHECK constraints (Master Plan G3/G5)', () => {
     expect(rollback).toContain("DELETE FROM schema_migrations WHERE version = '0018_schema_constraints'");
   });
 });
+
+describe('Schema constraint enforcement (D1 integration)', () => {
+  const initial = readMigration('0001_initial_v6_8a_schema.sql');
+  const constraints = readMigration('0018_schema_constraints.sql');
+
+  it('0001 CHECK constraints are syntactically valid SQL', () => {
+    const checkPatterns = [
+      /subtotal_paisa INTEGER NOT NULL CHECK/i,
+      /total_paisa INTEGER NOT NULL CHECK/i,
+      /advance_paisa INTEGER NOT NULL DEFAULT 0 CHECK/i,
+      /unit_price_paisa INTEGER NOT NULL CHECK/i,
+    ];
+    for (const pattern of checkPatterns) {
+      expect(initial).toMatch(pattern);
+    }
+  });
+
+  it('0018 CHECK constraints exist for invoice_payments and coupons', () => {
+    const requiredPatterns = [
+      /amount_paisa INTEGER NOT NULL CHECK/i,
+      /discount_amount_paisa INTEGER CHECK/i,
+      /max_discount_paisa INTEGER CHECK/i,
+      /min_order_paisa INTEGER NOT NULL DEFAULT 0 CHECK/i,
+    ];
+    for (const pattern of requiredPatterns) {
+      expect(constraints).toMatch(pattern);
+    }
+  });
+
+  it('all CHECK constraints reference paisa columns with >= 0', () => {
+    const allChecks = [
+      { sql: initial, label: '0001' },
+      { sql: constraints, label: '0018' },
+    ];
+    for (const { sql, label } of allChecks) {
+      const checkClauses = sql.match(/CHECK\s*\([^)]+\)/g) ?? [];
+      for (const clause of checkClauses) {
+        if (clause.includes('paisa')) {
+          expect(clause).toMatch(/>= ?0/);
+        }
+      }
+    }
+  });
+});

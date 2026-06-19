@@ -6,8 +6,6 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../lib/env';
 
-export const prerender = true;
-
 export async function GET(context: APIContext) {
   const env = getEnv(context);
   const site = 'https://zabirboutiques.com';

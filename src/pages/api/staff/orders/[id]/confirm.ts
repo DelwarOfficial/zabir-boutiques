@@ -72,6 +72,11 @@ export async function POST(context: APIContext): Promise<Response> {
     );
   }
 
+  // Reject terminal states that cannot transition to confirmed
+  if (order.status === 'cancelled') {
+    return Response.json({ ok: false, code: 'INVALID_TRANSITION', error: 'Cannot confirm a cancelled order.' }, { status: 409 });
+  }
+
   // Idempotent terminal-state short-circuit: if the order is already at
   // a status >= staff_confirmed, the second confirm is a no-op success.
   if (order.status === 'staff_confirmed' || order.status === 'packing' ||

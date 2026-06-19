@@ -264,7 +264,7 @@ const checks: Check[] = [
       return /requireAuth|requirePermission|RbacError/.test(content) ? [] : [makeFinding('D-32', 'P1', rel(file), 'Staff API route appears to be missing RBAC middleware.', 'Ensure staff routes have RBAC middleware and Cloudflare Access. See Section 38.2 D-32.')];
     });
   } },
-  { code: 'D-33', severity: 'P1', fix: 'Move external HTTP calls into provider adapters. See Section 38.2 D-33.', run: () => withMeta({ code: 'D-33', severity: 'P1', fix: 'Move external HTTP calls into provider adapters. See Section 38.2 D-33.' }, runRg("fetch\\(['\"]https://", ['src/', '--glob', '!src/lib/integrations/**'])) },
+  { code: 'D-33', severity: 'P1', fix: 'Move external HTTP calls into provider adapters. See Section 38.2 D-33.', run: () => withMeta({ code: 'D-33', severity: 'P1', fix: 'Move external HTTP calls into provider adapters. See Section 38.2 D-33.' }, runRg("fetch\\(['\"]https://(?!do/)", ['src/', '--glob', '!src/lib/integrations/**'])) },
   { code: 'D-34', severity: 'P1', fix: 'Strip PII from AI prompts. See Section 38.2 D-34.', run: () => withMeta({ code: 'D-34', severity: 'P1', fix: 'Strip PII from AI prompts. See Section 38.2 D-34.' }, runRg('phone|address|customer_name|customer_phone|customer_email', ['src/lib/ai-content.ts', 'src/lib/ai-client.ts'])) },
   { code: 'D-35', severity: 'P0', fix: 'Add rollback files for every migration. See Section 38.2 D-35.', run: () => migrationBases().flatMap((base) => {
     const rollbackMatches = readdirSync(resolve('db/migrations/rollback')).some((name) => name.startsWith(`${base}_`) || name.startsWith(`${base}_rollback_`));

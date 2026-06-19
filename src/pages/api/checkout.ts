@@ -27,6 +27,7 @@ import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
 import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../lib/prepayment';
 import { verifyTurnstile } from '../../lib/turnstile';
 import { clientIp } from '../../lib/audit';
+import { createPaymentCheckout } from '../../lib/integrations/payments';
 import { safeLog } from '../../lib/pii-scrubber';
 import { enqueueFraudAudit, enqueueOrderEmail } from '../../queues/consumers';
 
@@ -339,6 +340,41 @@ export async function POST(context: APIContext): Promise<Response> {
       `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
     ).bind(orderId, advancePaisa, balancePaisa, now).run();
 
+    let checkoutUrl: string | null = null;
+    let paymentInvoiceId: string | null = null;
+    if (advancePaisa > 0) {
+      try {
+        paymentInvoiceId = crypto.randomUUID();
+        const origin = context.request.headers.get('Origin') ?? '';
+        const checkout = await createPaymentCheckout(env, {
+          invoiceId: paymentInvoiceId,
+          amountPaisa: advancePaisa,
+          customerName: nameInput,
+          customerPhone: phoneResult.phone,
+          orderId,
+          type: paymentMethod === 'partial_prepay' ? 'partial_prepay' : 'full',
+          redirectUrl: `${origin}/order-track`,
+          cancelUrl: `${origin}/cart`,
+        });
+        if (checkout.ok && checkout.paymentUrl) {
+          checkoutUrl = checkout.paymentUrl;
+          await env.DB.prepare(
+            `INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)`
+          ).bind(crypto.randomUUID(), orderId, paymentInvoiceId, checkout.provider, advancePaisa, checkout.paymentUrl, now).run();
+        }
+      } catch {
+        safeLog.warn('[checkout] Payment checkout creation failed (non-fatal)', { orderId });
+      }
+    }
+
+    // Update payment_status when payment was initiated
+    if (paymentInvoiceId) {
+      await env.DB.prepare(
+        `UPDATE orders SET payment_status = 'pending', updated_at = ?2 WHERE id = ?1`
+      ).bind(orderId, now).run();
+    }
+
     const response = {
       ok: true,
       order_id: orderId,
@@ -347,6 +383,7 @@ export async function POST(context: APIContext): Promise<Response> {
       advance_paisa: advancePaisa,
       balance_paisa: balancePaisa,
       payment_method: paymentMethod,
+      ...(checkoutUrl ? { checkout_url: checkoutUrl } : {}),
     };
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
     await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
