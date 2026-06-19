@@ -4,10 +4,10 @@
  */
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { nowSql } from '../../../../lib/dates';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { verifyTotpCode } from '../../../../lib/totp';
 import { writeAuditLog } from '../../../../lib/audit';
+import { storeStaffTotpSecret } from '../../../../lib/otp-secrets';
 
 export async function POST(context: APIContext): Promise<Response> {
   let user;
@@ -26,10 +26,7 @@ export async function POST(context: APIContext): Promise<Response> {
   const valid = await verifyTotpCode(body.secret, body.code);
   if (!valid) return Response.json({ ok: false, code: 'INVALID_CODE' }, { status: 400 });
 
-  const now = nowSql();
-  await env.DB.prepare(
-    `UPDATE staff_users SET totp_secret = ?1, totp_required = 1, updated_at = ?2 WHERE id = ?3`,
-  ).bind(body.secret, now, user.id).run();
+  await storeStaffTotpSecret(env.DB, user.id, body.secret, env);
 
   await writeAuditLog(env.DB, {
     actorStaffId: user.id,

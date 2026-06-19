@@ -31,14 +31,11 @@
     }
   ],
   "r2_buckets": [
-    {
-      "binding": "MEDIA",
-      "bucket_name": "zabir-media"
-    },
-    {
-      "binding": "BACKUPS",
-      "bucket_name": "zabir-backups"
-    }
+    { "binding": "MEDIA", "bucket_name": "zabir-product-images" },
+    { "binding": "BACKUPS", "bucket_name": "zabir-backups" },
+    { "binding": "LOGS", "bucket_name": "zabir-logs" },
+    { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates" },
+    { "binding": "REPORTS", "bucket_name": "zabir-reports" }
   ],
   "ai": {
     "binding": "AI"
@@ -96,8 +93,11 @@
         { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_KV_NAMESPACE_ID" }
       ],
       "r2_buckets": [
-        { "binding": "MEDIA", "bucket_name": "zabir-media" },
-        { "binding": "BACKUPS", "bucket_name": "zabir-backups" }
+        { "binding": "MEDIA", "bucket_name": "zabir-product-images" },
+        { "binding": "BACKUPS", "bucket_name": "zabir-backups" },
+        { "binding": "LOGS", "bucket_name": "zabir-logs" },
+        { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-prod" },
+        { "binding": "REPORTS", "bucket_name": "zabir-reports" }
       ],
       "durable_objects": {
         "bindings": [
@@ -153,8 +153,11 @@
         { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_STAGING_ID" }
       ],
       "r2_buckets": [
-        { "binding": "MEDIA", "bucket_name": "zabir-media-staging" },
-        { "binding": "BACKUPS", "bucket_name": "zabir-backups-staging" }
+        { "binding": "MEDIA", "bucket_name": "zabir-product-images-staging" },
+        { "binding": "BACKUPS", "bucket_name": "zabir-backups-staging" },
+        { "binding": "LOGS", "bucket_name": "zabir-logs-staging" },
+        { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-staging" },
+        { "binding": "REPORTS", "bucket_name": "zabir-reports-staging" }
       ],
       "durable_objects": {
         "bindings": [
@@ -209,8 +212,11 @@
         { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_DEV_ID" }
       ],
       "r2_buckets": [
-        { "binding": "MEDIA", "bucket_name": "zabir-media-dev" },
-        { "binding": "BACKUPS", "bucket_name": "zabir-backups-dev" }
+        { "binding": "MEDIA", "bucket_name": "zabir-product-images-dev" },
+        { "binding": "BACKUPS", "bucket_name": "zabir-backups-dev" },
+        { "binding": "LOGS", "bucket_name": "zabir-logs-dev" },
+        { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-dev" },
+        { "binding": "REPORTS", "bucket_name": "zabir-reports-dev" }
       ],
       "durable_objects": {
         "bindings": [

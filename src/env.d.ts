@@ -25,12 +25,21 @@ export type Env = {
   SESSION: KVNamespace;
   MEDIA: R2Bucket;
   BACKUPS: R2Bucket;
+  LOGS?: R2Bucket;
+  EMAIL_TEMPLATES?: R2Bucket;
+  REPORTS?: R2Bucket;
   // Master Plan §2.1 — Workers AI binding [Master_Prompt v7.0 §24.1]
   AI: Ai;
   TINIFY_API_KEY: string;
+  IMAGIFY_API_KEY?: string;
   UDDOKTAPAY_API_KEY: string;
   UDDOKTAPAY_BASE_URL: string;
   UDDOKTAPAY_WEBHOOK_SECRET?: string;
+  SSLCOMMERZ_STORE_ID?: string;
+  SSLCOMMERZ_STORE_PASSWORD?: string;
+  SSLCOMMERZ_BASE_URL?: string;
+  SSLCOMMERZ_WEBHOOK_SECRET?: string;
+  TOTP_CIPHER_KEY?: string;
   FRAUDBD_API_KEY: string;
   DEEPSEEK_API_KEY: string;
   DEEPSEEK_BASE_URL?: string;

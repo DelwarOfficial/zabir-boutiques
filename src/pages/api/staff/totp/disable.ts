@@ -2,6 +2,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { writeAuditLog } from '../../../../lib/audit';
+import { clearStaffTotpSecret } from '../../../../lib/otp-secrets';
 
 export async function POST(context: APIContext): Promise<Response> {
   let user;
@@ -14,9 +15,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const env = getEnv(context);
-  await env.DB.prepare(
-    `UPDATE staff_users SET totp_secret = NULL, totp_required = 0 WHERE id = ?1`,
-  ).bind(user.id).run();
+  await clearStaffTotpSecret(env.DB, user.id);
 
   await writeAuditLog(env.DB, {
     actorStaffId: user.id,

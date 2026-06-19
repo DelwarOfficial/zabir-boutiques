@@ -3,18 +3,19 @@ import StaffLayout from "@/layouts/StaffLayout.astro";
 import { getCurrentStaffUser, requireRole } from "@/lib/rbac";
 import { getEnv } from "@/lib/env";
 import { generateTotpSecret } from "@/lib/totp";
+import { isStaffTotpEnabled } from "@/lib/otp-secrets";
 import QRCode from "qrcode";
 const user = await getCurrentStaffUser(Astro);
 requireRole(user!, ["owner"]);
 
 const env = getEnv(Astro);
 const dbUser = await env.DB.prepare(
-  `SELECT id, email, totp_secret, totp_required FROM staff_users WHERE id = ?1 LIMIT 1`
-).bind(user!.id).first<{ id: string; email: string | null; totp_secret: string | null; totp_required: number }>();
+  `SELECT id, email FROM staff_users WHERE id = ?1 LIMIT 1`
+).bind(user!.id).first<{ id: string; email: string | null }>();
 const email = dbUser?.email ?? `${user!.id}@zabir.local`;
 const { secret, uri } = generateTotpSecret(email);
 const qrDataUrl = await QRCode.toDataURL(uri, { width: 280, margin: 1.5, color: { dark: "#1a1816", light: "#0000" } });
-const totpEnabled = dbUser?.totp_required === 1 && !!dbUser?.totp_secret;
+const totpEnabled = await isStaffTotpEnabled(env.DB, user!.id);
 ---
 
 <StaffLayout title="Two-Factor Authentication" user={user!}>

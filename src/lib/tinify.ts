@@ -1,4 +1,4 @@
-import { TinifyClient } from './integrations/tinify';
+import { ImagifyClient } from './integrations/imagify';
 
 export type CompressOk = {
   ok: true;
@@ -31,11 +31,11 @@ export async function compressImage(
   apiKey: string,
   env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }
 ): Promise<CompressResult> {
-  return new TinifyClient(env).compressImage(imageBuffer, apiKey);
+  return new ImagifyClient(env).compressImage(imageBuffer, apiKey);
 }
 
 export async function downloadCompressed(locationUrl: string, apiKey: string, env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }): Promise<CompressResult> {
-  return new TinifyClient(env).downloadCompressed(locationUrl, apiKey);
+  return new ImagifyClient(env).downloadCompressed(locationUrl, apiKey);
 }
 
 export async function processImage(
@@ -47,7 +47,7 @@ export async function processImage(
   } = {},
   env?: { DB?: D1Database; PROVIDER_HEALTH_DO?: DurableObjectNamespace }
 ): Promise<{ ok: true; data: ArrayBuffer; contentType: string } | { ok: false; error: string }> {
-  return new TinifyClient(env).processImage(locationUrl, apiKey, options);
+  return new ImagifyClient(env).processImage(locationUrl, apiKey, options);
 }
 
 export const THUMBNAIL_SUFFIX = '_thumb.webp';

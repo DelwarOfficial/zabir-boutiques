@@ -138,6 +138,19 @@ describe('Master Plan V7 commerce guardrails', () => {
   });
 });
 
+describe('Master Plan V7 payment and image adapters', () => {
+  it('includes SSLCommerz and Imagify canonical adapter paths', () => {
+    for (const file of [
+      'src/lib/integrations/sslcommerz/index.ts',
+      'src/lib/integrations/imagify/index.ts',
+      'src/lib/integrations/payments/index.ts',
+    ]) {
+      expect(existsSync(file), file).toBe(true);
+    }
+    expect(read('src/lib/integrations/payments/index.ts')).toContain('sslcommerz');
+  });
+});
+
 describe('Master Plan V7 email provider selection', () => {
   it('defaults to Resend and selects Cloudflare Email by EMAIL_PROVIDER', () => {
     expect(getEmailProvider({}).constructor.name).toBe('ResendEmailProvider');

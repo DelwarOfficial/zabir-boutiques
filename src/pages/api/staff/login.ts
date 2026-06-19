@@ -9,6 +9,7 @@ import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { verifyTotpCode } from '../../../lib/totp';
+import { isStaffTotpEnabled, loadStaffTotpSecret } from '../../../lib/otp-secrets';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 import type { StaffUser } from '../../../lib/rbac';
@@ -114,15 +115,17 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // TOTP 2FA enforcement for owner/super_admin [Master_Prompt v7.0 §18.1]
   const totpRequired = staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin';
-  if (totpRequired && !staff.totp_secret) {
+  const totpEnabled = await isStaffTotpEnabled(env.DB, staff.id);
+  if (totpRequired && !totpEnabled) {
     return Response.json({ error: 'Two-factor authentication enrollment required. Contact an administrator.', totp_enrollment_required: true }, { status: 403 });
   }
-  if (totpRequired && staff.totp_secret) {
+  const totpSecret = totpEnabled ? await loadStaffTotpSecret(env.DB, staff.id, env) : null;
+  if (totpRequired && totpSecret) {
     const totpCode = typeof body.totp_code === 'string' ? body.totp_code.trim() : '';
     if (!totpCode) {
       return Response.json({ error: 'TOTP code required', totp_required: true }, { status: 401 });
     }
-    const totpValid = await verifyTotpCode(staff.totp_secret, totpCode);
+    const totpValid = await verifyTotpCode(totpSecret, totpCode);
     if (!totpValid) {
       await writeAuditLog(env.DB, {
         actorStaffId: staff.id,
