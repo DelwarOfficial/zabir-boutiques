@@ -82,6 +82,15 @@ export type Env = {
   // the legal footer.
   POS_BIN?: string; // 15-digit Business Identification Number
   POS_TIN?: string; // 12-digit Taxpayer Identification Number
+  // Courier adapters (Master Plan §2.4)
+  PATHAO_CLIENT_ID?: string;
+  PATHAO_CLIENT_SECRET?: string;
+  PATHAO_BASE_URL?: string;
+  STEADFAST_API_KEY?: string;
+  STEADFAST_SECRET?: string;
+  STEADFAST_BASE_URL?: string;
+  REDX_API_TOKEN?: string;
+  REDX_BASE_URL?: string;
 };
 
 declare global {

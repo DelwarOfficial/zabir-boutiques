@@ -149,6 +149,15 @@ describe('Master Plan V7 payment and image adapters', () => {
     }
     expect(read('src/lib/integrations/payments/index.ts')).toContain('sslcommerz');
   });
+
+  it('includes courier provider adapter directories', () => {
+    for (const provider of ['pathao', 'steadfast', 'redx']) {
+      for (const file of ['client.ts', 'types.ts', 'errors.ts', 'mock.ts', 'index.ts']) {
+        expect(existsSync(`src/lib/integrations/courier/${provider}/${file}`)).toBe(true);
+      }
+    }
+    expect(read('src/lib/integrations/courier/index.ts')).toContain('createCourierClient');
+  });
 });
 
 describe('Master Plan V7 email provider selection', () => {

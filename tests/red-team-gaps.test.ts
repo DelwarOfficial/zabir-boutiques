@@ -102,6 +102,37 @@ describe('P0 migration plan mapping', () => {
   });
 });
 
+describe('P3 courier adapter canonical structure', () => {
+  const providers = ['pathao', 'steadfast', 'redx'] as const;
+  const files = ['client.ts', 'types.ts', 'errors.ts', 'mock.ts', 'index.ts'] as const;
+
+  it('ships canonical courier integration files per provider', () => {
+    for (const provider of providers) {
+      for (const file of files) {
+        expect(existsSync(`src/lib/integrations/courier/${provider}/${file}`), `${provider}/${file}`).toBe(true);
+      }
+    }
+  });
+
+  it('creates mock shipments through the courier factory', async () => {
+    const { createCourierClient } = await import('../src/lib/integrations/courier');
+    const client = createCourierClient('pathao', { DB: {} as D1Database, PROVIDER_HEALTH_DO: {} as DurableObjectNamespace }, { mock: true });
+    const result = await client.createShipment({
+      orderId: 'ZB-1001',
+      recipientName: 'Ada',
+      recipientPhone: '01700000000',
+      recipientAddress: 'Wari, Dhaka',
+      recipientCity: 'Dhaka',
+      recipientZone: 'Dhaka',
+      codAmountPaisa: 150000,
+      weight: 0.5,
+      itemCount: 1,
+    });
+    expect(result.ok).toBe(true);
+    expect(result.trackingNumber).toContain('PATHAO-');
+  });
+});
+
 describe('SSLCommerz verify adapter', () => {
   it('maps VALID status to paid', async () => {
     global.fetch = vi.fn().mockResolvedValue({

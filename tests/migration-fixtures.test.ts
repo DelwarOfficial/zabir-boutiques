@@ -214,4 +214,22 @@ describe('migration fixtures — DDL execution', () => {
     expect(() => { d.exec(read('db/migrations/rollback/0030_rollback_staff_sessions_step_up.sql')); }).not.toThrow();
     expect(d.hasColumn('staff_sessions', 'step_up_at')).toBe(true);
   });
+
+  // 0031: courier handoff columns
+  it('0031 adds courier handoff columns and index on orders', () => {
+    const base = 'CREATE TABLE orders (id TEXT PRIMARY KEY, order_number TEXT, status TEXT);';
+    const d = dbWithBase('db/migrations/0031_order_courier_handoff.sql', base);
+    expect(d.hasColumn('orders', 'courier_provider')).toBe(true);
+    expect(d.hasColumn('orders', 'courier_tracking_number')).toBe(true);
+    expect(d.hasColumn('orders', 'courier_handoff_at')).toBe(true);
+    expect(d.hasIndex('idx_orders_courier_handoff')).toBe(true);
+  });
+
+  it('0003 applies cleanly after 0001+0002 without duplicate-column ALTERs', () => {
+    const d = new D1Mock();
+    d.exec(read('db/migrations/0001_initial_v6_8a_schema.sql'));
+    d.exec(read('db/migrations/0002_indexes.sql'));
+    expect(() => d.exec(read('db/migrations/0003_staff_operations_v2.sql'))).not.toThrow();
+    expect(d.hasIndex('idx_orders_created_by')).toBe(true);
+  });
 });

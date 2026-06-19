@@ -10,8 +10,9 @@ if (!can(user.role, 'orders.ship')) return new Response('Forbidden', { status: 4
 
 const env = getEnv(Astro);
 const packedOrders = await env.DB.prepare(
-  `SELECT id, order_number, name, phone, status
-   FROM orders WHERE status = 'packed'
+  `SELECT id, order_number, name, phone, status, courier_provider, courier_tracking_number
+   FROM orders
+   WHERE status = 'packing' AND courier_tracking_number IS NULL
    ORDER BY updated_at DESC LIMIT 20`
 ).all<any>();
 ---
@@ -27,7 +28,7 @@ const packedOrders = await env.DB.prepare(
           <thead><tr class="bg-surface-soft text-left">
             <th class="px-2.5 py-2 font-semibold">Order</th>
             <th class="px-2.5 py-2 font-semibold">Customer</th>
-            <th class="px-2.5 py-2 font-semibold">Label</th>
+            <th class="px-2.5 py-2 font-semibold">Actions</th>
           </tr></thead>
           <tbody>{packedOrders.results.map(o => (
             <tr class="border-t border-line-soft">
@@ -39,6 +40,7 @@ const packedOrders = await env.DB.prepare(
                   <a href={`/api/staff/orders/${o.id}/label?courier=pathao`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Pathao</a>
                   <a href={`/api/staff/orders/${o.id}/label?courier=steadfast`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Steadfast</a>
                   <a href={`/api/staff/orders/${o.id}/label?courier=redx`} target="_blank" class="px-2 py-0.5 bg-surface border border-line rounded text-[10px] no-underline hover:bg-surface-soft">Redx</a>
+                  <button type="button" data-order-id={o.id} data-provider="pathao" class="handoff-btn px-2 py-0.5 bg-brand text-white rounded text-[10px] border-0 cursor-pointer">Handoff Pathao</button>
                 </div>
               </td>
             </tr>
@@ -70,4 +72,28 @@ const packedOrders = await env.DB.prepare(
       </tbody>
     </table>
   </div>
+
+  <script>
+    document.querySelectorAll('.handoff-btn').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const orderId = btn.getAttribute('data-order-id');
+        const provider = btn.getAttribute('data-provider');
+        if (!orderId || !provider) return;
+        btn.disabled = true;
+        try {
+          const res = await fetch(`/api/staff/orders/${orderId}/courier`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ provider }),
+          });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error || data.code || 'Handoff failed');
+          window.location.reload();
+        } catch (err) {
+          alert(err instanceof Error ? err.message : 'Handoff failed');
+          btn.disabled = false;
+        }
+      });
+    });
+  </script>
 </StaffLayout>

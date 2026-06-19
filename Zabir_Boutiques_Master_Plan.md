@@ -2686,6 +2686,8 @@ Editing an applied migration is FORBIDDEN per Section 26.3. A change to an appli
 
 ### 35.2 Migration Sequence
 
+**Repository mapping (June 2026):** The concepts below are implemented in `db/migrations/` as `0021`–`0031`. Plan numbers `0024`–`0027` in this section map to repo files `0021`–`0024` (`otp_secrets`, `api_audit_logs`, `ai_budget_limits`, reservation constraint). Subsequent repo migrations `0025`–`0031` cover cart cleanup, VAT, reservation rebuild, customer phone OTP, staff step-up, and courier handoff columns. Authoritative file-to-concept mapping lives in `tests/red-team-gaps.test.ts` and `tests/migration-fixtures.test.ts`.
+
 The four migrations below must land in this order. Dependencies are explicit; a later migration cannot be applied until all its dependencies are applied.
 
 #### Migration 0024 — `create_otp_secrets`
