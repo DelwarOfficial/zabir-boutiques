@@ -90,9 +90,6 @@
       { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
     ]
   },
-  "analytics_engine_datasets": [
-    { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
-  ],
   "env": {
     "prod": {
       "name": "zabirboutiques",
@@ -145,9 +142,6 @@
           { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
-      "analytics_engine_datasets": [
-        { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
-      ],
       "ai": {
         "binding": "AI"
       },
@@ -207,9 +201,6 @@
           { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
-      "analytics_engine_datasets": [
-        { "binding": "ANALYTICS", "dataset": "zabir_metrics_staging" }
-      ],
       "vars": {
         "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
         "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)"
@@ -266,9 +257,6 @@
           { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
-      "analytics_engine_datasets": [
-        { "binding": "ANALYTICS", "dataset": "zabir_metrics_dev" }
-      ],
       "vars": {
         "PUBLIC_SITE_URL": "http://localhost:4321",
         "PUBLIC_SITE_NAME": "Zabir Boutiques (dev)"
