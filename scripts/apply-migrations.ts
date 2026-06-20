@@ -7,18 +7,33 @@ const mode = process.argv.includes('--remote') ? '--remote' : '--local';
 const dbName = process.env.D1_DATABASE ?? 'zabir-db';
 const dir = 'db/migrations';
 const continueOnError = process.argv.includes('--continue-on-error');
+const fromArg = process.argv.find((arg) => arg.startsWith('--from='));
+const fromVersion = fromArg?.slice('--from='.length);
 
 const files = readdirSync(dir)
   .filter((file) => /^\d{4}_.+\.sql$/.test(file))
+  .filter((file) => !fromVersion || file >= fromVersion)
   .sort();
 
 let failures = 0;
 const tmpDir = mkdtempSync(join(tmpdir(), 'd1-migrate-'));
 
+function prepareSqlForMode(sql: string): string {
+  if (mode !== '--remote') return sql;
+
+  // D1 remote imports reject explicit top-level SQL transaction wrappers.
+  // Trigger bodies still use BEGIN/END blocks, so only strip exact wrapper lines.
+  return sql
+    .split(/\r?\n/)
+    .filter((line) => !/^\s*(BEGIN\s+TRANSACTION|COMMIT)\s*;\s*$/i.test(line))
+    .join('\n')
+    .trim();
+}
+
 try {
   for (const file of files) {
     const path = join(dir, file);
-    const sql = readFileSync(path, 'utf-8').trim();
+    const sql = prepareSqlForMode(readFileSync(path, 'utf-8').trim());
     if (!sql) { console.log(`Skipping empty ${file}`); continue; }
     console.log(`Applying ${path} (${mode})`);
 

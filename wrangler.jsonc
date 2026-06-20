@@ -28,17 +28,17 @@
     {
       "binding": "DB",
       "database_name": "zabir-db",
-      "database_id": "82334529-ffca-4445-b520-b4384ecce51a"
+      "database_id": "53be5b17-620b-4ce9-b812-ef7bd19b92c3"
     }
   ],
   "kv_namespaces": [
     {
       "binding": "CACHE",
-      "id": "REPLACE_WITH_CACHE_KV_NAMESPACE_ID"
+      "id": "d214cc2ab17846319c1d3dacf0790a1b"
     },
     {
       "binding": "SESSION",
-      "id": "REPLACE_WITH_SESSION_KV_NAMESPACE_ID"
+      "id": "213ecf50731142558d531ec31f059155"
     }
   ],
   "r2_buckets": [
@@ -97,11 +97,11 @@
     "prod": {
       "name": "zabirboutiques",
       "d1_databases": [
-        { "binding": "DB", "database_name": "zabir-db", "database_id": "82334529-ffca-4445-b520-b4384ecce51a" }
+        { "binding": "DB", "database_name": "zabir-db", "database_id": "53be5b17-620b-4ce9-b812-ef7bd19b92c3" }
       ],
       "kv_namespaces": [
-        { "binding": "CACHE", "id": "REPLACE_WITH_CACHE_KV_NAMESPACE_ID" },
-        { "binding": "SESSION", "id": "REPLACE_WITH_SESSION_KV_NAMESPACE_ID" }
+        { "binding": "CACHE", "id": "d214cc2ab17846319c1d3dacf0790a1b" },
+        { "binding": "SESSION", "id": "213ecf50731142558d531ec31f059155" }
       ],
       "r2_buckets": [
         { "binding": "MEDIA", "bucket_name": "zabir-product-images" },
