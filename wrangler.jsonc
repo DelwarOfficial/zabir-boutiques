@@ -20,6 +20,12 @@
   },
 
   // ── Cron triggers ──────────────────────────────────────────────────
+  // ⚠️  TEMPORARILY DISABLED: Cloudflare API returns ".../schedules failed"
+  //     because cron triggers defined in wrangler.jsonc conflict with
+  //     schedules already set via the Cloudflare Dashboard.
+  // TO RESTORE: delete the "// " prefix from lines 2-16 below and remove
+  //             this notice. Then re-deploy.
+  // ────────────────────────────────────────────────────────────────────
   // */5  * * * *  Sweep stale partial-prepay orders
   // */15 * * * *  Payment reconciliation + abandoned-cart scan
   // 0    * * * *  Clean expired stock reservations + sessions
@@ -29,19 +35,19 @@
   // 0    */6 * * *  D1 backup to R2
   // 0    9 * * 0  Weekly backup verification
   // 0    5 1 * *  Monthly archive of old events
-  "triggers": {
-    "crons": [
-      "*/5 * * * *",
-      "*/15 * * * *",
-      "0 * * * *",
-      "0 0 * * *",
-      "0 2 * * *",
-      "0 3 * * *",
-      "0 */6 * * *",
-      "0 9 * * 0",
-      "0 5 1 * *"
-    ]
-  },
+  // "triggers": {
+  //   "crons": [
+  //     "*/5 * * * *",
+  //     "*/15 * * * *",
+  //     "0 * * * *",
+  //     "0 0 * * *",
+  //     "0 2 * * *",
+  //     "0 3 * * *",
+  //     "0 */6 * * *",
+  //     "0 9 * * 0",
+  //     "0 5 1 * *"
+  //   ]
+  // },
 
   // ── D1 database ────────────────────────────────────────────────────
   "d1_databases": [
