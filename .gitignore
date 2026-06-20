@@ -29,6 +29,36 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# environment (secrets)
+.env.local
+.env.*.local
+
+# wrangler (cloudflare) local state & generated config
+.wrangler/
+.wrangler-config/
+
+# package manager cache
+.npm-cache/
+.tmp-xdg/
+
+# machine-specific temp/launcher files
+.tmp-launch-dev.ps1
+.tmp-start-dev.bat
+.tmp_master_plan.txt
+
+# build-time generated source
+src/generated/
+
+# duplicate graphify output
+src/graphify-out/
+
+# AI agent state
+.kiro/
+skills-lock.json
+
+# terminal session data
+terminals/
+
 # project-specific
 graphify-out/
 .codex/

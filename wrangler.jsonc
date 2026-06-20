@@ -1,29 +1,49 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  // ── Queues (create before first deploy) ──────────────────────────────
-  // Run these once per account (production):
-  //   npx wrangler queues create payment-webhooks
-  //   npx wrangler queues create order-emails
-  //   npx wrangler queues create image-processing
-  //   npx wrangler queues create fraud-audit
-  //   npx wrangler queues create d1-backup
-  //   npx wrangler queues create cart-activity
-  //
-  // Staging: append "-staging" to each name.
-  // Dev:     append "-dev" to each name.
+
+  // ── Worker identity ─────────────────────────────────────────────────
   "name": "zabirboutiques",
+  "main": "./src/entry-cloudflare.ts",
   "compatibility_date": "2026-06-04",
   "compatibility_flags": ["nodejs_compat"],
-  "main": "./src/entry-cloudflare.ts",
+
+  // ── Assets (Astro SSR client build) ─────────────────────────────────
   "assets": {
     "directory": "./dist/client",
     "binding": "ASSETS"
   },
+
+  // ── Observability ──────────────────────────────────────────────────
   "observability": {
     "enabled": true,
     "head_sampling_rate": 0.1
   },
-  // Root config = production (Master Plan §18.1). Use --env staging|dev for other targets.
+
+  // ── Cron triggers ──────────────────────────────────────────────────
+  // */5  * * * *  Sweep stale partial-prepay orders
+  // */15 * * * *  Payment reconciliation + abandoned-cart scan
+  // 0    * * * *  Clean expired stock reservations + sessions
+  // 0    0 * * *  Reset AI daily usage budget (KV)
+  // 0    2 * * *  Generate sitemap to R2
+  // 0    3 * * *  Daily maintenance bundle (sessions, images, idempotency, audit, inventory)
+  // 0    */6 * * *  D1 backup to R2
+  // 0    9 * * 0  Weekly backup verification
+  // 0    5 1 * *  Monthly archive of old events
+  "triggers": {
+    "crons": [
+      "*/5 * * * *",
+      "*/15 * * * *",
+      "0 * * * *",
+      "0 0 * * *",
+      "0 2 * * *",
+      "0 3 * * *",
+      "0 */6 * * *",
+      "0 9 * * 0",
+      "0 5 1 * *"
+    ]
+  },
+
+  // ── D1 database ────────────────────────────────────────────────────
   "d1_databases": [
     {
       "binding": "DB",
@@ -31,42 +51,62 @@
       "database_id": "53be5b17-620b-4ce9-b812-ef7bd19b92c3"
     }
   ],
+
+  // ── KV namespaces ──────────────────────────────────────────────────
   "kv_namespaces": [
-    {
-      "binding": "CACHE",
-      "id": "d214cc2ab17846319c1d3dacf0790a1b"
-    },
-    {
-      "binding": "SESSION",
-      "id": "213ecf50731142558d531ec31f059155"
-    }
+    { "binding": "CACHE", "id": "d214cc2ab17846319c1d3dacf0790a1b" },
+    { "binding": "SESSION", "id": "213ecf50731142558d531ec31f059155" }
   ],
+
+  // ── R2 buckets ─────────────────────────────────────────────────────
   "r2_buckets": [
     { "binding": "MEDIA", "bucket_name": "zabir-product-images" },
     { "binding": "BACKUPS", "bucket_name": "zabir-backups" },
     { "binding": "LOGS", "bucket_name": "zabir-logs" },
-    { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates" },
+    { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-prod" },
     { "binding": "REPORTS", "bucket_name": "zabir-reports" }
   ],
+
+  // ── Workers AI ─────────────────────────────────────────────────────
   "ai": {
     "binding": "AI"
   },
-  "vars": {
-    "PUBLIC_SITE_URL": "https://zabirboutiques.com",
-    "PUBLIC_SITE_NAME": "Zabir Boutiques"
-  },
+
+  // ── Durable Objects ────────────────────────────────────────────────
+  // 7 classes: VariantInventoryDO, IdempotencyDO, BudgetCounterDO,
+  // WafRules, CartDO, DirectCheckoutSessionDO, ProviderHealthDO.
+  // See migrations below — new_sqlite_classes is REQUIRED for each.
   "durable_objects": {
     "bindings": [
       { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
       { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
       { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-      { "name": "WAF_RULES", "class_name": "WafRules" }
+      { "name": "WAF_RULES", "class_name": "WafRules" },
+      { "name": "CART_DO", "class_name": "CartDO" },
+      { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+      { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
     ]
   },
+
+  // ── Durable Object migrations (SQLite) ─────────────────────────────
+  // Each class MUST appear in exactly one new_sqlite_classes array.
+  // Append a new tag for every future DO class you add — do NOT
+  // edit a published tag's class list.
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+    { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
   ],
+
+  // ── Queues ─────────────────────────────────────────────────────────
+  // Create once per account (production):
+  //   npx wrangler queues create payment-webhooks
+  //   npx wrangler queues create order-emails
+  //   npx wrangler queues create image-processing
+  //   npx wrangler queues create fraud-audit
+  //   npx wrangler queues create d1-backup
+  //   npx wrangler queues create cart-activity
+  // Staging: append "-staging". Dev: append "-dev".
   "queues": {
     "producers": [
       { "queue": "payment-webhooks", "binding": "PAYMENT_WEBHOOKS" },
@@ -85,61 +125,17 @@
       { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
     ]
   },
+
+  // ── Public vars ────────────────────────────────────────────────────
+  // Secrets (API keys, tokens) must be set via `wrangler secret put`.
+  "vars": {
+    "PUBLIC_SITE_URL": "https://zabirboutiques.com",
+    "PUBLIC_SITE_NAME": "Zabir Boutiques"
+  },
+
+  // ── Environment overrides ──────────────────────────────────────────
+  // Root config = production. Use --env staging or --env dev for others.
   "env": {
-    "prod": {
-      "name": "zabirboutiques",
-      "d1_databases": [
-        { "binding": "DB", "database_name": "zabir-db", "database_id": "53be5b17-620b-4ce9-b812-ef7bd19b92c3" }
-      ],
-      "kv_namespaces": [
-        { "binding": "CACHE", "id": "d214cc2ab17846319c1d3dacf0790a1b" },
-        { "binding": "SESSION", "id": "213ecf50731142558d531ec31f059155" }
-      ],
-      "r2_buckets": [
-        { "binding": "MEDIA", "bucket_name": "zabir-product-images" },
-        { "binding": "BACKUPS", "bucket_name": "zabir-backups" },
-        { "binding": "LOGS", "bucket_name": "zabir-logs" },
-        { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-prod" },
-        { "binding": "REPORTS", "bucket_name": "zabir-reports" }
-      ],
-      "durable_objects": {
-        "bindings": [
-          { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
-          { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
-          { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" }
-        ]
-      },
-      "migrations": [
-        { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
-      ],
-      "queues": {
-        "producers": [
-          { "queue": "payment-webhooks", "binding": "PAYMENT_WEBHOOKS" },
-          { "queue": "order-emails", "binding": "ORDER_EMAILS" },
-          { "queue": "image-processing", "binding": "IMAGE_PROCESSING" },
-          { "queue": "fraud-audit", "binding": "FRAUD_AUDIT" },
-          { "queue": "d1-backup", "binding": "D1_BACKUP" },
-          { "queue": "cart-activity", "binding": "CART_ACTIVITY" }
-        ],
-        "consumers": [
-          { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
-          { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
-          { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
-          { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2 },
-          { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 },
-          { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
-        ]
-      },
-      "ai": {
-        "binding": "AI"
-      },
-      "vars": {
-        "PUBLIC_SITE_URL": "https://zabirboutiques.com",
-        "PUBLIC_SITE_NAME": "Zabir Boutiques"
-      }
-    },
     "staging": {
       "name": "zabir-boutiques-staging",
       "d1_databases": [
@@ -161,12 +157,16 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" }
+          { "name": "WAF_RULES", "class_name": "WafRules" },
+          { "name": "CART_DO", "class_name": "CartDO" },
+          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+        { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
       ],
       "queues": {
         "producers": [
@@ -212,12 +212,16 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" }
+          { "name": "WAF_RULES", "class_name": "WafRules" },
+          { "name": "CART_DO", "class_name": "CartDO" },
+          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+        { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
       ],
       "queues": {
         "producers": [
@@ -242,18 +246,5 @@
         "PUBLIC_SITE_NAME": "Zabir Boutiques (dev)"
       }
     }
-  },
-  "triggers": {
-    "crons": [
-      "*/5 * * * *",
-      "*/15 * * * *",
-      "0 * * * *",
-      "0 0 * * *",
-      "0 2 * * *",
-      "0 3 * * *",
-      "0 */6 * * *",
-      "0 9 * * 0",
-      "0 5 1 * *"
-    ]
   }
 }
