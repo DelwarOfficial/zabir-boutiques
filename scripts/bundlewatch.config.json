@@ -9,35 +9,65 @@
     "dist/client/_astro/client.BtRKo7pY.js": {
       "maxGz": 61386
     },
-    "dist/client/_astro/GuestCheckout.CqRBk6B0.js": {
-      "maxGz": 5791
+    "dist/client/_astro/phone.CIsIWcAH.js": {
+      "maxGz": 31565
+    },
+    "dist/client/_astro/GuestCheckout.mygVsoIj.js": {
+      "maxGz": 5627
+    },
+    "dist/client/_astro/BuyNowLandingForm.Dy6vhEcb.js": {
+      "maxGz": 3602
     },
     "dist/client/_astro/index.DQ_U63bv.js": {
       "maxGz": 3079
     },
-    "dist/client/_astro/useLocalCart.CH4LtxjT.js": {
-      "maxGz": 1468
+    "dist/client/_astro/RootLayout.astro_astro_type_script_index_0_lang.CUOG3Jk3.js": {
+      "maxGz": 2914
     },
-    "dist/client/_astro/BottomNav.1E6mLLqY.js": {
-      "maxGz": 1445
+    "dist/client/_astro/CartContent.UMlLZt1O.js": {
+      "maxGz": 1595
+    },
+    "dist/client/_astro/BottomNav.D7MzAAdI.js": {
+      "maxGz": 1473
+    },
+    "dist/client/_astro/useLocalCart.BwF7HVMQ.js": {
+      "maxGz": 1268
     },
     "dist/client/_astro/page.B9eF5IcF.js": {
       "maxGz": 1099
     },
-    "dist/client/_astro/AddToCartButton.DCCFsBFu.js": {
-      "maxGz": 982
+    "dist/client/_astro/BuyNowButton.BvZcO7-4.js": {
+      "maxGz": 1082
+    },
+    "dist/client/_astro/AddToCartButton.DI9GB9IX.js": {
+      "maxGz": 1007
     },
     "dist/client/_astro/ThemeToggle.CB7FvKVy.js": {
       "maxGz": 817
     },
+    "dist/client/_astro/PwaInstallHint.7H1fsixN.js": {
+      "maxGz": 811
+    },
+    "dist/client/_astro/createLucideIcon.BLrIsjgV.js": {
+      "maxGz": 599
+    },
+    "dist/client/_astro/trash-2.BqmXrXYP.js": {
+      "maxGz": 527
+    },
+    "dist/client/_astro/money.Bu3XkG7-.js": {
+      "maxGz": 355
+    },
     "dist/client/_astro/jsx-runtime.DXco-PnT.js": {
       "maxGz": 347
     },
-    "dist/client/_astro/shopping-bag.DSSdLcg9.js": {
-      "maxGz": 246
+    "dist/client/_astro/shopping-bag.CULm04h6.js": {
+      "maxGz": 248
+    },
+    "dist/client/_astro/loader-circle.BmdEXGH1.js": {
+      "maxGz": 196
     }
   },
   "total": {
-    "maxGz": 76657
+    "maxGz": 119588
   }
 }
