@@ -17,7 +17,7 @@
     {
       "binding": "DB",
       "database_name": "zabir-db",
-      "database_id": "REPLACE_WITH_D1_DATABASE_ID"
+      "database_id": "82334529-ffca-4445-b520-b4384ecce51a"
     }
   ],
   "kv_namespaces": [
@@ -86,7 +86,7 @@
     "prod": {
       "name": "zabir-boutiques",
       "d1_databases": [
-        { "binding": "DB", "database_name": "zabir-db", "database_id": "REPLACE_WITH_D1_DATABASE_ID" }
+        { "binding": "DB", "database_name": "zabir-db", "database_id": "82334529-ffca-4445-b520-b4384ecce51a" }
       ],
       "kv_namespaces": [
         { "binding": "CACHE", "id": "REPLACE_WITH_CACHE_KV_NAMESPACE_ID" },
@@ -207,7 +207,7 @@
     "dev": {
       "name": "zabir-boutiques-dev",
       "d1_databases": [
-        { "binding": "DB", "database_name": "zabir-db-dev", "database_id": "REPLACE_WITH_D1_DEV_ID" }
+        { "binding": "DB", "database_name": "zabir-db-dev", "database_id": "aadef527-71d2-47a0-9fe8-83b4bc156b2c" }
       ],
       "kv_namespaces": [
         { "binding": "CACHE", "id": "REPLACE_WITH_CACHE_DEV_ID" },
