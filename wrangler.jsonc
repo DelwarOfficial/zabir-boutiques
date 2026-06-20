@@ -1,6 +1,17 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "zabir-boutiques",
+  // ── Queues (create before first deploy) ──────────────────────────────
+  // Run these once per account (production):
+  //   npx wrangler queues create payment-webhooks
+  //   npx wrangler queues create order-emails
+  //   npx wrangler queues create image-processing
+  //   npx wrangler queues create fraud-audit
+  //   npx wrangler queues create d1-backup
+  //   npx wrangler queues create cart-activity
+  //
+  // Staging: append "-staging" to each name.
+  // Dev:     append "-dev" to each name.
+  "name": "zabirboutiques",
   "compatibility_date": "2026-06-04",
   "compatibility_flags": ["nodejs_compat"],
   "main": "./src/entry-cloudflare.ts",
@@ -84,7 +95,7 @@
   ],
   "env": {
     "prod": {
-      "name": "zabir-boutiques",
+      "name": "zabirboutiques",
       "d1_databases": [
         { "binding": "DB", "database_name": "zabir-db", "database_id": "82334529-ffca-4445-b520-b4384ecce51a" }
       ],
