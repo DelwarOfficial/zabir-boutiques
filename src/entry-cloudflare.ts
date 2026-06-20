@@ -35,8 +35,18 @@ import type { Env } from "./env";
 // Required by Cloudflare: DO classes must be top-level exports.
 export { VariantInventoryDO, IdempotencyDO, BudgetCounterDO, WafRules, CartDO, DirectCheckoutSessionDO, ProviderHealthDO };
 
+/**
+ * Normalize a queue name to its environment-agnostic base by stripping the
+ * `-staging` / `-dev` suffix appended in non-production environments.
+ * Without this, staging/dev batches fall through to the default case and are
+ * acked without being processed, silently dropping webhooks and emails.
+ */
+function baseQueueName(queue: string): string {
+  return queue.replace(/-(staging|dev)$/, "");
+}
+
 async function routeQueue(batch: MessageBatch, env: Env): Promise<void> {
-  switch (batch.queue) {
+  switch (baseQueueName(batch.queue)) {
     case "payment-webhooks":
       await handlePaymentWebhookBatch(batch as MessageBatch<PaymentWebhookMessage>, env);
       break;

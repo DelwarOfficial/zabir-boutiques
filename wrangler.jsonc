@@ -72,6 +72,14 @@
     "binding": "AI"
   },
 
+  // ── Analytics Engine ───────────────────────────────────────────────
+  // Business metrics, AI cost, WAF events, money-tampering detection, and
+  // rate-limit errors are written here via env.ANALYTICS.writeDataPoint.
+  // Without this binding every trackMetric() call is a silent no-op.
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "zabir_metrics" }
+  ],
+
   // ── Durable Objects ────────────────────────────────────────────────
   // 7 classes: VariantInventoryDO, IdempotencyDO, BudgetCounterDO,
   // WafRules, CartDO, DirectCheckoutSessionDO, ProviderHealthDO.
@@ -106,6 +114,7 @@
   //   npx wrangler queues create fraud-audit
   //   npx wrangler queues create d1-backup
   //   npx wrangler queues create cart-activity
+  //   npx wrangler queues create payment-webhooks-dlq
   // Staging: append "-staging". Dev: append "-dev".
   "queues": {
     "producers": [
@@ -117,7 +126,7 @@
       { "queue": "cart-activity", "binding": "CART_ACTIVITY" }
     ],
     "consumers": [
-      { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5 },
+      { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq" },
       { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
       { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
       { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2 },
@@ -178,7 +187,7 @@
           { "queue": "cart-activity-staging", "binding": "CART_ACTIVITY" }
         ],
         "consumers": [
-          { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5 },
+          { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-staging" },
           { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
           { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2 },
@@ -186,6 +195,9 @@
           { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
+      "analytics_engine_datasets": [
+        { "binding": "ANALYTICS", "dataset": "zabir_metrics_staging" }
+      ],
       "vars": {
         "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
         "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)"
@@ -233,7 +245,7 @@
           { "queue": "cart-activity-dev", "binding": "CART_ACTIVITY" }
         ],
         "consumers": [
-          { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5 },
+          { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-dev" },
           { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3 },
           { "queue": "fraud-audit-dev", "max_batch_size": 10, "max_retries": 2 },
@@ -241,6 +253,9 @@
           { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
+      "analytics_engine_datasets": [
+        { "binding": "ANALYTICS", "dataset": "zabir_metrics_dev" }
+      ],
       "vars": {
         "PUBLIC_SITE_URL": "http://localhost:4321",
         "PUBLIC_SITE_NAME": "Zabir Boutiques (dev)"
