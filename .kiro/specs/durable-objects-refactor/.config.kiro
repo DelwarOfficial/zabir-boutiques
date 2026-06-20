@@ -1,0 +1,6 @@
+{
+  "name": "durable-objects-refactor",
+  "displayName": "Durable Objects Refactor (CartDO, DirectCheckoutSessionDO, ProviderHealthDO → D1)",
+  "description": "Replace 3 non-critical Durable Objects with D1 + KV to support Cloudflare Workers free tier. Retain 4 critical DOs for atomic operations.",
+  "workflow": "requirements-first"
+}

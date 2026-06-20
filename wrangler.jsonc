@@ -60,17 +60,12 @@
       { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
       { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
       { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-      { "name": "WAF_RULES", "class_name": "WafRules" },
-      { "name": "CART_DO", "class_name": "CartDO" },
-      { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-      { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+      { "name": "WAF_RULES", "class_name": "WafRules" }
     ]
   },
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-    { "tag": "v3", "new_classes": ["CartDO"] },
-    { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
+    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
   ],
   "queues": {
     "producers": [
@@ -112,17 +107,12 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" },
-          { "name": "CART_DO", "class_name": "CartDO" },
-          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+          { "name": "WAF_RULES", "class_name": "WafRules" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-        { "tag": "v3", "new_classes": ["CartDO"] },
-        { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
       ],
       "queues": {
         "producers": [
@@ -171,17 +161,12 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" },
-          { "name": "CART_DO", "class_name": "CartDO" },
-          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+          { "name": "WAF_RULES", "class_name": "WafRules" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-        { "tag": "v3", "new_classes": ["CartDO"] },
-        { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
       ],
       "queues": {
         "producers": [
@@ -227,17 +212,12 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" },
-          { "name": "CART_DO", "class_name": "CartDO" },
-          { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+          { "name": "WAF_RULES", "class_name": "WafRules" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
-        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-        { "tag": "v3", "new_classes": ["CartDO"] },
-        { "tag": "v4", "new_classes": ["DirectCheckoutSessionDO", "ProviderHealthDO"] }
+        { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] }
       ],
       "queues": {
         "producers": [
