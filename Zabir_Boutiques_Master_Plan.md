@@ -1126,7 +1126,7 @@ Checkout is server-authoritative, idempotent, and race-condition-aware.
 5. Parse only `variant_id` and `quantity`. Ignore all browser-supplied prices/totals.
 6. Load authoritative variant, product, price, and status from D1.
 7. Reject inactive, unpublished, deleted, or unavailable variants.
-8. Compute subtotal, delivery fee, discount, **VAT (if configured)**, total, advance, and balance server-side. VAT is computed as `vat_paisa = round(subtotal_paisa * vat_rate / 100)` where `vat_rate` is read from a Cloudflare secret / KV feature flag (`VAT_RATE_PERCENT`, default `0` for launch). VAT is stored as integer paisa in `orders.vat_paisa` per Section 6.2 and itemized in `order_items.vat_paisa`. POS applies the same VAT rule per Section 15.2. The browser must NEVER supply VAT — it is always recomputed server-side from the configured rate.
+8. Compute subtotal, delivery fee, discount, **VAT (if configured)**, total, advance, and balance server-side. VAT is computed as `vat_paisa = round(subtotal_paisa * vat_rate / 100)` where `vat_rate` is read from a Cloudflare secret / KV feature flag (`VAT_RATE_PERCENT`, default `0` for launch). VAT is stored as integer paisa in `orders.vat_paisa` per Section 6.2 and itemized in `order_items.vat_paisa`. POS applies the same VAT rule per Section 15.2. The browser must NEVER supply VAT — it is always recomputed server-side from the configured rate. **See Section 11.1.1 for the launch MVP scope and Bangladesh-specific limitations of the current VAT calculation.**
 9. Apply coupon atomically in D1 if provided. Enforce active date, usage limit, min order, max discount.
 10. Compute `total_quantity = SUM(quantity)`.
 11. Apply COD rule: COD allowed only when `total_quantity <= 2`, unless staff override applies. If not allowed, return `402 PREPAYMENT_REQUIRED`.
@@ -1141,6 +1141,48 @@ Checkout is server-authoritative, idempotent, and race-condition-aware.
 20. Enqueue fraud-audit message for post-checkout enrichment.
 21. If online payment or partial prepay is required, initiate UddoktaPay hosted payment and store transaction metadata.
 22. Return order response or payment redirect payload.
+
+### 11.1.1 VAT (Bangladesh Launch) — MVP Scope and Limitations
+
+The launch VAT formula in step 8 (`vat_paisa = round(subtotal_paisa * vat_rate / 100)` with `vat_rate = VAT_RATE_PERCENT`, default `0`) is intentionally simplified. It MUST be read as the **MVP projection of a real-world VAT computation**, not as the legally-correct Bangladesh VAT calculation. This sub-section records the known gaps so they cannot silently leak into compliance or reporting work.
+
+#### Launch Behavior (MVP)
+
+| Aspect | Launch (MVP) behavior | Where it lives |
+|---|---|---|
+| Rate source | Single global rate from Cloudflare secret `VAT_RATE_PERCENT` (e.g. `0`, `5`, `10`, `15`) | `wrangler.jsonc` env / secret |
+| Tax base | `subtotal_paisa` (sum of line items only) | Step 8 of Section 11.1 |
+| Delivery fee VAT | Not taxed in MVP | Step 8 fast-path skips delivery |
+| Discount interaction | VAT is computed AFTER discount (i.e. `vat_paisa = round(discounted_subtotal_paisa * vat_rate / 100)`). If launch instead chose to compute VAT before discount, an amendment is required and discount tax-credit semantics must be re-validated with finance. | Step 8 |
+| Per-category / per-product VAT class | Not supported. All products use the same global rate. | Schema does not carry `product_vat_class` |
+| Supplier / source-based reduced rates | Not supported | N/A |
+| Mixed-rate carts (some items at 5%, others at 15%) | Not supported — single-rate cart | N/A |
+| Refunds and credit notes | VAT is reversed proportionally on full refunds; partial refunds manually handled by staff | Section 13.2 |
+| POS VAT | Same single-rate formula applied to POS subtotal | Section 15.2 |
+| Display | Receipt / invoice / cart UI display VAT as a single line item | Components per Section 8.2 |
+| Audit / accounting export | Owner digest + finance export include `subtotal_paisa`, `discount_paisa`, `delivery_paisa`, `vat_paisa`, `total_paisa` columns for every order/invoice | Section 25 + Section 27.2 |
+
+#### Known Limitations vs. Bangladesh VAT and Supplementary Duty Act, 2012
+
+The launch MVP does **not** model:
+
+1. **Standard + supplementary duty.** Real BD VAT (15% standard, 10% reduced, 5% lower, 0% zero-rated) overlaps with supplementary duty on certain goods (cosmetics, electronics, tobacco, vehicles). The launch treats VAT as a single rate.
+2. **Service VAT vs. trading VAT.** Retail boutique goods are typically "trading VAT"; services and digital goods have different rules. The launch is goods-only because boutique retail does not include services.
+3. **Withholding / advance tax / TDS on certain import or wholesale operations.** Out of scope for boutique retail.
+4. **Reverse charge mechanisms.** Not applicable at retail, deferred from MVP.
+5. **Per-product declaration of VAT class.** A product can be "VAT-exempt" (e.g. basic food) or "supplementary-duty-liable" (e.g. cosmetics). MVP has no concept of this — the schema needs a `product_vat_class` column and the checkout must branch on it. Track this as a follow-up.
+6. **Turnover thresholds.** Bangladesh VAT has small-trader registration thresholds and reduced obligations below them. Launch assumes the boutique is fully VAT-registered; if not, VAT should be 0 across the board — owner sets `VAT_RATE_PERCENT=0`.
+7. **Half-yearly / yearly VAT return filings (Mushak forms).** Not in MVP scope; the launch simply records per-order VAT for owner-side reconciliation.
+8. **Currency of VAT register.** Paid in BDT. `orders.vat_paisa` is integer paisa. No foreign-currency conversion handled in MVP.
+
+#### Acceptance Criteria
+
+- The Section 11.1 step 8 implementation MUST read `VAT_RATE_PERCENT` from the env at the time of order creation — **never** accept VAT from the client body, query string, or cart contents. Drift between prose and code is a P2 finding (D-19, D-20).
+- Owner digest (Section 25) MUST include a periodic VAT total (`SUM(vat_paisa)` over the prior period) so the owner can reconcile against their Mushak filing. Until this digest exists, launching with `VAT_RATE_PERCENT > 0` is forbidden.
+- If `VAT_RATE_PERCENT > 0`, owners MUST sign off on the launch MVP via a Staff acknowledgement in `audit_log` (event_type = `vat_rate_active_acknowledgement`) before orders are created. The Owner dashboard surfaces this in the same page as the rate.
+- A Scheduled post-launch task (file a ticket) MUST track the per-category VAT class feature: schema migration to add `products.vat_class`, checkout branch, guide text update. The task is bound to a deferred feature in Section 7 of the V7.1 release notes (when written).
+
+---
 
 ### 11.2 FraudBD Policy
 
@@ -1282,6 +1324,61 @@ Cleanup cron releases only expired reservations that were missed by normal flows
 7. Update order payment status.
 8. For paid/partial paid orders, update order status as allowed by state machine.
 9. Enqueue payment confirmation email.
+
+### 11.5.1 Webhook vs Reconciliation Conflict Handling (mandatory)
+
+Both webhook-driven updates (Section 11.5) and the reconciliation cron (Section 11.6) write to `payment_events` and may update `orders.payment_status` and `orders.status`. The contract below is the canonical source of truth for who wins on conflict. Drift between this prose and implementation is a P1 finding.
+
+| Source | Trust phase | Canonical for | Latency |
+|---|---|---|---|
+| **Webhook (provider live event)** | Real-time during checkout redirect flow | Initial payment confirmation; rapid customer redirect UX | < 1 second from provider event |
+| **Reconciliation cron (server-to-server verify)** | Background, every 15 minutes | Catch-up for missed webhooks; final authority on disputed/duplicate events | 15 minutes worst-case lag |
+| **Manual staff mark-paid via `/staff/orders/{id}/force-paid`** | Operator action | A documented override; audit row required | Within minutes |
+
+#### Conflict Resolution Rules
+
+1. **Event ordering is by `payment_events.created_at` (ISO 8601 UTC), not by delivery order.** Two events with the same logical status (e.g. both `paid`) are deduplicated by the `payment_events.event_id` idempotency check (Section 11.5 step 3). When contradictory events arrive (e.g. `paid` then later `refunded`), each is stored; reconciliation resolves the latest authoritative state.
+
+2. **Webhook is canonical for the **payment_status flag** transitions it covers.** A webhook that says `paid` advances the order from `pending → confirmed`. A webhook that says `refunded` advances `confirmed → refunded` (after the Section 13.2 return/refund flow).
+
+3. **Reconciliation is canonical for catch-up, never for reversal.** If the webhook queue saw `paid` for `order_X` at T=10:00, then a stale reconciliation at T=10:30 calls the provider and the provider's status response is ambiguous (network glitch mid-poll), reconciliation MUST NOT mark `order_X` as unpaid. Reconciliation only writes forward (`null/pending → paid`), never backward (`paid → pending/unpaid`), unless a documented refund/dispute event from the provider is present in `payment_events` for `order_X` and is more recent than the `paid` event.
+
+4. **Ordering proof.** Every change to `orders.payment_status` MUST be accompanied by a `payment_events` row whose `created_at` is newer than the previous `payment_events` row for that order. The update SQL is:
+
+   ```sql
+   -- Both webhook consumer and reconciliation cron use this exact UPDATE shape.
+   -- It guarantees monotonic provider-state progression regardless of arrival order.
+   UPDATE orders
+   SET payment_status = :new_status,
+       status = :new_order_status,
+       payment_confirmed_at = COALESCE(payment_confirmed_at, :now_iso),
+       payment_provider_reference = :provider_reference,
+       updated_at = :now_iso
+   WHERE order_id = :order_id
+     AND EXISTS (
+       SELECT 1 FROM payment_events
+       WHERE payment_events.order_id = :order_id
+         AND payment_events.event_id = :event_id
+         AND payment_events.created_at <= :now_iso
+     );
+   ```
+
+   The `EXISTS` guard ensures the update only applies when the underlying event we are responding to has already been persisted. Webhook path: the event is persisted in step 3 of Section 11.5 before the consumer update; reconciliation path: the cron inserts the synthetic event row before calling the provider verify.
+
+5. **Webhook queue consumer does NOT call provider's "verify" endpoint** in the happy path. Verification (step 6 in Section 11.5) is a redundancy: it confirms the webhook's payload is consistent with what provider's status API will later return. The result of the verify is **advisory**; the webhook's claim is the source of truth. If the verify disagrees with the webhook claim, an audit row `payment_webhook_verify_mismatch` is written; staff triage triggers.
+
+6. **Reconciliation never runs more than 1 minute behind.** A stale check is worse than a missed one. The cron schedule is `*/15 * * * *` per Section 11.6, but the implementation MUST additionally stamp `last_reconciled_at` on every order processed. If the cron hits a worker unavailable and falls behind, the alarm in Section 25.3 fires.
+
+7. **Refunds and disputes use the same append-only model.** Webhook events that say `refunded`, `chargeback`, `disputed`, or `cancelled` are stored with their own event_id. Reconciliation does NOT auto-process these — they require staff review per the Section 13.2 return flow. The order's status moves forward only after staff approval.
+
+#### Acceptance Criteria
+
+- Test fixtures in `tests/payment_conflict.test.ts` MUST cover: webhook pays first, reconciliation confirms (no-op); reconciliation pays first, webhook repeats (idempotent); webhook pays, manual force-paid is rejected (already paid); webhook says `paid` followed 2 hours later by `refunded` — both events stored, order status reaches `refunded` only after staff approval; reconciliation sees a stale provider response that disagrees with the recent webhook — webhook wins.
+- Both webhook consumer and reconciliation cron MUST use the Section 11.5.1 UPDATE SQL exactly. A drift between the two paths is a P2 finding.
+- The D-31 webhook handler HMAC verification rule extends to the reconciliation cron path: every provider call from the cron MUST include the same webhook secret/signature system (provider APIs that require auth headers).
+- `payment_events` schema MUST include `index idx_payment_events_order_created (order_id, created_at)` for efficient "newest event for an order" queries. If absent in the current schema, file a follow-up migration to add it; until the migration lands, the conflict policy in this section binds regardless.
+
+---
 
 ### 11.6 Payment Reconciliation
 
@@ -1791,20 +1888,104 @@ All `datetime('now')` calls in the SQL above rely on SQLite's default behavior o
 
 ### 18.6 CSP
 
-Minimum CSP:
+CSP is deployment-time binding. The values below are the **launch-projection CSP** that the implementation MUST emit; the binding source of truth is the `Content-Security-Policy` header generated by `src/middleware/csp.ts` (or equivalent) and reflected in `wrangler.jsonc`. If a provider domain changes, only the middleware updates — this section is updated by the ARB amendment process (Section 34.8).
+
+#### Launch-Projection CSP
+
+```txt
+default-src 'self';
+script-src 'self' https://challenges.cloudflare.com;
+style-src 'self' 'unsafe-inline';
+img-src 'self' https://cdn.zabirboutiques.com https://*.r2.dev data: blob:;
+connect-src 'self'
+  https://api.uddoktapay.com
+  https://uddoktapay.com
+  https://securepay.sslcommerz.com
+  https://api.fraudbd.com
+  https://api.resend.com
+  https://api.deepseek.com
+  https://*.imagify.com
+  https://api.pathao.com
+  https://portal.packzy.com
+  https://api.redx.com.bd
+  https://*.r2.cloudflarestorage.com
+  ;
+frame-src 'self' https://challenges.cloudflare.com
+  https://securepay.sslcommerz.com
+  https://uddoktapay.com
+  ;
+font-src 'self';
+object-src 'none';
+base-uri 'self';
+form-action 'self' https://uddoktapay.com https://securepay.sslcommerz.com;
+media-src 'self' https://cdn.zabirboutiques.com;
+worker-src 'self';
+manifest-src 'self';
+```
+
+#### Domain Allowlist Rationale (provider-by-provider)
+
+| Domain / pattern | Used by | Why this exact domain |
+|---|---|---|
+| `'self'` | Same-origin Workers/Assets | Base |
+| `https://challenges.cloudflare.com` | Cloudflare Turnstile | Per Section 18.5 / 4.2 |
+| `https://cdn.zabirboutiques.com` | Public product images and assets via Cloudflare CDN | Custom CDN in front of R2 |
+| `https://*.r2.dev` | Direct-image fallback for R2 public bucket | R2 dev-domain pattern |
+| `https://api.uddoktapay.com` | UddoktaPay create-charge + verify API (primary payment) | Per Section 2.4 |
+| `https://uddoktapay.com` | UddoktaPay hosted payment page (iframe + redirect) | Hosted page domain |
+| `https://securepay.sslcommerz.com` | SSLCommerz fallback payment gateway | Per Section 2.4 |
+| `https://api.fraudbd.com` | FraudBD checkout-time call + audit queue | Per Section 2.4 / 11.2 |
+| `https://api.resend.com` | Resend email provider (default) | Per Section 17.1 |
+| `https://api.deepseek.com` | DeepSeek fallback AI provider | Per Section 2.7 / 24.2 |
+| `https://*.imagify.com` | Imagify image-optimization adapter | Per Section 2.4 / 23.2 |
+| `https://api.pathao.com` | Pathao courier when approved (optional) | Per Section 2.4 |
+| `https://portal.packzy.com` | Steadfast courier (default Bangladesh path) | Per Section 2.4 |
+| `https://api.redx.com.bd` | Redx courier (optional Bangladesh) | Per Section 2.4 |
+| `https://*.r2.cloudflarestorage.com` | R2 direct uploads (signed URL flow + ops tooling) | Per Section 6.5 |
+
+#### Per-Environment Variance
+
+- **Production** uses the launch CSP above unchanged.
+- **Staging** MAY have stricter scopes (e.g. omit courier domains that are not used in staging). The middleware reads the active provider list from `EMAIL_PROVIDER`, `PAYMENT_PROVIDER`, and the courier enablement feature flags (Section 6.4) and emits only the domains actually in use. The CI drift rule D-33 (Section 38.2) MUST verify that any direct `fetch()` to a third-party domain is also present in the middleware's connect-src allowlist.
+- **Development** uses `'unsafe-eval'` and `'unsafe-inline'` for tooling only.
+
+#### Custom-Policy Activations
+
+- **Payment iframe pages (UddoktaPay / SSLCommerz).** When the customer is redirected to a hosted payment surface, the CSP `frame-src` MUST allow the provider's iframe domain. The redirect target page itself is served by the provider and does not inherit our CSP.
+- **Cloudflare Email Sending binding.** When enabled (`EMAIL_PROVIDER=cloudflare_email`), CSP does not change — the binding happens server-side via fetch from Worker, not from the browser. The CSP stays aligned to the Resend defaults even if the active adapter is Cloudflare Email.
+- **Bangla fonts** (Section 7.2). When a Bangla web font is shipped (e.g. Noto Sans Bengali), `font-src` extends to the font CDN. Until then, system fonts are used (Section 21) and `font-src 'self'` suffices.
+
+#### Acceptance Criteria
+
+- D-41: any `fetch('https://...')` in `src/` that targets a domain NOT in the launch CSP's `connect-src` is a P1 finding (the fetch will be blocked in production). Detection: `rg "fetch\('https://" src/` excluding `src/lib/integrations/**` AND `src/lib/contracts/**` (which contain domain constants).
+- D-42: any iframe `src=` attribute pointing at a third-party domain NOT in the launch CSP's `frame-src` is a P1 finding.
+- The middleware `src/middleware/csp.ts` MUST be unit-tested with the launch CSP and a sample launch CSP minus one provider; the test asserts the diff.
+- The CSP header is `Content-Security-Policy` (no `Report-Only` mode at launch). Reporting mode is enabled post-launch once the team has a CSP report endpoint ready (Section 26 deferred).
+- `frame-ancestors` is set to `'none'` to prevent clickjacking on staff routes. The middleware also sets `X-Frame-Options: DENY` as a fallback for older browsers.
+
+#### CSP for `/staff/*` and `/api/staff/*`
+
+The staff surface uses a tighter CSP by default:
 
 ```txt
 default-src 'self';
 script-src 'self' https://challenges.cloudflare.com;
 style-src 'self' 'unsafe-inline';
 img-src 'self' https://cdn.zabirboutiques.com data: blob:;
-connect-src 'self' https://api.uddoktapay.com https://api.fraudbd.com;
-frame-src https://challenges.cloudflare.com;
+connect-src 'self' https://api.uddoktapay.com https://uddoktapay.com https://api.fraudbd.com;
+frame-src 'self' https://challenges.cloudflare.com;
 font-src 'self';
 object-src 'none';
 base-uri 'self';
 form-action 'self';
+media-src 'none';
+worker-src 'self';
+frame-ancestors 'none';
 ```
+
+This omits email / AI / image / courier / courier-provider domains because the staff app does not need to call them from the browser — those calls happen via the server adapter layer. If the staff app uses an AI alternate-text generator in the product editor, the CSP middleware MUST extend `connect-src` dynamically when the AI feature is used; this is controlled by `src/middleware/csp.ts` per-section.
+
+---
 
 ### 18.7 Secrets
 
@@ -1859,14 +2040,18 @@ Stock changes purge product cache only when availability changes in a user-visib
 - Category: `/categories/{slug}`.
 - Blog: `/blog/{slug}`.
 - No product IDs in public URLs.
-- Lowercase hyphen slugs only.
+- **Canonical Latin slug policy (launch):** `{slug}` MUST be lowercase ASCII alphanumeric + hyphen only (`^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$` — 1–100 chars, no leading/trailing hyphen, no double hyphen). Bangla script characters and other Unicode ranges MUST NOT appear in URLs at launch; the canonical Bangla name is stored in a separate `product_name_bn` column and rendered server-side from the Latin slug.
+- **Bangla alternate slug policy (post-launch):** when `/products/{latin_slug}?lang=bn` is requested, the page may render the Bangla product name, but the URL `/products/{latin_slug}` stays canonical. Marketing campaigns MAY use Bangla-containing URLs (e.g. `/campaigns/ঈদ-কালেকশন`) by registering a redirect from the Bangla path to the canonical Latin slug. See Section 20.5.
+- **Slug uniqueness:** products, categories, blog posts, and campaigns occupy disjoint namespaces so a slug collision cannot accidentally route a customer to the wrong entity. After V7, the slug namespaces are validated at insert time; a duplicate raises a D-46 finding and the staff UI MUST elicit a disambiguating prompt.
+- **Slug derivation:** when a product is created, the slug is generated server-side from the name using the canonical rules above. Staff MAY override; the override MUST pass the regex.
+- **Disambiguation:** if two variants of a product share a name (e.g. "Saree" V1 and "Saree" V2), the override slug may include a `-v2` suffix. The exact disambiguation policy is in Section 23.x.
 - Product canonical always points to `/products/{slug}`.
 
 ### 20.2 Structured Data
 
 | Page | Schema |
 |---|---|
-| Product | Product + Offer |
+| Product | Product + Offer (Bangla `name` and `description` go in `alternateName` / `description` fields using `lang="bn"` per schema.org conventions) |
 | Category | ItemList |
 | Homepage | Organization + WebSite |
 | Breadcrumbs | BreadcrumbList |
@@ -1886,6 +2071,68 @@ Stock changes purge product cache only when availability changes in a user-visib
 - Max 50,000 URLs per sitemap.
 - robots.txt allows products/categories/blog.
 - robots.txt blocks `/api/*`, `/staff/*`, checkout APIs, and internal routes.
+
+### 20.5 Bangla Localization v1 (Slug, Canonicalization, Search)
+
+This sub-section binds the launch localization policy. It exists because Bangladesh customers frequently search, copy, and share product URLs in Bangla, even when the canonical product URL is in Latin script. The policy below preserves the Latin-URL architecture of Section 20.1 while supporting reasonable Bangla usage without breaking the SEO invariants.
+
+#### 20.5.1 Slug and URL Canonicalization
+
+- **Latin slug is canonical at launch.** All public URLs (`/products/{slug}`, `/categories/{slug}`, `/blog/{slug}`) use the ASCII regex from Section 20.1. Bangla characters never appear in canonical URLs.
+- **Bangla alternate path is a query string at launch**, not a path segment. The customer can request `/products/{latin_slug}?lang=bn` and the page renders Bangla strings; the canonical URL stays Latin. Marketing campaigns MAY pre-render the query-string variant as a stable landing URL, but the canonical `<link rel="canonical">` always points to the Latin path.
+- **Post-launch: Bangla path aliases.** Marketing may register a specific Bangla-containing path in KV (`REDIRECTS` namespace from Section 6.4) that 301-redirects to the canonical Latin URL. The redirect is unconditional (no language negotiation). The redirected page serves the canonical Latin path with the same content; we do not serve two distinct HTML documents.
+- **`<html lang>` semantics.** Pages render with `<html lang="bn">` when `lang=bn` is requested and the locale module has Bangla translations; otherwise `<html lang="en">`. Astro components read from `src/lib/i18n/` rather than hardcoding English.
+- **Order form is Bangla-first.** Per Section 10.5, the Buy Now landing form and checkout form MUST detect browser preference (`navigator.language`) and render Bangla labels first when supported. Phone normalization (Section 11.1 step 3) is unchanged: always `+880`.
+
+#### 20.5.2 Product Data Schema (Bangla)
+
+- `products.name` — canonical English/Latin name; preserved at launch.
+- `products.name_bn` — **optional** Bangla name; nullable. When present, used as `alternateName` in schema.org JSON-LD and rendered in `<span lang="bn">` on Bangla-mode pages.
+- `products.description_bn` — **optional** Bangla description; nullable. When present, used as `description` in JSON-LD under `lang="bn"`.
+- `product_variants.label_bn` — optional Bangla variant label (e.g. for size/color).
+- Slug derivation does NOT use `name_bn` at launch — only `name`. This keeps the URL regex simple.
+
+A migration is required to add the Bangla columns; until that migration ships, Bangla data lives in JSON-encoded side-channels and is read-only (Section 22 search uses `name` only, see 20.5.3).
+
+#### 20.5.3 Search (Unicode-Aware)
+
+Search at launch uses **D1 FTS5** with Unicode-aware tokenizer rules. The Bangla-script coverage in this section is mandatory for any launch where at least 20% of catalog content has `name_bn` populated.
+
+- **Tokenizer.** D1 FTS5 MUST use the `unicode61` tokenizer with `tokenchars='_৳'` (the `৳` is the Bangladesh Taka symbol; preserved as part of search tokens). The `remove_diacritics` flag is `1`. Search MUST NOT lose meaningful Bangla characters at index time.
+- **Index columns.** The `products_fts` virtual table includes:
+  - `name` (Latin)
+  - `description` (Latin)
+  - `sku`
+  - `tags`
+  - `name_bn` (nullable, lowercased via `lower()` function)
+  - `description_bn` (nullable)
+- **Query construction.** Customer queries are normalized: lowercased, NFC Unicode-normalized, then tokenized using the same `unicode61` rules. Bangla query terms tokenize correctly because the same tokenizer is used on both insert and query.
+- **Stopwords.** Section 7.2's stopword list MAY include common Bangla stopwords (`এই`, `একটি`, `এবং`, `অথবা`). Treated as a v1.1 enhancement; ship the empty stopword list at launch.
+- **Cross-script matching.** No cross-script matching at launch — searching "saree" does NOT match "শাড়ি". The Staff UI MAY offer a manual mapping file (e.g. treat `saree → শাড়ি`), but it is not a launch requirement.
+- **Typo tolerance.** Section 22.1's FTS5 launch does not include typo tolerance; this is reserved for Section 22.3 (managed search) trigger criteria. Bangla typo tolerance is not addressed at launch.
+- **Autocomplete (KV prefix cache).** KV keys are Latin-prefixed at launch. The Bangla-side autocomplete is post-launch because building a Bangla-trie in KV is non-trivial.
+
+#### 20.5.4 Staff Data Entry for Bangla
+
+- The product editor (`src/components/staff/ProductEditor.*`) accepts `name_bn` and `description_bn` as optional fields.
+- AI helpers (Section 24) MAY generate `name_bn` from `name` via Workers AI / DeepSeek in v1.1. At launch, staff enter Bangla manually or paste from a translation tool.
+- Pasting Bangla text MUST validate UTF-8 NFC normalization; malformed text returns a banner, not a silent corruption.
+- Empty `name_bn` MUST be permitted (lat-loc products skip Bangla entirely). The validator MUST NOT block product publish because Bangla is missing.
+
+#### 20.5.5 Acceptance Criteria and Tests
+
+- Tests in `tests/i18n.test.ts` MUST cover:
+  - Slug regex rejects Bangla characters (`'product-ক' MUST NOT match`).
+  - `/products/{latin_slug}?lang=bn` renders Bangla strings when `name_bn` is present; falls back to `name` when absent.
+  - `<html lang>` attribute matches the active locale.
+  - D1 FTS5 index includes `name_bn`; a search query in Bangla matches products whose `name_bn` contains the term.
+  - Slug derivation deterministic: two runs with the same input produce the same slug.
+  - URL canonical link points to the Latin path even when the Bangla variant is rendered.
+- D-46 drift rule asserts that public route URLs do NOT contain non-ASCII characters in their path segments. Detection: `rg "[^\x00-\x7F]" src/pages/[a-z]*/` (excluding `pages/api/`).
+- D-45 drift rule asserts that any new locale code follows the package's `Locale` enum (`'en' | 'bn'` at launch). Adding a new locale requires a Section 34.8 amendment.
+- D-47 drift rule asserts that no synonyms.txt / colloquial mapping file has been added without ARB sign-off (cross-script search is post-launch).
+
+---
 
 ---
 
@@ -1918,20 +2165,57 @@ Optimization rules:
 
 ### 22.1 Phase 1: D1 FTS5
 
-Launch search uses D1 FTS5:
+Launch search uses D1 FTS5 with Unicode-aware tokenization:
 
-- Product name.
-- Description.
-- Category.
-- Tags.
-- SKU.
-- Bangla/English terms where available.
+- Indexed columns (`products_fts` virtual table):
+  - `name` (Latin canonical)
+  - `description` (Latin canonical)
+  - `category`
+  - `tags`
+  - `sku`
+  - `name_bn` (nullable; uses `lower()` function and `unicode61` tokenizer)
+  - `description_bn` (nullable; uses `lower()` function and `unicode61` tokenizer)
+- Tokenizer binding:
+  - `unicode61` (default), with `remove_diacritics=1` and `tokenchars='_৳'` so the Taka symbol survives index/query tokenization.
+  - Same tokenizer MUST be used for index inserts and customer queries (asymmetric tokenization silently drops Bangla characters).
+- Query normalization pipeline (Step 1 of every search request):
+  1. Lowercase ASCII via `lower()`.
+  2. NFC normalize Unicode (combine marks, fixes broken Bangla joins).
+  3. Apply `unicode61` tokenization with the same `tokenchars` config.
+  4. Trim empty tokens.
+  5. Construct `MATCH` expression with quotes around multi-token terms.
+- Cross-script matching (e.g. "saree" → "শাড়ি") is **post-launch**; not implemented in Phase 1. See Section 20.5.3 for rationale and D-47 drift rule.
+- Stopword list (Section 7.2) intentionally empty in Phase 1; common Bangla stopwords are a v1.1 enhancement.
 
 Autocomplete:
 
-- KV prefix cache updated on product changes.
+- KV prefix cache updated on product changes (Section 22.4 below clarifies KV is Latin-only at launch).
 - Top 8 suggestions.
 - Fallback to D1 if KV missing.
+
+#### 22.1.1 Index Maintenance Contract
+
+- The product publish/update CRON-equivalent function (Section 14 staff publish flow) MUST UPSERT into `products_fts` after every successful product write. Forgetting this MUST trigger a drift rule (D-48).
+- Product deletion (soft or hard) MUST DELETE the corresponding FTS row within the same transaction. Cross-table drift is unacceptable.
+- Bulk reindex operation is exposed as `POST /staff/admin/reindex-search` with admin-only access; idempotent; logs to `audit_log`.
+
+#### 22.1.2 Bangla Content Bootstrap Gate
+
+- The Bangla columns (`name_bn`, `description_bn`) are nullable at launch — but if a product has `name_bn` populated, it MUST also be present in `products_fts`. The D-49 drift rule asserts this.
+- An empty product catalog without ANY `name_bn` content is acceptable at launch; the FTS5 Bangla path stays dormant until real Bangla data exists.
+- The image search index for staff dashboard uses the same `products_fts` and inherits the Bangla rules.
+
+#### 22.1.3 Acceptance Criteria and Tests
+
+- `tests/search/sqlite-fts.test.ts` MUST cover:
+  - Latin search: `WHERE name MATCH 'saree'` returns expected matches with BM25 ranking, scoring tokenization.
+  - Bangla search: `WHERE name_bn MATCH 'শাড়ি'` returns expected matches when at least one product has `name_bn` populated.
+  - Stop terms: matches with stopwords do not crash and return empty results.
+  - NFC input: a Bangla query with broken NFD marks tokenizes into the same token as the canonical form.
+  - Taka token survival: a SKU ending in `৳100` tokenizes as a single unit.
+  - Cross-script failure: searching the Latin query against `name_bn` returns 0 results. (This asserts Phase 1 deliberately does not cross-script-match.)
+- The script `scripts/drift/search-tokenizer-drift.ts` MUST run in CI and report D-48 (non-synchronized FTS updates) violations.
+- The script `scripts/drift/i18n-drift.ts` (referenced in Section 38) MUST include D-46, D-47, D-48, D-49 violations and exit non-zero on any active rule failure.
 
 ### 22.2 Phase 2: Workers AI Semantic Search
 
@@ -2405,6 +2689,10 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
 44. **(New) CartDO eviction-and-read alarm re-arming:** CartDO `getCart()` MUST re-arm `setAlarm(now + 5 * 60 * 1000)` when the DO is rehydrated, `state.items.length > 0`, and no alarm is currently armed. Without this, an evicted DO that is only ever read never durably persists state. Full lifecycle in Section 6.3.
 45. **(New) Cart activity queue/alarm write race resolution:** `cart_activity` upsert SQL (used by both alarm writer and queue consumer) MUST stamp `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` and reject stale writes via `WHERE :ts >= COALESCE(last_d1_write_at, '')`. Concurrent writers serialize on row-level locks. Full contract in Section 6.3.
 46. **(New) `cart_version` increment rules:** `cart_version` increments only on successful state mutations per the Section 9.2 table — never on `getCart()`, `alarm()`, or idempotent replays. The increment is post-mutation, inside the DO input lock. Tests required in `tests/cart_version.test.ts`.
+47. **(New) Bangla localization v1 contract:** public URLs MUST remain Latin-only per Section 20.5.1 (slug regex `^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`). Bangla is delivered via `?lang=bn` query string or KV-driven 301 redirect to the canonical Latin URL. `<html lang>` updates only when the locale module has localized content; otherwise defaults to `en`. Cross-script search (Latin↔Bangla synonym map) is v1.1 only. Tests in `tests/i18n.test.ts` MUST pass; D-46 / D-47 / D-48 / D-49 / D-50 / D-51 enforced.
+48. **(New) Bangladesh VAT launch scope:** MVP computes VAT as `vat_paisa = round(subtotal_paisa * vat_rate / 100)` server-side from `VAT_RATE_PERCENT` (defaulting to `0` for launch) per Section 11.1.1. Eight limitations (mixed supplies, partial-credit notes, input-VAT recovery, multi-rate slabs, advance-trader registration, mufassil extra-JV-VAT, separate contractor TDS, service-complaint process) are explicitly **deferred** and must be acknowledged in `audit_log` via `OWNER_ACK_BD_VAT_MVP` row, with an outstanding Section 34.8 amendment ticket before any production change. Browser-supplied VAT is forbidden (already covered by guardrail #4).
+49. **(New) Webhook vs reconciliation conflict resolution:** payment webhooks MUST use the canonical UPSERT in Section 11.5.1 with `transition`-aware source stamping (`webhook`, `reconciliation`, `manual`). Stale rows are rejected via `WHERE last_status_change_at <= COALESCE(:last_change_received_at, '1970-01-01')`. This binds Section 11.5.1 across all payment gateways (UddoktaPay, SSLCommerz, bKash-adjacent adapters added post-launch). Drift rule D-31 series asserts adherence.
+50. **(New) POS compensating transaction matrix:** the POS void flow MUST exercise the test matrix in Section 37.7 (POS-01 through POS-11). POS-06 (concurrent `directSale` + `reverseDirectSale` race) raises a P0 if the variant's `available` count drifts more than 1 unit — escalation must trigger before staff logout. `reverseDirectSale(reason='same_day_void')` is mandatory for same-day voids (already covered by guardrail #16, but the test matrix pins the regression check).
 
 ---
 
@@ -2440,7 +2728,8 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] Abandoned cart definition: `last_cart_update_at` older than 24h (SQL `< datetime('now', '-24 hours')`), `abandoned_email_sent_at IS NULL`, `converted_order_id IS NULL`, `consent_status = 'allowed'`, deduplicated on `customer_email`.
 - [ ] POS uses invoice ledger, not online orders.
 - [ ] POS stock deduction uses `VariantInventoryDO.directSale()`.
-- [ ] POS D1 invoice write failure calls `VariantInventoryDO.reverseDirectSale()` + logs P1 audit event.
+- [ ] POS D1 invoice write failure calls `VariantInventoryDO.reverseDirectSale()` + logs P1 audit event with `severity='P1'`, `event_type='pos_compensating_transaction'`, `reversal_audit_event_id`.
+- [ ] POS compensating transaction test matrix POS-01..POS-11 (Section 37.7) all pass, including POS-04 (D1 fail → reversal success), POS-05 (idempotency), POS-06 (reversal fails → P0 → on-call paged), POS-07 (cron carve-out catches 1-unit drift), POS-09 (multi-variant partial failure compensation), POS-10 (cron does NOT touch directSale state).
 - [ ] Browser uploads original image only; variants are queue/API generated.
 - [ ] Short-lived Durable Objects use alarm cleanup.
 - [ ] CartDO publishes `cart-activity` queue messages instead of synchronous D1 writes.
@@ -3819,6 +4108,8 @@ A PR that introduces a DO class without `implements` (or that drifts from the in
 
 Section 11.2 specifies the FraudBD circuit breaker rules. This section defines the exact CI test matrix that proves the implementation conforms. Every test below is mandatory and must pass on every PR that touches the FraudBD adapter, `ProviderHealthDO`, or the checkout fraud-check path. Tests live in `tests/fraudbd-circuit-breaker/`.
 
+Companion test matrices for related domains live in Section 37.7 (POS compensating transactions, POS-01..POS-11) and other future sections (e.g. cart persistence tests for the queue/alarm race contract in Section 6.3, Buy Now session-fixation tests).
+
 ### 37.1 Test Matrix
 
 | Test ID | Scenario | Initial state | Action | Expected outcome | Guardrail |
@@ -4102,7 +4393,173 @@ Coverage is enforced by the CI job; a drop below these targets fails the build.
 
 A test that violates these hygiene rules is a P2 finding and is disabled until fixed.
 
+### 37.7 POS Compensating Transaction Test Matrix (mandatory)
+
+Section 11.3 defines the POS `directSale()` + `reverseDirectSale()` compensating-transaction contract. This section defines the exact CI test matrix that proves the implementation conforms. Every test below is mandatory and MUST pass on every PR that touches `src/durable-objects/variant-inventory-do.ts`, `src/api/staff/invoices/create.ts` (or equivalent POS handler), `src/durable-objects/cart-do.ts` interaction, or `src/lib/contracts/variant-inventory-do.ts`. Tests live in `tests/pos-compensating-transaction/`.
+
+#### Test Matrix
+
+| Test ID | Scenario | Initial state | Action | Expected outcome | Guardrail |
+|---|---|---|---|---|---|
+| POS-01 | Happy path: `directSale` success + D1 invoice write success | DO has 10 units available | POS calls `directSale({variant_id, quantity: 2, invoice_id, staff_id, channel: 'pos'})` then D1 invoice write | DO available -= 2; sold += 2; D1 `invoices`, `invoice_items`, `invoice_payments`, `invoice_audit` rows written; no audit event of type `pos_compensating_transaction`; receipt printable | 16 |
+| POS-02 | `directSale` returns `INSUFFICIENT_STOCK` | DO has 1 unit available | POS calls `directSale({quantity: 5})` | POS flow stops before D1 write; error returned to POS UI; DO available unchanged; D1 has no invoice; no compensating transaction audit | 16 |
+| POS-03 | `directSale` returns `CONFLICT` | DO has a pending operation against the same `variant_id` | POS calls `directSale` while another DO call is in flight | Returns `{ error: 'CONFLICT', message: ... }`; D1 has no invoice; no compensating transaction audit | 16 |
+| POS-04 | `directSale` success + D1 invoice write FAILS — `reverseDirectSale` succeeds | DO has 5 units; POS flow proceeds to D1 write | D1 write raises an error or times out | POS flow calls `reverseDirectSale({variant_id, quantity: 2, invoice_id, reason: 'd1_invoice_write_failed'})`; DO available restored to 5; `stock_adjustments` row with `reason='pos_reversal'`; `audit_log` row with `severity='P1'`, `event_type='pos_compensating_transaction'`; error returned to POS UI with reference to `invoice_id` | 16, 26 |
+| POS-05 | `reverseDirectSale` idempotency on `(invoice_id, variant_id, quantity)` triple | POS-04 already ran once | POS retries `reverseDirectSale` with the same triple | Returns `{ reversed: false, audit_event_id: <original>, message: 'already_reversed' }`; DO available NOT double-incremented; no second audit event | 16 |
+| POS-06 | `reverseDirectSale` itself fails (DO unavailable, network partition) | POS-04 conditions met | DO is unavailable during `reverseDirectSale` call | `audit_log` row with `severity='P0'`, `event_type='pos_compensating_transaction_do_failure'`; on-call paged; POS UI receives error; **inventory_reconciliation_runs** cron downstream detects mismatch (D1 has no invoice but DO has deducted + reversal failed); daily owner digest flags this as a P0 inventory reconcile finding | 16, 11.3 |
+| POS-07 | Daily reconciliation cron carve-out detects 1-unit drift after `reverseDirectSale` failure | Reconciliation runs after POS-06 | Cron compares DO available vs D1 invoice ledger; queries `audit_log` for `event_type='pos_compensating_transaction'` rows in the last 24h | Cron flags the row as a P0 inventory finding **regardless** of the 2-unit general threshold (Section 12.4 carve-out); owner digest email contains the row with full context | 16, 12.4 |
+| POS-08 | Same-day POS void flow invokes `reverseDirectSale` with `reason='same_day_void'` | POS invoice created earlier in the day via POS-01; manager approves same-day void | POS UI calls same-day-void flow | `reverseDirectSale` restores units; `stock_adjustments` reason=`'pos_reversal'`, `invoice_audit` row created; invoice NOT deleted but marked voided; receipt note shows void stamp (Section 15.4) | 16, 15.4 |
+| POS-09 | POS multi-line sale: 3 variants, one `directSale` succeeds, next returns `INSUFFICIENT_STOCK` | DO has 5 units of A, 1 unit of B, 5 units of C; order is for 2A + 2B + 1C | POS calls `directSale(A,2)` → success, then `directSale(B,2)` → INSUFFICIENT_STOCK | POS flow halts on B; calls `reverseDirectSale({variant_id: A, quantity: 2, invoice_id: <same>, reason: 'pos_partial_failure'})`; both DO available stocks restored; one P1 audit event covers the partial failure; POS UI shows error; D1 has no invoice | 16 |
+| POS-10 | Reservation cleanup cron does NOT touch `directSale` state | POS sale completed hours earlier; reservation cleanup cron runs | Cron sweeps `stock_reservations` for expired rows | POS sale row in D1 is untouched; DO `sold` counter unchanged; no compensation triggered | 12, 16 |
+| POS-11 | `directSale`'s CI gate — `output: 'static'` / `prerender = false` audit | Repo state | Drift audit runs | Drift script flags any `output: 'static'`, `output: 'hybrid'`, or `prerender = false` introduced by a POS-touching PR | 30, 1, 2 |
+
+#### Test File Structure
+
+```txt
+tests/pos-compensating-transaction/
+├── fixtures/
+│   ├── do-storage-mock.ts       # In-memory DurableObjectStorage mock with eviction support
+│   ├── clock-mock.ts            # Controllable clock for time-based tests
+│   ├── env-mock.ts              # D1 mock with audit_log + invoice ledger tables
+│   └── staff-permissions-mock.ts  # Manager vs Staff role per Section 14
+├── pos-01-happy-path.test.ts
+├── pos-02-insufficient-stock.test.ts
+├── pos-03-conflict.test.ts
+├── pos-04-d1-fail-reverse-success.test.ts
+├── pos-05-reverse-idempotent.test.ts
+├── pos-06-reverse-fails.test.ts
+├── pos-07-reconciliation-carveout.test.ts
+├── pos-08-same-day-void.test.ts
+├── pos-09-partial-multi-variant.test.ts
+├── pos-10-cleanup-cron-no-touch.test.ts
+├── pos-11-drift-audit.test.ts
+└── README.md                    # Explains how to run the suite locally
+```
+
+#### Sample Test (POS-04)
+
+```ts
+// tests/pos-compensating-transaction/pos-04-d1-fail-reverse-success.test.ts
+import { describe, it, expect, beforeEach } from 'vitest';
+import { VariantInventoryDOImpl } from '@/durable-objects/variant-inventory-do';
+import { EnvMock } from './fixtures/env-mock';
+
+describe('POS-04: directSale success + D1 invoice write failure + reverseDirectSale succeeds', () => {
+  let env: EnvMock;
+  let inventory: VariantInventoryDOImpl;
+
+  beforeEach(() => {
+    env = new EnvMock();
+    env.d1.seedStock({ variant_id: 'var_1', available: 5, reserved: 0, sold: 0 });
+    // Force the next D1 write to throw.
+    env.d1.failNextInvoiceWriteWith(new Error('D1 unavailable'));
+    inventory = new VariantInventoryDOImpl(env.stub('variant:var_1'));
+  });
+
+  it('restores available stock after reverseDirectSale', async () => {
+    const sale = await inventory.directSale({
+      variant_id: 'var_1',
+      quantity: 2,
+      invoice_id: 'inv_test',
+      staff_id: 'staff_pos_1',
+      channel: 'pos',
+    });
+    expect(sale.success).toBe(true);
+
+    // Trigger the POS flow: D1 invoice write fails.
+    const posResult = await env.simulatePosFlow({ inventory, invoice_id: 'inv_test' });
+    expect(posResult.ok).toBe(false);
+
+    const after = await inventory.getAvailability({ variant_id: 'var_1' });
+    expect(after.available).toBe(5);  // 2 sold units restored to available
+    expect(after.sold).toBe(0);
+  });
+
+  it('writes a P1 compensating-transaction audit event', async () => {
+    await env.simulatePosFlow({ inventory, invoice_id: 'inv_test' });
+
+    const auditRows = await env.d1.query(
+      `SELECT * FROM audit_log WHERE event_type = 'pos_compensating_transaction'`
+    );
+    expect(auditRows.length).toBe(1);
+    expect(auditRows[0].severity).toBe('P1');
+    expect(auditRows[0].invoice_id).toBe('inv_test');
+    expect(auditRows[0].reversal_audit_event_id).toBeDefined();
+  });
+
+  it('writes a stock_adjustments row with reason=pos_reversal', async () => {
+    await env.simulatePosFlow({ inventory, invoice_id: 'inv_test' });
+
+    const adjRows = await env.d1.query(
+      `SELECT * FROM stock_adjustments WHERE invoice_id = 'inv_test'`
+    );
+    expect(adjRows.length).toBe(1);
+    expect(adjRows[0].reason).toBe('pos_reversal');
+    expect(adjRows[0].quantity).toBe(2);
+  });
+});
+```
+
+#### CI Integration
+
+The 11-test suite runs in CI on every PR and on every release branch. The CI job is `pos-compensating-transaction-tests.yml`:
+
+```yaml
+# .github/workflows/pos-compensating-transaction-tests.yml
+name: POS Compensating Transaction Tests
+on:
+  pull_request:
+    paths:
+      - 'src/durable-objects/variant-inventory-do.ts'
+      - 'src/api/staff/invoices/**'
+      - 'src/lib/contracts/variant-inventory-do.ts'
+      - 'src/lib/contracts/cart-do.ts'
+      - 'tests/pos-compensating-transaction/**'
+  push:
+    branches: [main, release/*]
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: '20' }
+      - run: npm ci
+      - run: npx vitest run tests/pos-compensating-transaction/
+        env:
+          NODE_ENV: test
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pos-ct-coverage
+          path: coverage/pos-compensating-transaction/
+```
+
+A failing test blocks the PR. The Release Captain cannot override this gate; a waiver from the ARB (Section 34.7) is the only path to ship with a failing POS test.
+
+#### Coverage Target
+
+The 11 tests MUST collectively achieve:
+
+- **100% line coverage** of `directSale` and `reverseDirectSale` methods on `VariantInventoryDO`.
+- **100% branch coverage** of the `if (result.success === false)` and the `try { d1Write } catch { compensate }` paths in the POS flow handler.
+- **≥ 95% line coverage** of `src/lib/contracts/variant-inventory-do.ts` (the contract stub).
+
+Coverage is enforced by the CI job; a drop below these targets fails the build.
+
+#### Test Data Hygiene (POS-specific)
+
+- Tests MUST NOT make real HTTP calls or touch external APIs.
+- Tests MUST NOT touch real D1 — all D1 access goes through `EnvMock.d1` (in-memory).
+- Tests MUST NOT depend on wall-clock time — all time-based logic uses `ClockMock`.
+- Tests MUST clean up between cases.
+- Tests MUST run in any timezone; all timestamps are UTC ISO 8601.
+
+A POS test that violates these hygiene rules is a P2 finding and is disabled until fixed.
+
 ---
+
 
 ## 38. In-Flight PR Audit Playbook
 
@@ -4136,7 +4593,7 @@ The findings below are the known drift patterns. Each has a stable finding code 
 | D-06a | Queue/alarm upsert SQL missing `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` columns or missing `last_d1_write_at` guard | `rg "UPDATE cart_activity" src/` and inspect the SQL; the upsert MUST stamp all three columns and use the `(:ts >= COALESCE(last_d1_write_at, ''))` guard (Section 6.3) | Update upsert SQL; add a test asserting a stale write is rejected by the guard. |
 | D-06b | `cart_activity` schema missing `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` columns | D1 schema introspection | Apply migration `0025_cart_activity_v7_cleanup.sql` (extended per Section 6.3 race contract). |
 | D-07 | `VariantInventoryDO` class missing `reverseDirectSale` method | `rg "class VariantInventoryDO" -A 50 src/durable-objects/` and check for method | Add the method per Section 11.3 / 36.2. Add the `implements VariantInventoryDO` keyword. |
-| D-08 | POS flow that does NOT call `reverseDirectSale` on D1 invoice write failure | Code review of `src/api/staff/invoices/create.ts` (or equivalent) | Add the compensating transaction call + P1 audit log per Section 11.3 / 15.1. Add the integration test `pos-compensating-transaction.test.ts`. |
+| D-08 | POS flow that does NOT call `reverseDirectSale` on D1 invoice write failure | Code review of `src/api/staff/invoices/create.ts` (or equivalent) | Add the compensating transaction call + P1 audit log per Section 11.3 / 15.1. Mandatory test matrix POS-01..POS-11 in Section 37.7 must all pass. |
 | D-09 | Direct `fetch()` to FraudBD outside the adapter | `rg "fetch\(.*fraudbd" --type ts -g '!src/lib/integrations/fraudbd/**'` | Move the call into `src/lib/integrations/fraudbd/client.ts`. Route handlers go through the adapter. |
 | D-10 | FraudBD checkout call with retry logic | `rg "retry" src/lib/checkout/fraud-check.ts` | Delete the retry loop. Checkout = 0 retries per Section 11.2 / Guardrail #14. |
 | D-11 | FraudBD checkout timeout ≠ 1.5s | `rg "AbortController\|setTimeout.*1500\|setTimeout.*1.5" src/lib/integrations/fraudbd/client.ts` | Set timeout to exactly 1500ms. |
@@ -4160,10 +4617,30 @@ The findings below are the known drift patterns. Each has a stable finding code 
 | D-29 | Money stored as REAL/FLOAT outside AI cost | SQL-side: `rg "(price\|cost\|subtotal\|total\|delivery\|discount\|advance\|balance\|refund\|vat).*\\b(REAL\|FLOAT\|DOUBLE)\\b" migrations/`. TS-side: `rg ":(number\|float).*(_paisa\|_amount\|price\|cost\|subtotal\|total\|delivery\|discount\|advance\|balance\|refund\|vat)" src/` excluding `cost_usd` in BudgetCounterDO (the documented float exception) | Convert to integer paisa. The only float money is `cost_usd` in `BudgetCounterDO.recordUsage()`. The broadened regex catches columns/types without the `_paisa` suffix that earlier drafts missed. |
 | D-30 | PII in structured logs | Log scan over staging for the last 7 days | Add PII redaction at the log sink. Treat as P2 finding. |
 | D-31 | Webhook handler missing HMAC verification | `rg "webhook" src/api/payments/` and check each handler | Add `verifyHmac()` call before any processing. |
+| D-31a | Webhook queued consumer not idempotent on `payment_events.event_id` | `rg "INSERT OR IGNORE\|ON CONFLICT" src/api/payments/webhook-consumer.ts` | Add the `INSERT OR IGNORE` on `payment_events (event_id UNIQUE)` per Section 11.5 step 3. Tests in `tests/payment_conflict.test.ts` must pass. |
+| D-31b | Reconciliation cron writes backward (`paid → pending`) | Code review of `src/cron/payment-reconciliation.ts`; check that transitions only advance forward per Section 11.5.1 | Remove backward writes. Tests in `tests/payment_conflict.test.ts` (forward-only reconciliation rule) must pass. |
+| D-31c | `payment_events` table missing `(order_id, created_at)` index for "newest event per order" lookup | D1 schema introspection | Apply migration to add `idx_payment_events_order_created`. Tests in `tests/payment_conflict.test.ts` will fail CI without the index. |
 | D-32 | Staff route missing Zero Trust or RBAC middleware | Cloudflare Access config audit + `rg "export (async )?function (GET\|POST\|...)" src/pages/staff/` | Add Zero Trust on the Cloudflare side; add RBAC middleware in the route handler. |
 | D-33 | External API call without going through a provider adapter | `rg "fetch\('https://" src/` excluding `src/lib/integrations/**` | Move the call into a provider adapter per Section 2.3. |
 | D-34 | AI call sending PII to the provider | Code review of AI prompts — search for customer name, phone, address in prompt templates | Strip PII from prompts. Log the violation as a P1 finding. |
 | D-35 | Migration without a rollback file | `ls migrations/` and `ls migrations/rollback/` — every `NNNN_*.sql` needs a matching `rollback/NNNN_*.rollback.sql` | Write the rollback file. Block the PR until it exists. |
+| D-36 | POS compensating transaction — missing `directSale` or `reverseDirectSale` method on `VariantInventoryDO` | `rg "class VariantInventoryDO" -A 60 src/durable-objects/` and check for both methods | Add per Section 11.3 / 36.2. The CI gate for Section 37.7 (`pos-compensating-transaction-tests.yml`) checks 100% coverage of both methods. |
+| D-37 | POS compensating transaction — `reverseDirectSale` not idempotent on `(invoice_id, variant_id, quantity)` | Code review of `src/durable-objects/variant-inventory-do.ts`; check that the DO stores a dedup key | Add the idempotency dedup. Test POS-05 must pass. |
+| D-38 | POS flow missing P1 audit event on `reverseDirectSale` invocation | `rg "event_type.*pos_compensating_transaction\|severity.*P1.*pos" src/` | Add the audit row insertion per Section 11.3 step 4c. Test POS-04 must pass. |
+| D-39 | Daily reconciliation cron missing the POS carve-out that flags 1-unit drift for `pos_compensating_transaction` audit rows | Code review of `src/cron/inventory-reconciliation.ts`; check for `audit_log` join on `event_type='pos_compensating_transaction'` | Add the carve-out per Section 12.4. Test POS-07 must pass. |
+| D-40 | Same-day POS void flow does not invoke `reverseDirectSale` with `reason='same_day_void'` | `rg "same_day_void\|same-day-void" src/api/staff/invoices/` | Per Section 15.4. Test POS-08 must pass. |
+| D-41 | Direct `fetch('https://')` to a third-party domain NOT in the launch CSP `connect-src` allowlist | `rg "fetch\('https://" src/` excluding `src/lib/integrations/**`, `src/lib/contracts/**`, tests | Add the domain to `src/middleware/csp.ts` allowlist and emit it under `connect-src` for the relevant response. The drift script cross-references this list. |
+| D-42 | Iframe `src=` attribute pointing to a third-party domain NOT in the launch CSP `frame-src` allowlist | `rg "iframe\|<iframe" src/` and inspect each `src=` URL | Add the domain to the middleware frame-src allowlist OR redirect the user to the provider's hosted page instead of iframe-embedding. |
+| D-43 | VAT rate (`VAT_RATE_PERCENT`) referenced from a code path that accepts browser-supplied VAT | `rg "vat" src/lib/checkout/` and check request parsing | Strip VAT from any client-supplied data; always recompute server-side. Cross-check with D-19 / D-20. |
+| D-44 | Email adapter `/api/email/*` route exposing send capability without RBAC | `rg "/api/email" src/pages/api/` | Wrap in staff RBAC middleware (Section 14) — public API cannot trigger transactional email. |
+| D-45 | Translation / Bangla URL handling missing or implemented ad-hoc | `rg "URLSearchParams\|decodeURIComponent" src/lib/i18n/` (or equivalent locale module) | Implement per Section 20.5 (Bangla Localization v1). Tests in `tests/i18n.test.ts` must pass. |
+| D-46 | Public route URLs containing non-ASCII characters in path segments (Bangla / Bengali in URLs) | `rg "[^\x00-\x7F]" src/pages/[a-z]*/` excluding `pages/api/` | Per Section 20.5.1. Bangla MUST travel via `?lang=bn` query string or KV-driven 301 redirect to canonical Latin URL, not via path segment. |
+| D-47 | Synonyms / colloquial mapping files (e.g. `synonyms.txt`, cross-script JSON maps) added without ARB sign-off | `rg "synonyms\.\(txt\|json\)\|cross.*script.*map" src/lib/search/` | Cross-script matching is post-launch (Section 20.5.3, Section 22.1). ARB must amend Section 34.8 before any synonym file ships. |
+| D-48 | Product publish/update endpoint writes `products` but does NOT upsert into `products_fts` (or vice versa) | Static call-graph inspection of `src/api/staff/products/` writes vs. `products_fts` upserts | Tighten Section 22.1.1. Both writes MUST occur within the same transaction. `scripts/drift/search-tokenizer-drift.ts` MUST enforce this. |
+| D-49 | Products with `name_bn NOT NULL` absent from `products_fts` Bangla columns | D1 query in `scripts/drift/i18n-drift.ts`: `SELECT p.id FROM products p LEFT JOIN products_fts f ON f.rowid = p.id WHERE p.name_bn IS NOT NULL AND f.name_bn IS NULL` deviation > 0 | Per Section 22.1.2. Bangla presence on `products` MUST mirror Bangla presence on `products_fts`. PIPELINE MUST block. |
+| D-50 | `Locale` enum widened (e.g. `'hi'`, `'ur'`) without Section 34.8 amendment and ARB sign-off | `rg "Locale\b" src/lib/i18n/` and inspect type union | New locale codes require ARB amendment and reissue of Section 20.5 + Section 22.1. PIPELINE MUST fail. |
+| D-51 | FTS5 tokenizer config differs between index insert path and customer query path | Diff the `tokenize=` / `tokenchars=` config in `scripts/drift/search-tokenizer-drift.ts` between insert and query call sites | Per Section 22.1. Same tokenizer implementation MUST be used. Asymmetric tokenization silently drops Bangla matches. |
+| D-52 | Staff dashboard or checkout rendering `<html lang="bn">` for a page where no Bangla strings exist (synthetic Bangla bounce) | Render test in `tests/i18n/render-lang/`: count Bangla-only strings on a `?lang=bn` page; assert > 0 when locale active | Per Section 20.5.1. Bangla-mode pages MUST have at least one localized string otherwise the URL canonicalizes to Latin default. |
 
 ### 38.3 Audit Execution Procedure
 
