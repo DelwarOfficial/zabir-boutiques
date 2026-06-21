@@ -435,7 +435,7 @@ With `output: 'server'` as the universal default, **dynamic routes require NO fl
 | Staff session | HttpOnly cookie + KV session record/blacklist | None | Cookies contain signed session reference only. |
 | Idempotency | IdempotencyDO + D1 idempotency_keys | None | DO handles atomic claim; D1 stores durable replay state. |
 | Email delivery | D1 email_log | R2 rendered templates | Queue sends; log tracks status. |
-| AI budget | BudgetCounterDO | D1 `ai_budget_limits` table | DO enforces counters; D1 is the durable source of truth for configured limits (per migration 0026 / Section 24.2). |
+| AI budget | BudgetCounterDO | D1 `ai_budget_limits` table | DO enforces counters; D1 is the durable source of truth for configured limits (per migration 0023 / Section 24.2). |
 | API provider health | ProviderHealthDO | Analytics/audit logs | Circuit breaker state for FraudBD, UddoktaPay, DeepSeek, Imagify, email, and courier APIs. |
 | Audit events | D1 audit_log | R2 log archive | Append-only. |
 
@@ -584,6 +584,9 @@ Required columns:
 - `converted_order_id TEXT`
 - `abandoned_email_sent_at TEXT` (replaces the legacy `abandoned_1h_sent_at` / `abandoned_24h_sent_at` pair; a single 24h-touch column is the canonical reminder to prevent spam)
 - `consent_status TEXT CHECK(consent_status IN ('unknown','allowed','denied'))`
+- `last_d1_write_at TEXT` — ISO 8601 UTC; stamped by both alarm-based and queue-based upserts (Section 6.3 race contract)
+- `last_d1_write_source TEXT CHECK(last_d1_write_source IN ('alarm','cart_activity_queue','lifecycle_cleanup'))` — who wrote the row most recently; required for ops triage and stale-write rejection
+- `last_d1_write_seq INTEGER NOT NULL DEFAULT 0` — monotonic counter; increments per accepted write; used as an audit signature when two rows have identical `last_d1_write_at`
 - `updated_at TEXT NOT NULL`
 
 Recommended indexes (SQLite syntax):
@@ -609,6 +612,64 @@ The data flow has two layers, and they must not be confused:
    - **`cart-activity` queue (batching optimization):** After each mutation, CartDO also publishes a lightweight message to the `cart-activity` queue. The queue consumer batches these and upserts D1. This keeps checkout fast by avoiding a synchronous D1 write on every mutation, and it produces fresher rows than the alarm alone.
 
 The alarm is the safety net for durability (no cart can be lost on Worker restart); the queue is the latency optimization (D1 rows stay fresh without blocking the request). Checkout must never trust `cart_activity` for active cart content — it must always read from CartDO.
+
+##### CartDO Alarm Lifecycle (mandatory)
+
+The alarm contract below is the implementation surface for the 5-min / 30-day rules and MUST be enforced exactly. Any drift between this prose and the implementation is a P1 finding.
+
+| Lifecycle event | Required DO behavior | Rationale |
+|---|---|---|
+| **`addItem` / `removeItem` / `changeQuantity` / `clearCart` succeeds** | Arm `setAlarm(now + 5 * 60 * 1000)`. If an alarm is already armed, `setAlarm` is idempotent and replaces it (debounce). Also stamp `state.soft_alarm_active = true`. | Guarantees persistence within 5 minutes of last mutation, even on Worker restart or DO eviction. |
+| **Cart created (first `addItem` ever for this session)** | Additionally `setAlarm(now + 30 * 24 * 60 * 60 * 1000)` (30-day hard cleanup). This second alarm is the door for `deleteAll()`. Store both `5min_alarm_at` and `30day_alarm_at` in DO storage so the alarm() handler can branch. | Avoids stale DOs living forever if the cart is never mutated after eviction. |
+| **`getCart()` (read-only access) on a rehydrated DO** | If `state.last_cart_write_at` exists and `state.items.length > 0` and `ctx.storage.getAlarm() === null`, the read path MUST arm `setAlarm(now + 5 * 60 * 1000)`. Read-only access cannot lazily arm alarms via the mutation path; without this fix, an evicted DO that is only ever read never durably persists the cart. | Closes the eviction-vs-read gap. Without this, eviction between mutations can leak state to DO storage until the 30-day alarm. |
+| **Alarm fires after 5 minutes of inactivity** | Upsert D1 `cart_activity` with `last_d1_write_source = 'alarm'`, `last_d1_write_at = now()`. Then re-arm `setAlarm(now + 5 * 60 * 1000)` **only if** `state.last_mutation_at > now() — 5min` (i.e. a mutation arrived in between, debounce period). Otherwise DO remains alarm-idle until next mutation. | Maintains the "alarm fires after inactivity" semantics while allowing legitimate back-to-back mutations to keep extending the window. |
+| **Alarm fires after 30 days of total inactivity** | Final D1 `cart_activity` write with `last_d1_write_source = 'lifecycle_cleanup'`. Then `deleteAll()` and `ctx.storage.deleteAlarm()`. After `deleteAll()`, the DO instance may be rehydrated later as an empty container; this is acceptable because the persistent state of value is already in D1. | Prevents indefinite DO storage retention for one-time sessions. |
+| **Alarm fires but `state.items.length === 0`** | Skip the D1 upsert (an empty cart has no projection value) and arm `setAlarm(now + 30 * 24 * 60 * 60 * 1000)` for the 30-day cleanup path. | Prevents orphan alarm firings for completed/cleared carts. |
+| **DO is evicted between mutations, then rehydrated** | `ctx.storage.getAlarm()` returns `null` (alarm state is per-DO lifecycle, not persisted with storage). The next mutation OR read MUST re-arm the 5-min alarm as above. This is why every mutation path calls `setAlarm()` unconditionally and `getCart()` re-arms when needed. | Worker restart and DO eviction must not silently disable persistence. |
+
+##### Queue vs Alarm Write Race (consistency contract)
+
+Both writers target the same `cart_activity.session_id` PRIMARY KEY. To prevent stale-vs-fresh drifting of D1 reads, the writers MUST stamp and check the following columns on every upsert:
+
+| Column | Writer | Value |
+|---|---|---|
+| `last_d1_write_at` | alarm upsert / queue upsert | ISO 8601 UTC of the write attempt |
+| `last_d1_write_source` | alarm upsert / queue upsert | `'alarm'` or `'cart_activity_queue'` |
+| `last_d1_write_seq` | alarm upsert / queue upsert | Monotonic counter incremented atomically per write |
+
+The upsert SQL is the SAME for both writers and uses last-write-wins by `last_d1_write_at` with monotonic guard:
+
+```sql
+-- shared upsert used by alarm and queue consumers
+UPDATE cart_activity
+SET last_cart_update_at        = :ts,
+    item_count                 = :item_count,
+    total_quantity             = :total_quantity,
+    subtotal_paisa             = :subtotal_paisa,
+    last_d1_write_at           = :ts,
+    last_d1_write_source       = :source,
+    last_d1_write_seq          = COALESCE((SELECT MAX(last_d1_write_seq)
+                                            FROM cart_activity
+                                            WHERE session_id = :session_id), 0) + 1,
+    updated_at                 = :ts
+WHERE session_id = :session_id
+  AND (:ts >= COALESCE(last_d1_write_at, ''));
+```
+
+Rules:
+
+1. **Alarm and queue writers MAY run concurrently.** The monotonic `last_d1_write_seq` ensures each write is observable in the audit log even if the row contents tie.
+2. **A stale write (lower `last_d1_write_at`) MUST NOT overwrite a fresher one.** The conditional `WHERE … AND :ts >= COALESCE(last_d1_write_at, '')` ensures this. A stale write that is rejected by the guard is logged to `audit_log` with `event_type = 'cart_activity_stale_write_dropped'`.
+3. **Checkout MUST NOT read `cart_activity` for active cart content.** It always reads from CartDO per the persistence contract above. The guard is a defense-in-depth measure; the canonical source remains the DO.
+4. **Queue is preferred for latency. Alarm is preferred for durability.** If the queue is delayed (> 60 seconds since dispatch), the alarm writer at the 5-minute mark is the source of truth. The `last_d1_write_source` column lets ops answer "who wrote this row" without ambiguity.
+5. **Concurrency safety.** The SQL above is a single-statement upsert; D1 enforces row-level locking on update, so concurrent writers serialize on the row. There is no deadlock path because both writers use the same SQL and the same condition.
+
+Acceptance criteria for this contract:
+
+- A test fixture (`tests/cart_persistence.test.ts`) covers: alarm fire persists state, queue consumer persists state, concurrent alarm + queue upserts produce monotonic `last_d1_write_seq`, stale write is rejected, evicted DO + read-only path re-arms alarm.
+- A D-05 detection rule asserts every CartDO mutation path calls `setAlarm(now + 5 * 60 * 1000)` (extended in Section 38.2).
+- A new D-26a detection rule asserts `getCart()` re-arms the alarm on a rehydrated DO if `state.items.length > 0` and no alarm is currently armed.
+- A new D-26b detection rule asserts `cart_activity` schema contains `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` columns.
 
 ### 6.4 KV Usage Map
 
@@ -821,6 +882,33 @@ Every cart mutation includes:
 - idempotency key for repeated client retries
 
 If client version is stale, CartDO returns current cart with `409 CART_VERSION_CONFLICT`. Client must refresh local context.
+
+#### `cart_version` Increment Contract (mandatory)
+
+`cart_version` is a monotonic integer that lets the client detect concurrent stale writes. The increment rule below is the canonical implementation contract — drift between prose and code is a P1 finding.
+
+| Method | Pre-condition check | On success: `cart_version` | On failure: `cart_version` |
+|---|---|---|---|
+| `addItem` | Reject if `items[].variant_id === variant_id` already exists (caller must use `changeQuantity` to update) | `current_version + 1` | unchanged |
+| `removeItem` | Reject if `items[].variant_id` not present | `current_version + 1` | unchanged |
+| `changeQuantity` | Reject if `variant_id` not present; reject if `quantity <= 0`; resolve `quantity === 0` as a soft delete (calls `removeItem` semantics internally, version still increments by 1) | `current_version + 1` | unchanged |
+| `clearCart` | Always succeeds when items exist; no-op if cart already empty | `current_version + 1` if items cleared, otherwise unchanged | unchanged |
+| `mergeCart` (anonymous → customer) | Reject if `source_session_id === target_session_id`; reject if `source.items.length === 0` | `target_current_version + 1 + (number of new items added)` | unchanged on conflict |
+| `applyCoupon` / `removeCoupon` | Reject if coupon invalid; reject if already applied with same code | `current_version + 1` | unchanged |
+| `getCart` | Always succeeds | unchanged | unchanged |
+| `updateCustomerContact` (post-checkout-start) | Validate phone format E.164 `+880...`; reject duplicate customer collision (rare; logged as audit event) | `current_version + 1` | unchanged |
+| `alarm()` (5-min or 30-day fire) | N/A — alarm handler MUST NOT increment `cart_version`. Only `state.last_d1_write_at` and projector columns change. | unchanged | unchanged |
+| Replay of an idempotent retry | Match `idempotency_key` against recently-seen key window (≤ 60 seconds) | unchanged | unchanged; replay returns last successful response |
+
+Rules and acceptance criteria for this contract:
+
+1. The version is incremented **after** the state mutation succeeds, never before. If a mutation fails partway through (e.g. validation error, storage write failure), the version MUST NOT advance.
+2. The version is incremented **inside the DO's input lock**, so concurrent requests against the same session sequentially observe monotonically increasing versions.
+3. Idempotent replays (same `idempotency_key`) **never** increment the version; the cached prior response is returned. This is enforced by an in-memory LRU keyed on `idempotency_key` per DO instance.
+4. When a `CART_VERSION_CONFLICT` is returned, the response MUST include the current `state.cart_version` so the client can resubmit with the latest version. The error shape is `{ error: 'CART_VERSION_CONFLICT', state: CartState }`.
+5. The version counter is initialized to `1` on a new cart (the first `addItem` after a `CART_NOT_FOUND`). A pre-increment `0` does not exist.
+6. `cart_version` MUST be a TypeScript `number` (max safe integer — far beyond any realistic cart session lifetime) and serialized as a JSON integer.
+7. Test fixtures in `tests/cart_version.test.ts` MUST cover each row of the table above.
 
 ### 9.3 Cart Data Kept in DO
 
@@ -1293,7 +1381,7 @@ CREATE UNIQUE INDEX idx_stock_reservations_order_active
   WHERE status = 'active';
 ```
 
-The partial unique index `idx_stock_reservations_order_active` on `(order_id) WHERE status = 'active'` (created by migration 0027) means:
+The partial unique index `idx_stock_reservations_order_active` on `(order_id) WHERE status = 'active'` (created by migration `0024_stock_reservations_unique_constraint.sql`) means:
 
 - An order can only have one active reservation at a time. A retry that tries to reserve a second time for the same `order_id` will fail at the D1 constraint check (the partial unique index on `(order_id) WHERE status = 'active'` rejects the second active row) — checkout must release the prior reservation first or use a new `checkout_id`.
 - The `release_requested_at` stamp prevents double-release between concurrent cron ticks.
@@ -2308,12 +2396,15 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
 35. Accessibility is mandatory.
 36. AI-generated public content requires staff review.
 37. Expensive add-ons require Owner approval.
-38. **(New) D1 schema completeness:** the `otp_secrets`, `api_audit_logs`, and `ai_budget_limits` tables MUST exist (Section 6.1). `otp_secrets` is required for Owner TOTP 2FA (Section 18.1). `api_audit_logs` is required for `ProviderHealthDO` circuit breaker state and external API audit (Sections 2.4, 2.5, 11.2). `ai_budget_limits` is required for `BudgetCounterDO` durable config (Section 24.2).
+38. **(New) D1 schema completeness:** the `otp_secrets`, `api_audit_logs`, and `ai_budget_limits` tables MUST exist (Section 6.1). `otp_secrets` is required for Owner TOTP 2FA (Section 18.1; migration `0021_create_otp_secrets.sql`). `api_audit_logs` is required for `ProviderHealthDO` circuit breaker state and external API audit (Sections 2.4, 2.5, 11.2; migration `0022_create_api_audit_logs.sql`). `ai_budget_limits` is required for `BudgetCounterDO` durable config (Section 24.2; migration `0023_create_ai_budget_limits.sql`).
 39. **(New) Abandoned cart definition:** a cart is abandoned when `last_cart_update_at` is older than 24 hours (SQL: `< datetime('now', '-24 hours')`), `abandoned_email_sent_at IS NULL`, `converted_order_id IS NULL`, `consent_status = 'allowed'`, and `customer_email IS NOT NULL`. Cron deduplicates on `customer_email` via `ROW_NUMBER()` window. Full SQL pseudocode in Section 17.3.
 40. **(New) Buy Now session fixation mitigation:** `DirectCheckoutSessionDO.session_id = HMAC(secret, timestamp + random)`. Every request to `/buy-now/*` and `/api/buy-now/*` MUST verify Origin and User-Agent hash against the stored session values. Mismatch → 403 + delete the DO. The DO is deleted immediately after the order is successfully created. Full contract in Section 10.6.
 41. **(New) VAT server-side computation:** checkout Step 8 (Section 11.1) MUST compute VAT server-side as `vat_paisa = round(subtotal_paisa * vat_rate / 100)` where `vat_rate` comes from `VAT_RATE_PERCENT` (default `0` for launch). The browser must never supply VAT.
 42. **(New) BudgetCounterDO contract:** DeepSeek has a hard daily limit of $5.00 USD (UTC). Staff actions MUST call `canUseDeepSeek()` before the call and `recordUsage()` after success. If `canUseDeepSeek()` times out, fall back to Workers AI (safe path) — never block the staff action. Full spec in Section 24.2.
-43. **(New) Reservation race prevention:** `stock_reservations` has a partial unique index `idx_stock_reservations_order_active` on `(order_id) WHERE status = 'active'` (migration 0027) so one order has at most one active reservation. The `release_requested_at` stamp prevents double-release between concurrent cron ticks. Full spec in Section 12.3.
+43. **(New) Reservation race prevention:** `stock_reservations` has a partial unique index `idx_stock_reservations_order_active` on `(order_id) WHERE status = 'active'` (migration `0024_stock_reservations_unique_constraint.sql`) so one order has at most one active reservation. The `release_requested_at` stamp prevents double-release between concurrent cron ticks. Full spec in Section 12.3.
+44. **(New) CartDO eviction-and-read alarm re-arming:** CartDO `getCart()` MUST re-arm `setAlarm(now + 5 * 60 * 1000)` when the DO is rehydrated, `state.items.length > 0`, and no alarm is currently armed. Without this, an evicted DO that is only ever read never durably persists state. Full lifecycle in Section 6.3.
+45. **(New) Cart activity queue/alarm write race resolution:** `cart_activity` upsert SQL (used by both alarm writer and queue consumer) MUST stamp `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` and reject stale writes via `WHERE :ts >= COALESCE(last_d1_write_at, '')`. Concurrent writers serialize on row-level locks. Full contract in Section 6.3.
+46. **(New) `cart_version` increment rules:** `cart_version` increments only on successful state mutations per the Section 9.2 table — never on `getCart()`, `alarm()`, or idempotent replays. The increment is post-mutation, inside the DO input lock. Tests required in `tests/cart_version.test.ts`.
 
 ---
 
@@ -2343,7 +2434,7 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] FraudBD blocking/async behavior is not mixed.
 - [ ] FraudBD circuit breaker: 5 failures/60s → open 5 min → fallback score 50 → `pending_review`. Checkout = 0 retries, fraud-audit queue = 1 retry / 2s backoff.
 - [ ] Reservation release exists on every failure branch.
-- [ ] `stock_reservations` has the partial unique index `idx_stock_reservations_order_active` on `(order_id) WHERE status = 'active'` (migration 0027).
+- [ ] `stock_reservations` has the partial unique index `idx_stock_reservations_order_active` on `(order_id) WHERE status = 'active'` (migration file `migrations/0024_stock_reservations_unique_constraint.sql`).
 - [ ] Reservation cleanup cron runs hourly, selects `created_at < NOW() - 15 min AND release_requested_at IS NULL`.
 - [ ] Abandoned cart has D1 queryable index (`cart_activity`).
 - [ ] Abandoned cart definition: `last_cart_update_at` older than 24h (SQL `< datetime('now', '-24 hours')`), `abandoned_email_sent_at IS NULL`, `converted_order_id IS NULL`, `consent_status = 'allowed'`, deduplicated on `customer_email`.
@@ -2354,6 +2445,10 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] Short-lived Durable Objects use alarm cleanup.
 - [ ] CartDO publishes `cart-activity` queue messages instead of synchronous D1 writes.
 - [ ] CartDO has a 5-minute inactivity alarm that persists state to D1 `cart_activity` (durability path).
+- [ ] CartDO `getCart()` re-arms the 5-minute alarm on a rehydrated DO when `state.items.length > 0` and no alarm is currently armed (Section 6.3 eviction-and-read lifecycle).
+- [ ] CartDO `cart_activity` upsert SQL stamps `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` and the WHERE clause uses `:ts >= COALESCE(last_d1_write_at, '')` to reject stale writes (Section 6.3 race contract).
+- [ ] CartDO `cart_version` increments per the Section 9.2 table: after state mutation, by `+1` (or `+1 + new_items` for `mergeCart`); NOT incremented on idempotent replays, on `getCart()`, or on `alarm()`.
+- [ ] CartDO implements `applyCoupon`, `removeCoupon`, `updateCustomerContact`, `mergeCart` per Section 36.6 contract stubs.
 - [ ] Resend is default email provider; Cloudflare Email Sending is optional.
 - [ ] Email adapter follows the same pattern as payments: `src/lib/integrations/email/{provider}/`, interface `sendEmail(request): Promise<SendResponse>`, swapped via `EMAIL_PROVIDER` env var.
 - [ ] FraudBD checkout timeout is 1.5 seconds with zero retries and pending_review fallback.
@@ -2379,7 +2474,7 @@ When an AI coding agent works on this repository, it must follow this order:
 AI coding agents working on this repo MUST also be aware of the operational sections that turn these rules into living practice:
 
 - **Section 34** — Guardrail Review & Enforcement Protocol. If a PR cannot satisfy a guardrail, the agent MUST flag this in the PR description and request a waiver (Section 34.7) rather than silently violating the rule.
-- **Section 35** — D1 Migration Sequencing. Any schema-touching PR MUST reference the migration number (e.g. "implements migration 0024") and include both forward and rollback SQL plus a test fixture.
+- **Section 35** — D1 Migration Sequencing. Any schema-touching PR MUST reference the canonical migration filename (e.g. "implements migration `0024_stock_reservations_unique_constraint.sql`") and include both forward and rollback SQL plus a test fixture. Plan-only number references such as "Migration 0027" are forbidden — always cite the filename.
 - **Section 36** — TypeScript Contract Stubs. Any DO or adapter implementation MUST `implements` the corresponding interface from `src/lib/contracts/`. A PR that introduces a DO class without `implements` is incomplete.
 - **Section 37** — FraudBD Circuit Breaker Tests. Any PR touching `src/lib/integrations/fraudbd/`, `src/durable-objects/provider-health-do.ts`, or `src/lib/checkout/fraud-check.ts` MUST keep all 25 CB tests passing.
 - **Section 38** — Drift Audit Playbook. The agent SHOULD self-audit its own PR using the `audit-drift.ts` script (Section 38.4) before requesting review. Any P0 finding blocks merge.
@@ -2398,7 +2493,7 @@ This matrix confirms that the V7 plan includes the required business, technical,
 | Cloudflare Pages + Workers | Included |
 | React 19 Islands | Included |
 | Tailwind CSS design tokens | Included |
-| D1 schema and constraints | Included and clarified. Adds `otp_secrets`, `api_audit_logs`, `ai_budget_limits` tables (Section 6.1) and the partial unique index `idx_stock_reservations_order_active` on `stock_reservations(order_id) WHERE status = 'active'` (Section 12.3, migration 0027). |
+| D1 schema and constraints | Included and clarified. Adds `otp_secrets`, `api_audit_logs`, `ai_budget_limits` tables (Section 6.1) and the partial unique index `idx_stock_reservations_order_active` on `stock_reservations(order_id) WHERE status = 'active'` (Section 12.3; migration files 0021, 0022, 0023, 0024). |
 | R2 images | Included |
 | KV sessions/flags/redirects | Included, cart removed from authoritative KV |
 | Durable Objects | Included and clarified. `CartDO` now has 5-minute inactivity alarm for D1 persistence (Section 6.3 / 9.1). |
@@ -2456,7 +2551,7 @@ This matrix confirms that the V7 plan includes the required business, technical,
 | Server-side VAT computation | Included in checkout Step 8 (Section 11.1), driven by `VAT_RATE_PERCENT` (default 0) |
 | Email adapter contract | Included, mirrors payment adapter pattern (Section 2.3, 17.1) |
 | Guardrail enforcement protocol | Included — roles, cadence, pre-release audit, waivers, amendments, incident response (Section 34) |
-| D1 migration sequencing | Included — 4 numbered migrations (0024–0027) with forward SQL, rollback SQL, test fixtures, pre-flight checks, CI gate, apply procedure, failure recovery (Section 35) |
+| D1 migration sequencing | Included — 5 numbered migrations (`0021_create_otp_secrets.sql`, `0022_create_api_audit_logs.sql`, `0023_create_ai_budget_limits.sql`, `0024_stock_reservations_unique_constraint.sql`, `0025_cart_activity_v7_cleanup.sql`) with forward SQL, rollback SQL, test fixtures, pre-flight checks, CI gate, apply procedure, failure recovery (Section 35) |
 | TypeScript contract stubs | Included — `src/lib/contracts/` with interfaces for all 6 DOs + EmailProvider; implementations MUST use `implements` (Section 36) |
 | FraudBD circuit breaker test suite | Included — 25-test matrix (CB-01 to CB-25) covering all Section 11.2 rules, with fixtures and CI integration (Section 37) |
 | Drift audit playbook | Included — 35 finding codes (D-01 to D-35), `audit-drift.ts` script, CI integration, V7 landing one-time audit (Section 38) |
@@ -2670,13 +2765,13 @@ The protocol is supported by three pieces of tooling, all of which must be in pl
 
 ## 35. D1 Migration Sequencing Plan
 
-This section defines the concrete migration plan for the three new tables added in Section 6.1 (`otp_secrets`, `api_audit_logs`, `ai_budget_limits`) plus the reservation race-prevention constraint from Section 12.3. Each migration is numbered, scoped, and sequenced against the milestone plan in Section 29. Rollback paths are explicit because a failed D1 migration with no rollback is a P0 incident.
+This section defines the concrete migration plan for the three new tables added in Section 6.1 (`otp_secrets`, `api_audit_logs`, `ai_budget_limits`) plus the reservation race-prevention constraint from Section 12.3. Each migration is numbered, scoped, and sequenced against the milestone plan in Section 29. Rollback paths are explicit because a failed D1 migration with no rollback is a P0 incident. The canonical numbering (0021–0025) is shared with the repo under `db/migrations/`; prosem numbers that diverge from filenames (e.g. "Migration 0024" for `otp_secrets`) MUST be treated as legacy drift and corrected to the filename.
 
 ### 35.1 Migration Numbering and Layout
 
 | Property | Convention |
 |---|---|
-| File location | `migrations/{NNNN}_{short_slug}.sql` (e.g. `migrations/0024_create_otp_secrets.sql`) |
+| File location | `migrations/{NNNN}_{short_slug}.sql` (e.g. `migrations/0021_create_otp_secrets.sql`) |
 | Rollback file | `migrations/rollback/{NNNN}_{short_slug}.rollback.sql` (mandatory for every migration) |
 | Numbering | Zero-padded 4-digit, monotonically increasing, never reused |
 | Test fixture | `migrations/tests/{NNNN}_{short_slug}.test.ts` — runs against D1 local in CI before merge |
@@ -2686,11 +2781,11 @@ Editing an applied migration is FORBIDDEN per Section 26.3. A change to an appli
 
 ### 35.2 Migration Sequence
 
-**Repository mapping (June 2026):** The concepts below are implemented in `db/migrations/` as `0021`–`0031`. Plan numbers `0024`–`0027` in this section map to repo files `0021`–`0024` (`otp_secrets`, `api_audit_logs`, `ai_budget_limits`, reservation constraint). Subsequent repo migrations `0025`–`0031` cover cart cleanup, VAT, reservation rebuild, customer phone OTP, staff step-up, and courier handoff columns. Authoritative file-to-concept mapping lives in `tests/red-team-gaps.test.ts` and `tests/migration-fixtures.test.ts`.
+**Repository mapping (June 2026):** The migration numbers below are canonical and match the actual filenames under `db/migrations/`. The numbered sequence is `0021`–`0034` as of June 2026; ongoing migrations continue from `0035`. Subsequent repo migrations `0025`–`0034` (cart_activity cleanup, VAT column, reservation rebuild, customer phone OTP, staff step-up, courier handoff, payments unique, direct checkout activity, guest_carts/sessions/provider_health) are introduced in their own sections but follow the same numbering, layout, and rollout rules. Authoritative file-to-concept mapping lives in `tests/red-team-gaps.test.ts` and `tests/migration-fixtures.test.ts`.
 
-The four migrations below must land in this order. Dependencies are explicit; a later migration cannot be applied until all its dependencies are applied.
+The five migrations below MUST land in this order. Dependencies are explicit; a later migration cannot be applied until all its dependencies are applied.
 
-#### Migration 0024 — `create_otp_secrets`
+#### Migration 0021 — `create_otp_secrets`
 
 | Property | Value |
 |---|---|
@@ -2702,7 +2797,7 @@ The four migrations below must land in this order. Dependencies are explicit; a 
 **Forward SQL:**
 
 ```sql
--- migrations/0024_create_otp_secrets.sql
+-- migrations/0021_create_otp_secrets.sql
 CREATE TABLE otp_secrets (
   staff_id TEXT PRIMARY KEY REFERENCES staff_users(staff_id) ON DELETE CASCADE,
   secret_cipher BLOB NOT NULL,
@@ -2718,7 +2813,7 @@ CREATE INDEX idx_otp_secrets_enabled ON otp_secrets(enabled_at) WHERE last_used_
 **Rollback SQL:**
 
 ```sql
--- migrations/rollback/0024_create_otp_secrets.rollback.sql
+-- migrations/rollback/0021_create_otp_secrets.rollback.sql
 DROP INDEX IF EXISTS idx_otp_secrets_enabled;
 DROP TABLE IF EXISTS otp_secrets;
 ```
@@ -2730,7 +2825,7 @@ DROP TABLE IF EXISTS otp_secrets;
 - Deleting a `staff_users` row cascades to delete the matching `otp_secrets` row.
 - Rollback restores the schema to pre-migration state.
 
-#### Migration 0025 — `create_api_audit_logs`
+#### Migration 0022 — `create_api_audit_logs`
 
 | Property | Value |
 |---|---|
@@ -2742,7 +2837,7 @@ DROP TABLE IF EXISTS otp_secrets;
 **Forward SQL:**
 
 ```sql
--- migrations/0025_create_api_audit_logs.sql
+-- migrations/0022_create_api_audit_logs.sql
 CREATE TABLE api_audit_logs (
   audit_id TEXT PRIMARY KEY,
   provider TEXT NOT NULL,
@@ -2768,7 +2863,7 @@ CREATE INDEX idx_api_audit_order ON api_audit_logs(order_id) WHERE order_id IS N
 **Rollback SQL:**
 
 ```sql
--- migrations/rollback/0025_create_api_audit_logs.rollback.sql
+-- migrations/rollback/0022_create_api_audit_logs.rollback.sql
 DROP INDEX IF EXISTS idx_api_audit_order;
 DROP INDEX IF EXISTS idx_api_audit_circuit_state;
 DROP INDEX IF EXISTS idx_api_audit_provider_created;
@@ -2784,7 +2879,7 @@ DROP TABLE IF EXISTS api_audit_logs;
 
 **Capacity note:** At expected launch volume (≤ 100 orders/day), this table grows ~5,000 rows/day. A monthly partition-by-deletion cron (`DELETE FROM api_audit_logs WHERE created_at < datetime('now', '-90 days')`) is added in M7 and runs nightly.
 
-#### Migration 0026 — `create_ai_budget_limits`
+#### Migration 0023 — `create_ai_budget_limits`
 
 | Property | Value |
 |---|---|
@@ -2796,7 +2891,7 @@ DROP TABLE IF EXISTS api_audit_logs;
 **Forward SQL:**
 
 ```sql
--- migrations/0026_create_ai_budget_limits.sql
+-- migrations/0023_create_ai_budget_limits.sql
 CREATE TABLE ai_budget_limits (
   provider TEXT PRIMARY KEY,
   daily_limit_usd_cents INTEGER NOT NULL,
@@ -2818,7 +2913,7 @@ VALUES
 **Rollback SQL:**
 
 ```sql
--- migrations/rollback/0026_create_ai_budget_limits.rollback.sql
+-- migrations/rollback/0023_create_ai_budget_limits.rollback.sql
 DROP TABLE IF EXISTS ai_budget_limits;
 ```
 
@@ -2830,7 +2925,7 @@ DROP TABLE IF EXISTS ai_budget_limits;
 - `BudgetCounterDO` can read the `deepseek` row and `daily_limit_usd_cents = 500` (= $5.00).
 - Rollback removes the table and all seeded data.
 
-#### Migration 0027 — `stock_reservations_unique_constraint`
+#### Migration 0024 — `stock_reservations_unique_constraint`
 
 | Property | Value |
 |---|---|
@@ -2842,7 +2937,7 @@ DROP TABLE IF EXISTS ai_budget_limits;
 **Pre-flight check (run before the migration in staging AND production):**
 
 ```sql
--- migrations/preflight/0027_check_duplicates.sql
+-- migrations/preflight/0024_check_duplicates.sql
 -- If this returns any rows, the migration CANNOT proceed until duplicates are resolved manually.
 SELECT order_id, COUNT(*) AS active_reservations
 FROM stock_reservations
@@ -2856,7 +2951,7 @@ If the pre-flight returns rows, the GO for Cluster D (Reservation & Inventory) m
 **Forward SQL:**
 
 ```sql
--- migrations/0027_stock_reservations_unique_constraint.sql
+-- migrations/0024_stock_reservations_unique_constraint.sql
 -- Add release_requested_at column if it does not already exist.
 ALTER TABLE stock_reservations ADD COLUMN release_requested_at TEXT;
 
@@ -2869,7 +2964,7 @@ CREATE UNIQUE INDEX idx_stock_reservations_order_active
 **Rollback SQL:**
 
 ```sql
--- migrations/rollback/0027_stock_reservations_unique_constraint.rollback.sql
+-- migrations/rollback/0024_stock_reservations_unique_constraint.rollback.sql
 DROP INDEX IF EXISTS idx_stock_reservations_order_active;
 -- ROLLBACK_EXCEPTION: column release_requested_at left in place; harmless and idempotent.
 -- SQLite does not support DROP COLUMN before 3.35. Even on supported versions,
@@ -2884,7 +2979,7 @@ DROP INDEX IF EXISTS idx_stock_reservations_order_active;
 - Update an active row's `release_requested_at` to a non-NULL value → succeeds.
 - The cleanup cron's `UPDATE ... SET release_requested_at = ... WHERE release_requested_at IS NULL` is atomic and prevents double-release in concurrent tests.
 
-#### Migration 0028 — `drop_legacy_abandoned_cart_columns`
+#### Migration 0025 — `cart_activity_v7_cleanup` (legacy drop + race-contract columns)
 
 | Property | Value |
 |---|---|
@@ -2893,12 +2988,17 @@ DROP INDEX IF EXISTS idx_stock_reservations_order_active;
 | Estimated effort | 0.5 day |
 | Risk | Low — drops columns that are no longer referenced by any V7 code path. Pre-flight check ensures the columns exist before dropping. |
 
-**Why this migration exists:** pre-V7 production may have `abandoned_1h_sent_at` and `abandoned_24h_sent_at` columns on `cart_activity` from earlier drafts. V7 replaced these with a single `abandoned_email_sent_at` column (Section 6.3). Without this migration, the Section 34.4 check #4 ("legacy columns absent") would fail forever in any environment that carried the old columns forward.
+**Why this migration exists:** two purposes, merged into a single forward migration because both target `cart_activity` and both are V7-launch-blocking.
+
+1. **Drop legacy abandoned-cart columns:** pre-V7 production may have `abandoned_1h_sent_at` and `abandoned_24h_sent_at` columns on `cart_activity` from earlier drafts. V7 replaced these with a single `abandoned_email_sent_at` column (Section 6.3). Without this migration, the Section 34.4 check #4 ("legacy columns absent") would fail forever in any environment that carried the old columns forward.
+2. **Add queue/alarm race-contract columns:** Section 6.3 establishes `last_d1_write_at`, `last_d1_write_source`, and `last_d1_write_seq` as the contract columns for cartDO queue/alarm race resolution. These are added in this same migration so the cart persistence contract and the cart cleanup ship together.
+
+**Why these are merged:** separating them risks a half-migrated `cart_activity` table (e.g. legacy columns gone but race columns missing) that would fail the Section 6.3 invariants. ARB approved the merge at the V7 sequencing review; subsequent migrations MAY be merged the same way when they touch the same table.
 
 **Pre-flight check (run before the migration):**
 
 ```sql
--- migrations/preflight/0028_check_legacy_columns.sql
+-- migrations/preflight/0025_check_legacy_columns.sql
 -- Returns the legacy columns that currently exist on cart_activity.
 -- The migration's forward SQL only drops columns that appear here.
 PRAGMA table_info(cart_activity);
@@ -2908,12 +3008,31 @@ PRAGMA table_info(cart_activity);
 **Forward SQL (conditional, run per-column based on pre-flight):**
 
 ```sql
--- migrations/0028_drop_legacy_abandoned_cart_columns.sql
--- SQLite 3.35+ supports DROP COLUMN. D1 uses a recent SQLite, so this is safe.
--- If a column does not exist, the statement will error; the migration runner
--- must tolerate that error for this migration only (similar to IF EXISTS semantics).
--- Alternative: wrap each statement in a try/catch in the migration runner script.
+-- migrations/0025_drop_legacy_abandoned_cart_columns.sql
+-- (1) Add the single 24h-touch abandoned-email column (replaces legacy pair)
+ALTER TABLE cart_activity ADD COLUMN abandoned_email_sent_at TEXT;
 
+-- (2) Add queue/alarm race-contract columns (Section 6.3 "Queue vs Alarm Write Race")
+ALTER TABLE cart_activity ADD COLUMN last_d1_write_at TEXT;
+ALTER TABLE cart_activity ADD COLUMN last_d1_write_source TEXT
+  CHECK(last_d1_write_source IN ('alarm','cart_activity_queue','lifecycle_cleanup'));
+ALTER TABLE cart_activity ADD COLUMN last_d1_write_seq INTEGER NOT NULL DEFAULT 0;
+
+-- (3) Rebuild indexes against the new column set
+DROP INDEX IF EXISTS idx_cart_activity_abandoned;
+CREATE INDEX IF NOT EXISTS idx_cart_activity_abandoned
+  ON cart_activity(last_cart_update_at)
+  WHERE converted_order_id IS NULL
+    AND abandoned_email_sent_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_cart_activity_email
+  ON cart_activity(customer_email)
+  WHERE customer_email IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_cart_activity_write_source
+  ON cart_activity(last_d1_write_source, last_d1_write_at);
+
+-- (4) Drop legacy columns last, after indexes no longer reference them
 ALTER TABLE cart_activity DROP COLUMN abandoned_1h_sent_at;
 ALTER TABLE cart_activity DROP COLUMN abandoned_24h_sent_at;
 ```
@@ -2921,30 +3040,42 @@ ALTER TABLE cart_activity DROP COLUMN abandoned_24h_sent_at;
 **Rollback SQL:**
 
 ```sql
--- migrations/rollback/0028_drop_legacy_abandoned_cart_columns.rollback.sql
+-- migrations/rollback/0025_drop_legacy_abandoned_cart_columns.rollback.sql
 -- ROLLBACK_EXCEPTION: re-adding the legacy columns does NOT restore their data.
 -- The columns were unused in V7 code paths; re-adding them as nullable TEXT columns
 -- is sufficient for schema parity if a rollback is needed.
 ALTER TABLE cart_activity ADD COLUMN abandoned_1h_sent_at TEXT;
 ALTER TABLE cart_activity ADD COLUMN abandoned_24h_sent_at TEXT;
+DROP INDEX IF EXISTS idx_cart_activity_email;
+DROP INDEX IF EXISTS idx_cart_activity_write_source;
+DROP INDEX IF EXISTS idx_cart_activity_abandoned;
+CREATE INDEX IF NOT EXISTS idx_cart_activity_abandoned
+  ON cart_activity(last_cart_update_at, abandoned_1h_sent_at, abandoned_24h_sent_at)
+  WHERE converted_order_id IS NULL;
+-- ROLLBACK_EXCEPTION: abandoned_email_sent_at, last_d1_write_at, last_d1_write_source,
+-- last_d1_write_seq, idx_cart_activity_email, idx_cart_activity_write_source are NOT dropped.
+-- Reason: blocking CartDO queue/alarm upserts would fail without these columns,
+-- and dropping them mid-operations would invalidate any in-flight worker reads.
 ```
 
 **Test fixture assertions:**
 
-- After forward SQL: `PRAGMA table_info(cart_activity)` does NOT contain `abandoned_1h_sent_at` or `abandoned_24h_sent_at`.
-- After forward SQL: `PRAGMA table_info(cart_activity)` DOES contain `abandoned_email_sent_at` (from migration 0023 or earlier — this migration does not add it, only drops legacy).
-- After rollback SQL: both legacy columns are present (nullable, empty).
+- After forward SQL: `PRAGMA table_info(cart_activity)` includes `abandoned_email_sent_at`, `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq`.
+- After forward SQL: `PRAGMA table_info(cart_activity)` does NOT include `abandoned_1h_sent_at` or `abandoned_24h_sent_at`.
+- The new `idx_cart_activity_write_source` index is present.
 - The abandoned-cart cron query (Section 17.3) runs successfully after forward SQL.
+- The Section 6.3 upsert SQL (with race-contract columns and stale-write guard) runs successfully against the post-migration schema.
+- The check constraint on `last_d1_write_source` rejects attempts to insert any value outside `'alarm' | 'cart_activity_queue' | 'lifecycle_cleanup'`.
 
 ### 35.3 Sequencing and Milestone Mapping
 
-| Migration | Ships in milestone | Phase (Section 29) | Blocking | Notes |
-|---|---|---|---|---|
-| 0024 `otp_secrets` | M6 Security | Phase 2 | Owner TOTP 2FA UI | Ship early in Phase 2 so 2FA is opt-in before public launch |
-| 0025 `api_audit_logs` | M7 Observability | Phase 2 | FraudBD circuit breaker (M10) | Must be in place before FraudBD ships so breaker transitions are persisted from day 1 |
-| 0026 `ai_budget_limits` | M12 AI | Phase 3 | BudgetCounterDO | Seed data is part of the migration — do not seed via a separate script |
-| 0027 `stock_reservations_unique_constraint` | M4 Inventory | Phase 1 | Cleanup cron (same milestone) | Pre-flight duplicate check is mandatory before applying |
-| 0028 `drop_legacy_abandoned_cart_columns` | M9 Email | Phase 2 | Abandoned-cart cron (same milestone) | Pre-flight check for legacy column existence; only drops columns that are present |
+| Migration | File | Ships in milestone | Phase (Section 29) | Blocking | Notes |
+|---|---|---|---|---|---|
+| 0021 `create_otp_secrets` | `migrations/0021_create_otp_secrets.sql` | M6 Security | Phase 2 | Owner TOTP 2FA UI | Ship early in Phase 2 so 2FA is opt-in before public launch |
+| 0022 `create_api_audit_logs` | `migrations/0022_create_api_audit_logs.sql` | M7 Observability | Phase 2 | FraudBD circuit breaker (M10) | Must be in place before FraudBD ships so breaker transitions are persisted from day 1 |
+| 0023 `create_ai_budget_limits` | `migrations/0023_create_ai_budget_limits.sql` | M12 AI | Phase 3 | BudgetCounterDO | Seed data is part of the migration — do not seed via a separate script |
+| 0024 `stock_reservations_unique_constraint` | `migrations/0024_stock_reservations_unique_constraint.sql` | M4 Inventory | Phase 1 | Cleanup cron (same milestone) | Pre-flight duplicate check is mandatory before applying |
+| 0025 `cart_activity_v7_cleanup` | `migrations/0025_cart_activity_v7_cleanup.sql` | M9 Email | Phase 2 | Abandoned-cart cron + CartDO queue/alarm race contract | Merged migration: drops legacy columns AND adds race-contract columns. Pre-flight check for legacy column existence; ARB-approved merge documented in Section 35.2. |
 
 ### 35.4 Migration CI Gate
 
@@ -2952,11 +3083,11 @@ Every migration PR must pass the following CI checks before merge, in addition t
 
 1. **Forward SQL runs cleanly** against a fresh D1 local instance.
 2. **Rollback SQL runs cleanly** against a D1 local instance that has just had the forward SQL applied. After rollback, the schema must match the pre-migration schema (asserted by a schema-diff script).
-   - **Exception (additive-column rollback):** SQLite does not support `DROP COLUMN` before version 3.35, and even on supported versions leaving an additive column in place after rollback is harmless. A migration MAY document this exception by adding a comment in the rollback file: `-- ROLLBACK_EXCEPTION: column {name} left in place; harmless and idempotent.` The schema-diff script MUST honor this comment and not flag the residual column as a rollback failure. Migration 0027 uses this exception for the `release_requested_at` column.
+   - **Exception (additive-column rollback):** SQLite does not support `DROP COLUMN` before version 3.35, and even on supported versions leaving an additive column in place after rollback is harmless. A migration MAY document this exception by adding a comment in the rollback file: `-- ROLLBACK_EXCEPTION: column {name} left in place; harmless and idempotent.` The schema-diff script MUST honor this comment and not flag the residual column as a rollback failure. Migration `0024_stock_reservations_unique_constraint.sql` uses this exception for the `release_requested_at` column.
 3. **Test fixture passes** — all assertions in `migrations/tests/{NNNN}_*.test.ts` pass.
 4. **Invalid-insert tests** — for every NOT NULL, FK, CHECK, and UNIQUE constraint, an insert that violates it must fail. This is the "constraint test" referenced in Guardrail #32.
 5. **Pre-flight checks pass** (where defined) — for migrations like 0027 that have a pre-flight script, the script must return zero rows against staging data.
-6. **Migration is numbered correctly** — `NNNN` is exactly one greater than the highest existing migration number. No gaps, no reuse.
+6. **Migration is numbered correctly** — `NNNN` is exactly one greater than the highest existing migration number. No gaps, no reuse. The numbering policy is: a single monotonically increasing sequence starting at `0001`. There are no alternate numberings (e.g. V6-subset, V7-subset). Migration numbers listed in prose elsewhere in this document and in PR descriptions MUST always match the canonical filename. A regex pre-PR gate `^\d{4}_[a-z][a-z0-9_]*\.sql$` enforces the format.
 7. **Rollback file exists** and is non-empty.
 8. **`_migrations` table insertion** — the migration runner inserts a row into `_migrations` with the migration id, applied timestamp, SHA-256 of the forward SQL, and SHA-256 of the rollback SQL.
 
@@ -2970,7 +3101,7 @@ A migration PR that fails any check is blocked from merge. The RC cannot overrid
 | 2. Run dev smoke tests | Product page, cart, checkout, staff login, POS — all must pass | Same engineer | 30 min |
 | 3. Apply to staging | `wrangler d1 migrations apply zabir-staging-db --remote` | Same engineer | N/A |
 | 4. Run staging constraint tests | The invalid-insert test suite from CI, run against staging | Release Captain | 1h |
-| 5. Run pre-flight checks (if defined) | e.g. `0027_check_duplicates.sql` against staging | GO for the cluster | 1h |
+| 5. Run pre-flight checks (if defined) | e.g. `migrations/preflight/0024_check_duplicates.sql` against staging | GO for the cluster | 1h |
 | 6. **24-hour soak** (mandatory for risky migrations) | Staging runs with the new schema under realistic load for 24 hours | Release Captain | 24h |
 | 7. ARB sign-off | ARB reviews staging results, signs off on production apply | ARB | N/A |
 | 8. Backup production D1 | `d1-backup` queue message enqueued; wait for completion confirmation | Release Captain | Until backup verified |
@@ -2978,7 +3109,7 @@ A migration PR that fails any check is blocked from merge. The RC cannot overrid
 | 10. Post-deploy verification | Smoke tests + the migration's test fixture run against production | Release Captain | 30 min |
 | 11. Update release sign-off record | Section 34.5 record updated with migration list | Release Captain | N/A |
 
-The 24-hour soak (step 6) is skipped only for migrations explicitly marked "low risk, additive only" by the ARB — migrations 0024, 0025, 0026 qualify; 0027 does NOT.
+The 24-hour soak (step 6) is skipped only for migrations explicitly marked "low risk, additive only" by the ARB — migrations 0021, 0022, 0023 qualify; 0024 and 0025 do NOT.
 
 ### 35.6 Migration Failure Recovery
 
@@ -3470,26 +3601,79 @@ export interface CartDO {
   getCart(input: { session_id: string }): Promise<{ state: CartState } | { error: 'CART_NOT_FOUND' }>;
 
   /**
+   * Apply or clear a coupon code. CartDO stores the coupon code; checkout
+   * validates the coupon rule with D1 (Section 11.1 step 9). Version rules
+   * per Section 9.2.
+   */
+  applyCoupon(input: {
+    session_id: string;
+    cart_version: number;
+    coupon_code: string;
+    idempotency_key: string;
+  }): Promise<{ state: CartState } | { error: 'CART_VERSION_CONFLICT' | 'INVALID_COUPON'; state: CartState }>;
+
+  removeCoupon(input: {
+    session_id: string;
+    cart_version: number;
+    idempotency_key: string;
+  }): Promise<{ state: CartState } | { error: 'CART_VERSION_CONFLICT'; state: CartState }>;
+
+  /**
+   * Update customer contact after checkout starts (Section 11.1 step 3
+   * normalizes phone to E.164 +880... format). Version rules per Section 9.2.
+   */
+  updateCustomerContact(input: {
+    session_id: string;
+    cart_version: number;
+    customer_contact: { phone?: string; email?: string; name?: string };
+    idempotency_key: string;
+  }): Promise<{ state: CartState } | { error: 'CART_VERSION_CONFLICT' | 'INVALID_PHONE'; state: CartState }>;
+
+  /**
    * Merge an anonymous cart into a logged-in customer's cart.
    * Used when a customer logs in mid-session.
    * Returns the merged state, or a conflict if the target cart version
    * has moved on since the merge was initiated (caller should retry).
+   *
+   * Version increment per Section 9.2: `target_version + 1 + (number of new items added)`.
+   * Idempotent on (source_session_id, target_session_id): repeat calls within
+   * 60 seconds return the same merged state without incrementing the version.
    */
   mergeCart(input: {
     source_session_id: string;
     target_session_id: string;
     target_cart_version: number;
+    idempotency_key: string;
   }): Promise<
     | { state: CartState }
     | { error: 'CART_VERSION_CONFLICT'; state: CartState }
+    | { error: 'SAME_SESSION' | 'SOURCE_EMPTY' }
   >;
 
   /**
-   * Alarm handler. Two stages:
+   * Alarm handler. Three branches (full lifecycle, see Section 6.3):
    *   - 5-min inactivity: upsert D1 cart_activity, re-arm if more mutations arrive.
-   *   - 30-day inactivity: final cart_activity write, deleteAll.
+   *   - 30-day inactivity: final cart_activity write, then deleteAll().
+   *   - Empty-cart alarm fire: skip D1 upsert, re-arm 30-day cleanup.
+   *
+   * MUST NOT increment cart_version. only last_d1_write_at/source/seq change.
    */
   alarm(): Promise<void>;
+}
+
+/**
+ * Internal CartDO state shape. NOT part of the public contract — exposed here
+ * only for clarity, since version increment + alarm lifecycle both depend on it.
+ */
+export interface CartDOInternalState extends CartState {
+  /** ISO 8601 UTC; updated on every mutation. Distinct from cart_version. */
+  last_mutation_at: string;
+  /** ISO 8601 UTC; updated on every mutation. Use for queue/alarm scheduling. */
+  last_cart_write_at: string;
+  /** Set true once a `setAlarm` has been armed and not yet fired/cancelled. */
+  soft_alarm_active: boolean;
+  /** ISO 8601 UTC of the 30-day cleanup alarm, if armed. */
+  thirty_day_alarm_at?: string;
 }
 
 export type CartDOClass = new (state: DurableObjectState, env: Env) =>
@@ -3943,9 +4127,14 @@ The findings below are the known drift patterns. Each has a stable finding code 
 | D-01 | `output: 'static'` in `astro.config.mjs`, docs, or generated notes | `rg "output:\s*'(static\|hybrid)'" --glob '!**/*.md' -t ts -t tsx -t js -t mjs` (excludes the master plan and docs/ — the plan's own FORBIDDEN references are documentation, not drift) | Replace with `output: 'server'`. Delete any prose justifying `static` (it's wrong post-V7). |
 | D-02 | `export const prerender = false` in any route file | `rg "prerender\s*=\s*false" src/pages/` | Delete the line. Dynamic routes are dynamic by default under `output: 'server'`. |
 | D-03 | Static route missing `export const prerender = true` | AST scan of `src/pages/**/*.{astro,ts}` cross-referenced with Section 3.4 | Add the export at the top of the file. |
-| D-04 | Reference to `abandoned_1h_sent_at` or `abandoned_24h_sent_at` in code or migration | `rg "abandoned_1h_sent_at\|abandoned_24h_sent_at"` | Replace with `abandoned_email_sent_at` (single 24h touch). Add a forward migration to drop the old columns if they exist in production. |
-| D-05 | CartDO mutation that does NOT arm the 5-minute alarm | Code review of `src/durable-objects/cart-do.ts` — every mutation method must call `setAlarm(now + 5*60*1000)` | Add the alarm call. Add a unit test asserting the alarm is armed. |
+| D-04 | Reference to `abandoned_1h_sent_at` or `abandoned_24h_sent_at` in code or migration | `rg "abandoned_1h_sent_at\|abandoned_24h_sent_at"` | Replace with `abandoned_email_sent_at` (single 24h touch). Apply migration `0025_cart_activity_v7_cleanup.sql` if columns are still present. |
+| D-05 | CartDO mutation that does NOT arm the 5-minute alarm | Code review of `src/durable-objects/cart-do.ts` — every mutation method must call `setAlarm(now + 5*60*1000)` AND increment `cart_version` after state mutation succeeds (Section 9.2 contract) | Add the alarm call; add a unit test asserting the alarm is armed and version increment matches the Section 9.2 table. |
+| D-05a | CartDO `getCart()` does NOT re-arm alarm on a rehydrated DO when items exist | Code review of `src/durable-objects/cart-do.ts` — `getCart()` MUST call `setAlarm(now + 5*60*1000)` iff `state.items.length > 0` AND `ctx.storage.getAlarm() === null` (Section 6.3 eviction-and-read lifecycle) | Add the re-arm branch. Add a test that simulates an evicted DO and asserts the alarm is armed on the first read after rehydration. |
+| D-05b | CartDO `alarm()` handler increments `cart_version` | Code review of `src/durable-objects/cart-do.ts` — `alarm()` MUST NOT modify `cart_version`; only `last_d1_write_at/source/seq` projector columns change (Section 6.3 / 9.2) | Remove any version increment from the alarm handler. Add a test asserting `cart_version` is unchanged after `alarm()` fires. |
+| D-05c | CartDO missing `applyCoupon` / `removeCoupon` / `updateCustomerContact` / `mergeCart` methods | `rg "class CartDO" -A 200 src/durable-objects/cart-do.ts` and check for each method name | Add the methods per the Section 36.6 contract stubs. Each MUST increment `cart_version` per Section 9.2. |
 | D-06 | CartDO synchronous D1 write inside a mutation method | `rg "env.DB.prepare.*cart_activity" src/durable-objects/cart-do.ts` (mutation methods only) | Replace with a `cart-activity` queue message. The D1 write belongs in the alarm handler or queue consumer. |
+| D-06a | Queue/alarm upsert SQL missing `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` columns or missing `last_d1_write_at` guard | `rg "UPDATE cart_activity" src/` and inspect the SQL; the upsert MUST stamp all three columns and use the `(:ts >= COALESCE(last_d1_write_at, ''))` guard (Section 6.3) | Update upsert SQL; add a test asserting a stale write is rejected by the guard. |
+| D-06b | `cart_activity` schema missing `last_d1_write_at`, `last_d1_write_source`, `last_d1_write_seq` columns | D1 schema introspection | Apply migration `0025_cart_activity_v7_cleanup.sql` (extended per Section 6.3 race contract). |
 | D-07 | `VariantInventoryDO` class missing `reverseDirectSale` method | `rg "class VariantInventoryDO" -A 50 src/durable-objects/` and check for method | Add the method per Section 11.3 / 36.2. Add the `implements VariantInventoryDO` keyword. |
 | D-08 | POS flow that does NOT call `reverseDirectSale` on D1 invoice write failure | Code review of `src/api/staff/invoices/create.ts` (or equivalent) | Add the compensating transaction call + P1 audit log per Section 11.3 / 15.1. Add the integration test `pos-compensating-transaction.test.ts`. |
 | D-09 | Direct `fetch()` to FraudBD outside the adapter | `rg "fetch\(.*fraudbd" --type ts -g '!src/lib/integrations/fraudbd/**'` | Move the call into `src/lib/integrations/fraudbd/client.ts`. Route handlers go through the adapter. |
@@ -3962,9 +4151,9 @@ The findings below are the known drift patterns. Each has a stable finding code 
 | D-20 | Browser-supplied VAT accepted | `rg "vat" src/pages/checkout*` and check request parsing | Strip VAT from any client-supplied data; always recompute server-side. |
 | D-21 | Reservation cleanup cron schedule ≠ hourly | `wrangler.toml` cron config | Set `crons = ["0 * * * *"]` for the reservation-cleanup worker. |
 | D-22 | Reservation cleanup query ≠ 15-min window | Code review of the cron handler | Use `created_at < datetime('now', '-15 minutes') AND release_requested_at IS NULL`. |
-| D-23 | `stock_reservations` missing the `idx_stock_reservations_order_active` partial unique index | D1 `PRAGMA index_list('stock_reservations')` | Apply migration 0027 per Section 35.2. |
-| D-24 | `stock_reservations` missing `release_requested_at` column | D1 schema introspection | Apply migration 0027 per Section 35.2. |
-| D-25 | Missing `otp_secrets`, `api_audit_logs`, or `ai_budget_limits` table | D1 schema introspection | Apply migration 0024 / 0025 / 0026 per Section 35.2. |
+| D-23 | `stock_reservations` missing the `idx_stock_reservations_order_active` partial unique index | D1 `PRAGMA index_list('stock_reservations')` | Apply migration `0024_stock_reservations_unique_constraint.sql` per Section 35.2. |
+| D-24 | `stock_reservations` missing `release_requested_at` column | D1 schema introspection | Apply migration `0024_stock_reservations_unique_constraint.sql` per Section 35.2. |
+| D-25 | Missing `otp_secrets`, `api_audit_logs`, or `ai_budget_limits` table | D1 schema introspection | Apply migration `0021_create_otp_secrets.sql` / `0022_create_api_audit_logs.sql` / `0023_create_ai_budget_limits.sql` per Section 35.2. |
 | D-26 | `cart-activity` queue not wired up | `wrangler.toml` queues config | Add the queue binding. Confirm `CartDO` publishes to it on every mutation. |
 | D-27 | Abandoned cart cron query missing `customer_email` dedup | Code review of `src/cron/abandoned-cart.ts` | Add the `ROW_NUMBER() OVER (PARTITION BY customer_email)` window per Section 17.3. |
 | D-28 | Abandoned cart cron missing `consent_status = 'allowed'` filter | Same as D-27 | Add the consent filter. Never send marketing email without consent. |
@@ -3992,7 +4181,15 @@ The findings below are the known drift patterns. Each has a stable finding code 
 
 The script is the workhorse of the audit. It lives at `scripts/audit/audit-drift.ts` and is invoked as `npx tsx scripts/audit/audit-drift.ts --scope {pr\|weekly\|release} --output docs/audit/drift-{date}.md`.
 
-**Implementation completeness note:** the skeleton below shows the script structure with only 3 of the 35 checks filled in (D-01, D-02, D-04). The production script MUST implement all 35 checks from Section 38.2. A script that ships with only 3 checks silently skips 32 drift patterns — this is worse than not running the audit at all, because it gives false confidence. The CI gate in Section 38.5 MUST verify that the script's `checks` array has exactly 35 entries before allowing the job to pass; a script with fewer entries fails CI with the error `audit-drift.ts: expected 35 checks, found N`.
+**Implementation completeness note:** the skeleton below shows the script structure with only 3 of the catalog checks filled in (D-01, D-02, D-04). The production script MUST implement every check present in Section 38.2's drift catalog. A script that ships with only a subset of checks silently skips the rest of the drift patterns — this is worse than not running the audit at all, because it gives false confidence.
+
+To prevent silent drift between the prose catalog (Section 38.2) and the implemented check array, the script MUST:
+
+1. **Parse the catalog from markdown at runtime.** The script reads `Zabir_Boutiques_Master_Plan.md` (or the file the audit is being run against), extracts every `| D-NN |` row from the Section 38.2 table, and parses the drift code, severity, and rg pattern from the prose. The expected check count is `Math.max(severity_counts)`, not a literal.
+2. **Refuse to run if the catalog count and the implemented `checks` array disagree.** If `Object.keys(checksById)` length is less than the number of `D-NN` rows in the catalog, the script MUST print the diff (`missing: [D-NN, ...]`) and exit non-zero. This means adding a `D-36` to Section 38.2 forces an implementation match within the same PR — there is no way to ship catalog additions without check implementations.
+3. **Carry the rg pattern and severity from the markdown so they don't drift.** Each catalog row's structure (e.g. `| D-NN | <description text> | <detection method> | <fix> |`) MUST include enough information for the script to derive the rg pattern. The example skeleton below demonstrates which fields are extracted from the prose vs. fixed in the script.
+
+If the canonical command path is invoked with `--strict-catalog`, the script additionally verifies that the prose-derived pattern (from the markdown table) compiles against the implementation. Default behavior is `--strict-catalog` enabled.
 
 The script MUST also exclude the master plan document itself (and any markdown under `docs/`) from D-01 and D-02 detection, otherwise the plan's own "FORBIDDEN" references will trip the audit. The exclusion is `--glob '!**/*.md'` for D-01 and D-02 specifically (other checks scan only `src/` so are unaffected).
 
