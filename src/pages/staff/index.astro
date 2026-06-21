@@ -43,12 +43,13 @@ try {
   dbError = e?.message ?? "Database query failed";
 }
 
-const perms = {
+  const perms = {
   orders: can(user.role, "orders.view"),
   products: can(user.role, "products.manage"),
   fraud: can(user.role, "fraud.view"),
   sales: ["salesman", "manager", "owner", "super_admin"].includes(user.role),
   packing: user.role === "packing" || can(user.role, "orders.pack"),
+  security: ["owner", "super_admin"].includes(user.role),
 };
 
 const statCards: Array<{ label: string; value: number | string; tone: "brand" | "warn" | "info" | "danger"; suffix?: string }> = [
@@ -149,9 +150,10 @@ const toneClass: Record<string, string> = {
           {perms.sales && <a href="/staff/sales/instore" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">In-store</a>}
           {perms.packing && <a href="/staff/packing" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Packing</a>}
           {perms.products && <a href="/staff/products" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Products</a>}
-          {perms.orders && <a href="/staff/orders" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">All orders</a>}
-          <a href="/staff/support" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Support</a>
-        </div>
+           {perms.orders && <a href="/staff/orders" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">All orders</a>}
+           <a href="/staff/support" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--line)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--ink)] no-underline">Support</a>
+           {perms.security && <a href="/staff/settings/totp" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-[var(--brand)] bg-[var(--surface)] px-3 h-9 text-xs font-bold text-[var(--brand)] no-underline">Security / 2FA</a>}
+         </div>
       </div>
     </div>
   </div>

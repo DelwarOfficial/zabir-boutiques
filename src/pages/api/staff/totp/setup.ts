@@ -11,7 +11,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requireRole(user, ['owner']);
+    requireRole(user, ['owner', 'super_admin']);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
