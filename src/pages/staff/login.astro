@@ -201,7 +201,10 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
           password = pwInput.value;
 
           var turnstileToken = '';
-          try { turnstileToken = turnstile.getResponse(); } catch (_) {}
+          try {
+            const turnstileInput = document.querySelector('[name="cf-turnstile-response"]');
+            turnstileToken = turnstileInput && turnstileInput.value ? turnstileInput.value : turnstile.getResponse();
+          } catch (_) {}
 
           const res = await fetch('/api/staff/login', {
             method: 'POST',
@@ -220,6 +223,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
               return;
             }
             showError(err1, body.error || 'Invalid credentials');
+            try { turnstile.reset(); } catch (_) {}
             return;
           }
 
@@ -237,6 +241,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
           loginBtn.disabled = false;
           loginBtn.textContent = 'Sign in';
           showError(err1, body.error || 'Login failed');
+          try { turnstile.reset(); } catch (_) {}
         }
 
         document.getElementById('login-form').addEventListener('submit', submitLogin);

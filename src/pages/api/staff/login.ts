@@ -38,7 +38,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Turnstile bot protection on staff login (Master_Prompt v7.0 §18.5)
   // Token is REQUIRED when TURNSTILE_SECRET_KEY is set.
-  if (env.TURNSTILE_SECRET_KEY) {
+  if (env.TURNSTILE_SECRET_KEY && !body.totp_code) {
     const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
     if (!token) {
       return Response.json({ error: "Bot check required." }, { status: 403 });
