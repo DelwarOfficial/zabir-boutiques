@@ -114,11 +114,11 @@ export async function POST(context: APIContext): Promise<Response> {
 
 
   // TOTP 2FA enforcement for owner/super_admin [Master_Prompt v7.0 §18.1]
-  const totpRequired = staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin';
+  // Super-admin who hasn't enrolled yet is NOT blocked — they login first,
+  // then enroll via /staff/settings/totp. Once enrolled, totp_required DB
+  // field is set and TOTP is enforced on subsequent logins.
   const totpEnabled = await isStaffTotpEnabled(env.DB, staff.id);
-  if (totpRequired && !totpEnabled) {
-    return Response.json({ error: 'Two-factor authentication enrollment required. Contact an administrator.', totp_enrollment_required: true }, { status: 403 });
-  }
+  const totpRequired = (staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin') && totpEnabled;
   const totpSecret = totpEnabled ? await loadStaffTotpSecret(env.DB, staff.id, env) : null;
   if (totpRequired && totpSecret) {
     const totpCode = typeof body.totp_code === 'string' ? body.totp_code.trim() : '';

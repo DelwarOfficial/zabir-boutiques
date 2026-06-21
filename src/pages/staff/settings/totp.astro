@@ -6,7 +6,7 @@ import { generateTotpSecret } from "@/lib/totp";
 import { isStaffTotpEnabled } from "@/lib/otp-secrets";
 import QRCode from "qrcode";
 const user = await getCurrentStaffUser(Astro);
-requireRole(user!, ["owner"]);
+requireRole(user!, ["owner", "super_admin"]);
 
 const env = getEnv(Astro);
 const dbUser = await env.DB.prepare(
