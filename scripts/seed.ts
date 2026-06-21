@@ -1,38 +1,12 @@
-import { randomBytes, subtle } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-
-const env = Object.fromEntries(
-  readFileSync('.env.local', 'utf-8')
-    .split('\n')
-    .filter(l => l && !l.startsWith('#'))
-    .map(l => l.split('=', 2))
-    .map(([k, v]) => [k.trim(), (v ?? '').trim()])
-);
-
-const PASSWORD_PEPPER = env.PASSWORD_PEPPER || 'dev-pepper-kx8mQn9pL2wR4vY7bJ5hG3tF6cA0sD1e';
-
-async function pbkdf2Hash(password: string, salt: string): Promise<string> {
-  const combinedSalt = new TextEncoder().encode(salt + PASSWORD_PEPPER);
-  const keyMaterial = await subtle.importKey(
-    'raw', new TextEncoder().encode(password),
-    { name: 'PBKDF2' }, false, ['deriveBits']
-  );
-  const derivedBits = await subtle.deriveBits(
-    { name: 'PBKDF2', salt: combinedSalt, iterations: 100000, hash: 'SHA-256' },
-    keyMaterial, 256
-  );
-  return Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 const STAFF = {
-  email: 'admin@zabrboutiques.com',
+  email: 'admin@zabirboutiques.com',
   phone: '+8801712345678',
-  password: 'jOurNameList21',
-  passwordSalt: randomBytes(16).toString('hex'),
+  password: 'JOurNameList21',
+  passwordSalt: 'aa4027bb393ac1163d120a3dd2ad020d',
   full_name: 'Admin User',
   role: 'super_admin'
 };
-STAFF['passwordHash'] = await pbkdf2Hash(STAFF.password, STAFF.passwordSalt);
+STAFF['passwordHash'] = 'f6cc44c20862b8d4febb6200ebbb72bd529cb3acbbe99d893da5770ae3ce4e4a';
 
 const CATEGORIES = [
   { id: 'a1000000-0000-4000-8000-000000000001', name: 'Pakistani Collection', slug: 'pakistani-collection', sort_order: 1 },
