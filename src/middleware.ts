@@ -20,14 +20,15 @@ import { env as cloudflareEnv } from 'cloudflare:workers';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const CSRF_EXEMPT_PATHS = new Set(['/api/staff/login']);
-const AUTH_EXEMPT_PATHS = new Set(['/staff/login', '/api/staff/login']);
+const CSRF_EXEMPT_PATHS = new Set(['/api/staff/login', '/api/staff/forgot-password', '/api/staff/reset-password']);
+const AUTH_EXEMPT_PATHS = new Set(['/staff/login', '/api/staff/login', '/staff/forgot-password', '/api/staff/forgot-password', '/staff/reset-password', '/api/staff/reset-password']);
 // Matches /staff, /staff/, /staff/*, and /api/staff/* for the auth guard.
 const STAFF_PROTECTED = /^(?:\/api\/staff\/|\/staff(?:\/|$))/;
 const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number; critical?: boolean }> = [
   { pattern: /^\/api\/checkout$/, limit: 20, windowSeconds: 60, critical: true },
   { pattern: /^\/api\/orders\/track$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/login$/, limit: 10, windowSeconds: 60, critical: true },
+  { pattern: /^\/api\/staff\/forgot-password$/, limit: 5, windowSeconds: 300, critical: false },
   { pattern: /^\/api\/payments\/create$/, limit: 20, windowSeconds: 60, critical: true },
   { pattern: /^\/api\/fraud\/check$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/fraud\/override$/, limit: 10, windowSeconds: 60 },

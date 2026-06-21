@@ -111,6 +111,9 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
               <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Password</label>
               <input name="password" type="password" autocomplete="current-password" required
                 style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:0.9rem;outline:none;" />
+              <div style="text-align:right;margin-top:0.25rem;">
+                <a href="/staff/forgot-password" style="font-size:0.75rem;color:var(--ink-secondary);text-decoration:none;">Forgot password?</a>
+              </div>
             </div>
             {TURNSTILE_SITE_KEY ? <div class="cf-turnstile mb-3 flex justify-center" data-sitekey={TURNSTILE_SITE_KEY}></div> : null}
             <button type="submit" id="login-btn" class="brand-btn">Sign in</button>

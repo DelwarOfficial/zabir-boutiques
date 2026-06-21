@@ -491,6 +491,8 @@ Required table groups:
    - `audit_log`
    - `csrf_nonces`
    - `otp_secrets` — Owner TOTP 2FA secrets (encrypted at rest, one active row per Owner, supports backup codes). Required by Section 18.1 ("Owner role requires TOTP 2FA") and previously missing.
+   - `password_reset_tokens` — Staff password reset tokens (HMAC-SHA256 hashed, 1-hour expiry, one-time use, supports admin-initiated resets via `created_by` column). Required by Section 18.1. Implemented by migration `0035_password_reset_tokens.sql`.
+   - `password_reset_rate_limits` — D1-based rate limiting for forgot-password attempts per IP (3 attempts per 15-minute rolling window). Required by Section 18.4.
    - `api_audit_logs` — External API audit trail and `ProviderHealthDO` circuit breaker state transitions. One row per external call (FraudBD, UddoktaPay, SSLCommerz, DeepSeek, Imagify, email, courier). Indexed by `provider`, `operation`, `circuit_state`, `created_at`. Required by Sections 2.4 / 2.5 / 11.2 and previously missing.
 
 6. Operations
@@ -1854,6 +1856,16 @@ All `datetime('now')` calls in the SQL above rely on SQLite's default behavior o
 - Max concurrent sessions: 2 per staff user.
 - Owner role requires TOTP 2FA.
 - Password minimum: 10 characters, uppercase, number, special character.
+- **Password reset (email-based):**
+  - Self-service via `/staff/forgot-password` (email input + Turnstile bot protection).
+  - Admin-initiated via `POST /api/staff/users/[id]/reset-password` (requires `staff.manage` + step-up auth).
+  - Reset token: 32 random bytes → 64 hex chars, HMAC-SHA256 hashed before storage.
+  - Token expiry: 1 hour (`password_reset_tokens.expires_at`).
+  - One-time use: `used_at` column prevents replay.
+  - Enumeration-safe: forgot-password always returns 200 even if email not found.
+  - Rate limited: 3 attempts per IP per 15-minute rolling window.
+  - On successful reset: all active sessions revoked (force re-login everywhere).
+  - Every step logged to tamper-evident `audit_log` chain.
 
 ### 18.2 Staff Protection
 
@@ -1874,6 +1886,7 @@ All `datetime('now')` calls in the SQL above rely on SQLite's default behavior o
 |---|---|
 | Checkout | 20/min/IP |
 | Login | 5/min/IP and 10/min/email |
+| Forgot password | 3/15min/IP |
 | Coupon apply | 5/min/session; lock after repeated failure |
 | General API | 60/min/IP |
 | Product pages | 100/min/IP with bot challenge if suspicious |
@@ -2840,6 +2853,7 @@ This matrix confirms that the V7 plan includes the required business, technical,
 | AI product descriptions/recommendations | Included with Workers AI primary and DeepSeek fallback. BudgetCounterDO interface and Workers AI fallback on DO timeout (Section 24.2). |
 | Prompt injection protection | Included |
 | Owner TOTP 2FA | Included via `otp_secrets` D1 table (Section 6.1, 18.1) |
+| Staff password reset (email-based) | Included — self-service forgot-password + admin-initiated reset. HMAC-hashed tokens, 1-hour expiry, session revocation. `password_reset_tokens` D1 table (Section 6.1, 18.1). Migration `0035_password_reset_tokens.sql`. |
 | External API audit trail | Included via `api_audit_logs` D1 table (Section 6.1, 2.5) |
 | AI budget durable config | Included via `ai_budget_limits` D1 table (Section 6.1, 24.2) |
 | Server-side VAT computation | Included in checkout Step 8 (Section 11.1), driven by `VAT_RATE_PERCENT` (default 0) |
@@ -3366,6 +3380,50 @@ CREATE INDEX IF NOT EXISTS idx_cart_activity_abandoned
 - The Section 6.3 upsert SQL (with race-contract columns and stale-write guard) runs successfully against the post-migration schema.
 - The check constraint on `last_d1_write_source` rejects attempts to insert any value outside `'alarm' | 'cart_activity_queue' | 'lifecycle_cleanup'`.
 
+#### Migration 0035 — `password_reset_tokens`
+
+**File:** `db/migrations/0035_password_reset_tokens.sql`
+
+**Purpose:** Creates two tables for staff password reset:
+1. `password_reset_tokens` — HMAC-SHA256 hashed reset tokens with 1-hour expiry, one-time use (`used_at`), support for admin-initiated resets (`created_by` references the admin who triggered it), and admin revocation (`revoked_at` + `revoked_by`).
+2. `password_reset_rate_limits` — Per-IP rate limiting for forgot-password attempts (3 attempts per rolling 15-minute window).
+
+**Forward SQL:**
+```sql
+CREATE TABLE password_reset_tokens (
+  id         TEXT PRIMARY KEY,
+  staff_id   TEXT NOT NULL REFERENCES staff_users(id) ON DELETE CASCADE,
+  token_hash TEXT NOT NULL UNIQUE,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,
+  created_by TEXT,
+  created_at TEXT NOT NULL,
+  revoked_at TEXT,
+  revoked_by TEXT
+);
+CREATE INDEX idx_pwd_reset_tokens_hash ON password_reset_tokens(token_hash);
+CREATE INDEX idx_pwd_reset_tokens_staff ON password_reset_tokens(staff_id);
+
+CREATE TABLE password_reset_rate_limits (
+  ip_address    TEXT NOT NULL,
+  attempted_at  TEXT NOT NULL
+);
+CREATE INDEX idx_pwd_reset_rate_ip ON password_reset_rate_limits(ip_address);
+```
+
+**Rollback SQL (`db/migrations/rollback/0035_rollback_password_reset_tokens.sql`):**
+```sql
+DROP TABLE IF EXISTS password_reset_tokens;
+DROP TABLE IF EXISTS password_reset_rate_limits;
+```
+
+**Test fixture assertions:**
+- After forward SQL: `PRAGMA table_info(password_reset_tokens)` includes all 9 columns.
+- After forward SQL: Both `idx_pwd_reset_tokens_hash` and `idx_pwd_reset_tokens_staff` indexes exist.
+- After forward SQL: `password_reset_rate_limits` table exists with `ip_address` and `attempted_at` columns.
+- Token INSERT and lookup by `token_hash` works correctly.
+- Foreign key constraint: inserting a `staff_id` that doesn't exist in `staff_users` is rejected.
+
 ### 35.3 Sequencing and Milestone Mapping
 
 | Migration | File | Ships in milestone | Phase (Section 29) | Blocking | Notes |
@@ -3375,6 +3433,7 @@ CREATE INDEX IF NOT EXISTS idx_cart_activity_abandoned
 | 0023 `create_ai_budget_limits` | `migrations/0023_create_ai_budget_limits.sql` | M12 AI | Phase 3 | BudgetCounterDO | Seed data is part of the migration — do not seed via a separate script |
 | 0024 `stock_reservations_unique_constraint` | `migrations/0024_stock_reservations_unique_constraint.sql` | M4 Inventory | Phase 1 | Cleanup cron (same milestone) | Pre-flight duplicate check is mandatory before applying |
 | 0025 `cart_activity_v7_cleanup` | `migrations/0025_cart_activity_v7_cleanup.sql` | M9 Email | Phase 2 | Abandoned-cart cron + CartDO queue/alarm race contract | Merged migration: drops legacy columns AND adds race-contract columns. Pre-flight check for legacy column existence; ARB-approved merge documented in Section 35.2. |
+| 0035 `password_reset_tokens` | `migrations/0035_password_reset_tokens.sql` | M6 Security | Phase 2 | Staff password reset UI | Creates `password_reset_tokens` (HMAC-hashed tokens, 1-hour expiry, one-time use, admin-initiated support) and `password_reset_rate_limits` (3/IP/15min) tables. |
 
 ### 35.4 Migration CI Gate
 
