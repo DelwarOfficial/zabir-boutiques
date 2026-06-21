@@ -15,7 +15,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
     {TURNSTILE_SITE_KEY ? (
-      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce={Astro.locals.cspNonce}></script>
     ) : null}
     <style is:global>
       :root {
