@@ -1,8 +1,8 @@
 ---
 import "@/styles/global.css";
+import { env } from "cloudflare:workers";
 
-const env = (Astro.locals as any).runtime?.env;
-const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
+const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
 ---
 
 <!doctype html>

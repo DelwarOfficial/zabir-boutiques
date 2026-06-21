@@ -2,9 +2,9 @@
 import RootLayout from "@/layouts/RootLayout.astro";
 import CheckoutSkeleton from "@/components/checkout/CheckoutSkeleton.astro";
 import { GuestCheckout } from "@/islands/GuestCheckout";
+import { env } from "cloudflare:workers";
 
-const env = (Astro.locals as any).runtime?.env;
-const turnstileSiteKey: string | undefined = env?.TURNSTILE_SITE_KEY;
+const turnstileSiteKey: string | undefined = env.TURNSTILE_SITE_KEY;
 ---
 
 <RootLayout title="Guest Checkout | Zabir Boutiques">
