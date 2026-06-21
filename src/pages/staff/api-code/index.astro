@@ -25,7 +25,7 @@ try {
   {needsStepUp ? (
     <StepUpRequired message="API Key management requires recent authentication." />
   ) : (
-  <div> class="flex justify-between items-center mb-6">
+  <div class="flex justify-between items-center mb-6">
     <h1 class="m-0 text-xl font-bold">API Keys</h1>
     {canMintKeys && <button id="createKeyBtn" class="px-4 py-2 bg-brand text-white border-0 rounded cursor-pointer text-sm font-semibold" onclick="showCreateForm()">+ New Key</button>}
   </div>
