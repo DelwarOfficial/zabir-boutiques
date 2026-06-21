@@ -1,20 +1,38 @@
-import { createHmac } from 'node:crypto';
+import { randomBytes, subtle } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 
-const SESSION_SECRET = readFileSync('.env.local', 'utf-8')
-  .split('\n')
-  .find(l => l.startsWith('SESSION_SECRET='))
-  ?.split('=', 2)[1]
-  ?.trim() ?? 'dev-session-secret-at-least-32-chars-long-for-hmac';
+const env = Object.fromEntries(
+  readFileSync('.env.local', 'utf-8')
+    .split('\n')
+    .filter(l => l && !l.startsWith('#'))
+    .map(l => l.split('=', 2))
+    .map(([k, v]) => [k.trim(), (v ?? '').trim()])
+);
+
+const PASSWORD_PEPPER = env.PASSWORD_PEPPER || 'dev-pepper-kx8mQn9pL2wR4vY7bJ5hG3tF6cA0sD1e';
+
+async function pbkdf2Hash(password: string, salt: string): Promise<string> {
+  const combinedSalt = new TextEncoder().encode(salt + PASSWORD_PEPPER);
+  const keyMaterial = await subtle.importKey(
+    'raw', new TextEncoder().encode(password),
+    { name: 'PBKDF2' }, false, ['deriveBits']
+  );
+  const derivedBits = await subtle.deriveBits(
+    { name: 'PBKDF2', salt: combinedSalt, iterations: 100000, hash: 'SHA-256' },
+    keyMaterial, 256
+  );
+  return Array.from(new Uint8Array(derivedBits)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
 
 const STAFF = {
-  email: 'admin@zabirboutiques.com',
+  email: 'admin@zabrboutiques.com',
   phone: '+8801712345678',
-  password: 'admin123',
-  passwordHash: createHmac('sha256', SESSION_SECRET).update('admin123').digest('hex'),
+  password: 'jOurNameList21',
+  passwordSalt: randomBytes(16).toString('hex'),
   full_name: 'Admin User',
   role: 'super_admin'
 };
+STAFF['passwordHash'] = await pbkdf2Hash(STAFF.password, STAFF.passwordSalt);
 
 const CATEGORIES = [
   { id: 'a1000000-0000-4000-8000-000000000001', name: 'Pakistani Collection', slug: 'pakistani-collection', sort_order: 1 },
@@ -40,8 +58,8 @@ function generateSQL(): string {
   let sql = '-- Zabir Boutiques v6.8A Seed Data\n';
   // Use fixed UUIDs for all seed rows so re-seed is idempotent
   const STAFF_ID = '59cd9624-966b-4930-a6a0-db3707c904ab';
-  sql += `INSERT OR REPLACE INTO staff_users (id, email, phone, password_hash, full_name, role, is_active, created_at, updated_at)\n`;
-  sql += `  VALUES ('${STAFF_ID}', '${STAFF.email}', '${STAFF.phone}', '${STAFF.passwordHash}', '${STAFF.full_name}', '${STAFF.role}', 1, '${now}', '${now}');\n\n`;
+  sql += `INSERT OR REPLACE INTO staff_users (id, email, phone, password_hash, password_salt, full_name, role, is_active, created_at, updated_at)\n`;
+  sql += `  VALUES ('${STAFF_ID}', '${STAFF.email}', '${STAFF.phone}', '${STAFF.passwordHash}', '${STAFF.passwordSalt}', '${STAFF.full_name}', '${STAFF.role}', 1, '${now}', '${now}');\n\n`;
 
   for (const cat of CATEGORIES) {
     sql += `INSERT OR REPLACE INTO categories (id, name, slug, sort_order, is_active, created_at, updated_at)\n`;
