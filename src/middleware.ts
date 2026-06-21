@@ -44,6 +44,12 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   const cspNonce = generateRandomHex(16);
   context.locals.cspNonce = cspNonce;
 
+  if (url.hostname === 'www.zabirboutiques.com') {
+    url.hostname = 'zabirboutiques.com';
+    url.protocol = 'https:';
+    return withSecurityHeaders(Response.redirect(url.toString(), 301), cspNonce, request);
+  }
+
   if (url.pathname === '/api/staff/login' && !SAFE_METHODS.has(request.method) && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
     return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }), cspNonce, request);
   }
