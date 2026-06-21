@@ -3,6 +3,7 @@
 
   // ── Worker identity ─────────────────────────────────────────────────
   "name": "zabirboutiques",
+  "account_id": "af7705b11e233be168f7a116c66cc812",
   "main": "./src/entry-cloudflare.ts",
   "compatibility_date": "2026-06-04",
   "compatibility_flags": ["nodejs_compat"],
