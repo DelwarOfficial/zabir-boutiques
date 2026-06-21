@@ -2757,6 +2757,11 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] Dynamic routes do NOT set `prerender = false` (redundant noise — they are dynamic by default under `output: 'server'`).
 - [ ] No PII logs.
 - [ ] Tests cover D1 constraint failures.
+- [ ] Bangla localization follows v1 scope: URLs are Latin-only matching `^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`; Bangla requested via `?lang=bn`; `<html lang="bn">` only on translated pages. Cross-script search synonyms are post-launch (D-46, D-47).
+- [ ] D1 FTS5 search uses `unicode61` tokenizer with `tokenchars='_৳'`. Search query is lowercased and NFC-normalized. Insert and query tokenizer settings are identical (D-51).
+- [ ] Product publish/update writes are transactional and keep `products_fts` in sync (D-48). nullable `name_bn` presence on `products` is mirrored in `products_fts` (D-49).
+- [ ] Webhook vs reconciliation uses Section 11.5.1 canonical UPSERT SQL with `last_status_change_at <= COALESCE(...)` check to reject stale state (D-31 series).
+- [ ] Bangladesh VAT launch scope is computed server-side from `VAT_RATE_PERCENT` (default 0); deferred limitations are acknowledged in `audit_log` via `OWNER_ACK_BD_VAT_MVP` row (Guardrail 48).
 
 ### Agent Awareness of Operational Sections
 
@@ -2948,6 +2953,11 @@ The checklist is executed by a CI job (`guardrail-audit.yml`) AND verified manua
 | 18 | No PII in logs | Structured log scan over the last 7 days of staging logs | Zero findings |
 | 19 | All staff routes behind Zero Trust | Cloudflare Access config audit | All `/staff/*` and `/api/staff/*` paths covered |
 | 20 | All webhooks verify HMAC | Code path audit | No webhook handler without `verifyHmac()` call |
+| 21 | Public route URLs are Latin-only | `rg "[^\x00-\x7F]" src/pages/[a-z]*/` excluding `pages/api/` | Zero non-ASCII characters in public URL paths (D-46) |
+| 22 | No unauthorized synonyms or colloquial files | `rg "synonyms\.\(txt\|json\)\|cross.*script.*map" src/lib/search/` | Zero files matching search colloquialisms without ARB ticket (D-47) |
+| 23 | Bangladesh VAT MVP owner acknowledgement is present in `audit_log` | D1 query: `SELECT COUNT(*) FROM audit_log WHERE event_type = 'OWNER_ACK_BD_VAT_MVP'` | Row exists with valid owner signature (Guardrail 48) |
+| 24 | Payment webhook UPSERT uses canonical SQL with `transition`-aware timestamp checking | `rg "last_status_change_at <= COALESCE" src/lib/integrations/` | 100% adherence to status race-prevention query in Section 11.5.1 (Guardrail 49) |
+| 25 | POS void integration tests pass the Section 37.7 compensating matrix | Execution of `vitest run tests/pos-matrix.test.ts` | All POS-01 through POS-11 assertions PASS (Guardrail 50) |
 
 Any check that cannot be automated is marked `MANUAL` and requires the RC's initials next to it in the release record.
 
