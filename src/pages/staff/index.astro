@@ -3,6 +3,7 @@ import StaffLayout from "@/layouts/StaffLayout.astro";
 import { getCurrentStaffUser, can } from "../../lib/rbac";
 import { getEnv } from "../../lib/env";
 import { nowSql } from "../../lib/dates";
+import { MetricCard } from "@/components/staff/dashboard/MetricCard";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
@@ -59,12 +60,7 @@ const statCards: Array<{ label: string; value: number | string; tone: "brand" | 
   { label: "Low-stock alerts", value: stats.lowStockAlerts, tone: stats.lowStockAlerts > 0 ? "danger" : "info" },
 ];
 
-const toneClass: Record<string, string> = {
-  brand: "text-[var(--brand)]",
-  warn: "text-amber-600",
-  info: "text-cyan-600",
-  danger: "text-[var(--danger)]",
-};
+
 ---
 
 <StaffLayout title="Dashboard" user={user}>
@@ -80,16 +76,11 @@ const toneClass: Record<string, string> = {
 
   <div class="stagger grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
     {statCards.map((s) => (
-      <div class="shell-card p-4 shine-card press">
-        <div class="flex items-start justify-between">
-          <p class="text-[10px] font-extrabold uppercase tracking-wider text-[var(--muted)]">{s.label}</p>
-          <span class="h-1.5 w-1.5 rounded-full bg-current opacity-60" aria-hidden="true"></span>
-        </div>
-        <p class={`tabular mt-1 text-3xl font-extrabold ${toneClass[s.tone]}`}>{s.value}{s.suffix ? <span class="ml-1 text-xs font-semibold text-[var(--muted)]">{s.suffix}</span> : null}</p>
-        {s.label === "Today's orders" && (
-          <p class="mt-1 text-[11px] text-[var(--muted)] tabular">৳{(stats.todayRevenue / 100).toFixed(0)} revenue</p>
-        )}
-      </div>
+      <MetricCard 
+        title={s.label}
+        value={s.value}
+        description={s.label === "Today's orders" ? `৳ ${(stats.todayRevenue / 100).toFixed(0)} revenue` : s.suffix ?? "Zabir Boutiques"}
+      />
     ))}
   </div>
 
