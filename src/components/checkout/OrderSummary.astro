@@ -1,0 +1,40 @@
+---
+import { formatPaisa } from "@/lib/money";
+
+interface Props {
+  subtotalPaisa: number;
+  shippingPaisa: number;
+  discountPaisa?: number;
+  class?: string;
+}
+
+const { subtotalPaisa, shippingPaisa, discountPaisa = 0, class: className = '' } = Astro.props;
+const totalPaisa = Math.max(0, subtotalPaisa + shippingPaisa - discountPaisa);
+---
+
+<div class={`shell-card p-5 space-y-4 bg-[var(--surface-storefront)] ${className}`}>
+  <h3 class="text-sm font-extrabold uppercase tracking-wider text-[var(--ink-storefront)] border-b border-[var(--border-storefront)] pb-3">
+    Order Summary
+  </h3>
+
+  <div class="space-y-2 text-xs tabular">
+    <div class="flex justify-between text-[var(--ink-storefront-secondary)]">
+      <span>Subtotal</span>
+      <span class="font-bold">{formatPaisa(subtotalPaisa)}</span>
+    </div>
+    <div class="flex justify-between text-[var(--ink-storefront-secondary)]">
+      <span>Shipping</span>
+      <span class="font-bold">{formatPaisa(shippingPaisa)}</span>
+    </div>
+    {discountPaisa > 0 && (
+      <div class="flex justify-between text-[var(--success-storefront)] font-semibold">
+        <span>Coupon Discount</span>
+        <span>-{formatPaisa(discountPaisa)}</span>
+      </div>
+    )}
+    <div class="flex justify-between border-t border-[var(--border-storefront)] pt-3 text-sm font-bold text-[var(--ink-storefront)]">
+      <span>Total</span>
+      <span class="text-[var(--brand-storefront)]">{formatPaisa(totalPaisa)}</span>
+    </div>
+  </div>
+</div>

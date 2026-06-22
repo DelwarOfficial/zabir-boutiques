@@ -35,9 +35,45 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [status, setStatus] = useState<CheckoutStatus>({ type: "idle" });
   const [step, setStep] = useState<Step>(0);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscount, setCouponDiscount] = useState(0);
   const idempotencyKeyRef = useRef<string | null>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('zb-coupon');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.code && typeof parsed.discountPaisa === 'number') {
+          setCouponCode(parsed.code);
+          setCouponDiscount(parsed.discountPaisa);
+        }
+      } catch {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!couponCode) return;
+    fetch('/api/checkout/validate-coupon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: couponCode, subtotalPaisa: cart.subtotalPaisa })
+    })
+      .then(res => res.json())
+      .then(data => {
+        if (data.ok) {
+          setCouponDiscount(data.discountPaisa);
+          localStorage.setItem('zb-coupon', JSON.stringify({ code: data.code, discountPaisa: data.discountPaisa }));
+        } else {
+          setCouponCode("");
+          setCouponDiscount(0);
+          localStorage.removeItem('zb-coupon');
+        }
+      })
+      .catch(() => {});
+  }, [cart.subtotalPaisa, couponCode]);
 
   useEffect(() => {
     if (!turnstileSiteKey) return;
@@ -70,7 +106,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
   const shippingPaisa = SHIPPING_COST[zone];
-  const totalPaisa = addPaisa([cart.subtotalPaisa, shippingPaisa]);
+  const totalPaisa = Math.max(0, addPaisa([cart.subtotalPaisa, shippingPaisa]) - couponDiscount);
   const distinctItemCount = cart.items.length;
   const prepaymentRequired = distinctItemCount > 2 && paymentMethod === "cod";
   const advancePaisa = prepaymentRequired ? ((totalPaisa + 1) >> 1) : 0;
@@ -109,6 +145,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
                 phone: phoneE164,
                 address: address.trim(),
               },
+              couponCode: couponCode || undefined,
               payment_method: method,
               shipping_zone: zone,
               turnstile,
@@ -161,6 +198,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
 
         idempotencyKeyRef.current = null;
         cart.clear();
+        localStorage.removeItem('zb-coupon');
         setStatus({ type: "success", orderNumber: payload.order_number || "Pending", redirectUrl: payload.checkout_url });
         if (payload.checkout_url) {
           window.setTimeout(() => { window.location.href = payload.checkout_url as string; }, 1500);
@@ -455,7 +493,13 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
           <div className="mt-4 space-y-1.5 border-t border-[var(--line)] pt-3 text-sm tabular">
             <div className="flex justify-between gap-3"><span className="text-[var(--muted)]">Subtotal</span><strong>{formatPaisa(cart.subtotalPaisa)}</strong></div>
             <div className="flex justify-between gap-3"><span className="text-[var(--muted)]">Shipping</span><strong>{formatPaisa(shippingPaisa)}</strong></div>
-            <div className="flex justify-between gap-3 border-t border-[var(--line)] pt-2 text-base"><span>Total</span><strong>{formatPaisa(totalPaisa)}</strong></div>
+            {couponDiscount > 0 && (
+              <div className="flex justify-between gap-3 text-[var(--success)] font-semibold">
+                <span>Discount ({couponCode})</span>
+                <span>-{formatPaisa(couponDiscount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-3 border-t border-[var(--line)] pt-2 text-base"><span>Total</span><strong className="text-[var(--brand-storefront)]">{formatPaisa(totalPaisa)}</strong></div>
           </div>
         </aside>
       </div>

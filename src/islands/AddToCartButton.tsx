@@ -25,24 +25,55 @@ export function AddToCartButton(props: Props) {
   const cart = useLocalCart();
   const [added, setAdded] = useState(false);
   const [pulse, setPulse] = useState(false);
-  const disabled = props.availableQuantity <= 0;
+
+  const [activeVariantId, setActiveVariantId] = useState(props.variantId);
+  const [activeVariantLabel, setActiveVariantLabel] = useState(props.variantLabel);
+  const [activeQty, setActiveQty] = useState(props.availableQuantity);
+  const [activePrice, setActivePrice] = useState(props.unitPricePaisa);
+
+  useEffect(() => {
+    function handleVariantChange(e: Event) {
+      const customEvent = e as CustomEvent<{
+        productId: string;
+        variantId: string;
+        variantLabel: string;
+        availableQuantity: number;
+        pricePaisa: number;
+      }>;
+      if (customEvent.detail.productId === props.productId) {
+        setActiveVariantId(customEvent.detail.variantId);
+        setActiveVariantLabel(customEvent.detail.variantLabel);
+        setActiveQty(customEvent.detail.availableQuantity);
+        setActivePrice(customEvent.detail.pricePaisa);
+      }
+    }
+    window.addEventListener('zb-variant-changed', handleVariantChange);
+    return () => window.removeEventListener('zb-variant-changed', handleVariantChange);
+  }, [props.productId]);
+
+  const disabled = activeQty <= 0;
   const isSticky = props.variant === "sticky";
 
   function add() {
     if (disabled) return;
     cart.addItem({
       productId: props.productId,
-      variantId: props.variantId,
+      variantId: activeVariantId,
       title: props.title,
       imageUrl: props.imageUrl,
-      variantLabel: props.variantLabel,
-      unitPricePaisa: props.unitPricePaisa,
+      variantLabel: activeVariantLabel,
+      unitPricePaisa: activePrice,
       quantity: 1,
-      availableQuantity: props.availableQuantity,
+      availableQuantity: activeQty,
     });
     tryVibrate();
     setAdded(true);
     setPulse(true);
+
+    if (typeof (window as any).showToast === 'function') {
+      (window as any).showToast(`Added ${props.title} (${activeVariantLabel}) to cart!`, 'success');
+    }
+
     window.setTimeout(() => setAdded(false), 1400);
     window.setTimeout(() => setPulse(false), 600);
   }

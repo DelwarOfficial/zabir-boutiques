@@ -1,53 +1,56 @@
 ---
 import { ThemeToggle } from "@/islands/ThemeToggle";
-const facebookUrl = "https://www.facebook.com/zabirboutiques";
+import { Search } from "@/islands/Search";
 ---
 
 <header class="sticky top-0 z-40 glass-nav safe-top">
-  <div class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-2 px-4 md:px-8 lg:px-16">
-    <!-- Logo -->
-    <a href="/" class="flex min-w-0 items-center gap-3 leading-tight press" aria-label="Zabir Boutiques home">
-      <span class="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--ink)] ring-2 ring-[var(--line)] transition-transform duration-300 hover:scale-105 active:scale-95">
-        <img src="/assets/zabir-logo.jpg" alt="" width="40" height="40" class="h-full w-full object-cover" />
-        <span class="absolute inset-0 rounded-full ring-1 ring-[var(--brand)]/40" aria-hidden="true"></span>
-      </span>
-      <span class="min-w-0 hidden sm:block">
-        <strong class="block truncate text-[15px] font-extrabold tracking-tight text-[var(--ink)]">Zabir Boutiques</strong>
-        <span class="block truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Wari · Dhaka</span>
-      </span>
-    </a>
+  <div class="mx-auto flex h-16 max-w-7xl items-center justify-between gap-3 px-4 md:px-8 lg:px-16">
+    <!-- Left Menu Trigger & Logo -->
+    <div class="flex items-center gap-1 sm:gap-2 min-w-0">
+      <!-- Hamburger Menu (Mobile Only) -->
+      <button 
+        type="button" 
+        onclick="window.dispatchEvent(new CustomEvent('zb-menu-open'))"
+        class="tap-44 md:hidden grid place-items-center rounded-full text-[var(--ink-secondary)] hover:text-[var(--brand-storefront)] transition cursor-pointer"
+        aria-label="Open navigation menu"
+      >
+        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+      </button>
 
-    <!-- Search (desktop only) -->
-    <label class="hidden md:flex relative w-full max-w-md">
-      <span class="sr-only">Search products</span>
-      <svg class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--muted)]" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
-      <input
-        type="search"
-        name="q"
-        placeholder="Search products, e.g. kurti, jewelry, bag…"
-        class="control w-full pl-9 pr-4 h-10 rounded-full text-sm bg-[var(--surface)] border-[var(--line)] focus:border-[var(--brand)]"
-        autocomplete="off"
-        oninput="if(this.value.length>1){location.href='/categories/all?q='+encodeURIComponent(this.value)}"
-      />
-    </label>
+      <!-- Logo -->
+      <a href="/" class="flex min-w-0 items-center gap-2.5 leading-tight press" aria-label="Zabir Boutiques home">
+        <span class="relative grid h-10 w-10 shrink-0 place-items-center overflow-hidden rounded-full bg-[var(--ink)] ring-2 ring-[var(--line)] transition-transform duration-300 hover:scale-105 active:scale-95">
+          <img src="/assets/zabir-logo.jpg" alt="" width="40" height="40" class="h-full w-full object-cover" />
+          <span class="absolute inset-0 rounded-full ring-1 ring-[var(--brand)]/40" aria-hidden="true"></span>
+        </span>
+        <span class="min-w-0 hidden sm:block">
+          <strong class="block truncate text-[14px] font-extrabold tracking-tight text-[var(--ink)]">Zabir Boutiques</strong>
+          <span class="block truncate text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Wari · Dhaka</span>
+        </span>
+      </a>
+    </div>
+
+    <!-- Category Nav (Desktop Only) -->
+    <nav class="hidden md:flex items-center gap-5 text-xs font-bold uppercase tracking-wider text-[var(--ink-secondary)]">
+      <a href="/categories/pakistani-collection" class="hover:text-[var(--brand-storefront)] transition">Pakistani</a>
+      <a href="/categories/indian-collection" class="hover:text-[var(--brand-storefront)] transition">Indian</a>
+      <a href="/categories/zb-stitch" class="hover:text-[var(--brand-storefront)] transition">ZB Stitch</a>
+    </nav>
+
+    <!-- Search autocomplete Island (Visible on md+) -->
+    <div class="hidden md:block flex-1 max-w-xs">
+      <Search client:idle />
+    </div>
 
     <!-- Right actions -->
-    <div class="flex items-center gap-2 sm:gap-3">
-      <!-- Search trigger (mobile) -->
-      <a href="/categories/all" aria-label="Search" class="tap-44 md:hidden grid place-items-center rounded-full text-[var(--ink-secondary)] hover:text-[var(--brand)] active:scale-95 transition">
-        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+    <div class="flex items-center gap-1.5 sm:gap-3 shrink-0">
+      <!-- Search trigger (mobile icon-only links to categories search) -->
+      <a href="/categories/all" aria-label="Search page" class="tap-44 md:hidden grid place-items-center rounded-full text-[var(--ink-secondary)] hover:text-[var(--brand-storefront)] transition">
+        <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
       </a>
 
-      <!-- Facebook: icon-only on mobile, text on sm+ -->
-      <a href={facebookUrl} aria-label="Facebook page" class="press tap-44 hidden sm:inline-flex items-center justify-center gap-1.5 rounded-full border border-[var(--line)] bg-[var(--surface)] px-4 h-9 text-xs font-semibold text-[var(--brand)] transition hover:border-[var(--brand)] hover:bg-[var(--brand-light)]">
-        <svg class="h-4 w-4" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
-        </svg>
-        <span class="hidden sm:inline">Facebook</span>
-      </a>
-
-      <!-- Call: icon-only on mobile, text on sm+ -->
-      <a href="tel:+8801985516000" aria-label="Call us" class="press tap-44 inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--ink)] text-[var(--bg)] h-9 px-3 sm:px-4 text-xs font-semibold transition hover:opacity-90">
+      <!-- Call button -->
+      <a href="tel:+8801985516000" aria-label="Call us" class="press tap-44 inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--ink)] text-[var(--bg)] h-9 px-3 sm:px-4 text-xs font-bold transition hover:opacity-90">
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
         </svg>
@@ -56,6 +59,50 @@ const facebookUrl = "https://www.facebook.com/zabirboutiques";
 
       <!-- Theme toggle -->
       <ThemeToggle client:idle />
+
+      <!-- Cart Trigger Button -->
+      <button 
+        id="header-cart-btn"
+        type="button"
+        onclick="window.dispatchEvent(new CustomEvent('zb-cart-open'))"
+        class="tap-44 relative grid place-items-center rounded-full text-[var(--ink-secondary)] hover:text-[var(--brand-storefront)] transition cursor-pointer"
+        aria-label="Open cart drawer"
+      >
+        <svg class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+          <path d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/>
+        </svg>
+        <span 
+          id="header-cart-badge"
+          class="hidden absolute -top-1 -right-1 bg-[var(--brand-storefront)] text-white text-[9px] font-bold h-4 w-4 rounded-full flex items-center justify-center pop"
+        >
+          0
+        </span>
+      </button>
     </div>
   </div>
 </header>
+
+<script is:inline>
+  (function() {
+    function updateBadge() {
+      const badge = document.getElementById('header-cart-badge');
+      if (!badge) return;
+      try {
+        const raw = localStorage.getItem('zb-cart');
+        const cart = raw ? JSON.parse(raw) : [];
+        const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+        if (count > 0) {
+          badge.textContent = count > 9 ? '9+' : count;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      } catch {
+        badge.classList.add('hidden');
+      }
+    }
+    window.addEventListener('storage', updateBadge);
+    window.addEventListener('zb-cart-updated', updateBadge);
+    updateBadge();
+  })();
+</script>

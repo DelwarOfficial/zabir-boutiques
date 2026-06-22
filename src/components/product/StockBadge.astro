@@ -1,0 +1,35 @@
+---
+interface Props {
+  availableQuantity: number;
+  class?: string;
+}
+
+const { availableQuantity, class: className = '' } = Astro.props;
+const lowStock = availableQuantity > 0 && availableQuantity <= 3;
+const outOfStock = availableQuantity <= 0;
+---
+
+{lowStock && (
+  <span class={`chip chip-warning pop ${className}`}>
+    <span class="h-1.5 w-1.5 rounded-full bg-amber-500 pulse-ring" aria-hidden="true"></span>
+    Only {availableQuantity} left
+  </span>
+)}
+
+{outOfStock && (
+  <span class={`chip chip-danger pop ${className}`}>
+    Sold Out
+  </span>
+)}
+
+<style>
+  .chip-warning {
+    background: #fef3c7;
+    color: #b45309;
+    border-color: transparent;
+  }
+  .dark .chip-warning {
+    background: rgba(245, 158, 11, 0.12);
+    color: #fbbf24;
+  }
+</style>

@@ -2,9 +2,10 @@
 import RootLayout from "@/layouts/RootLayout.astro";
 import { AddToCartButton } from "@/islands/AddToCartButton";
 import { BuyNowButton } from "@/islands/BuyNowButton";
+import { ProductGallery } from "@/islands/ProductGallery";
+import { VariantSelector } from "@/islands/VariantSelector";
 import { CATALOG_PRODUCTS } from "@/data/catalog";
 import { formatPaisa } from "@/lib/money";
-import ProductImage from "@/components/product/ProductImage.astro";
 import { ogImageFromProduct } from "@/lib/image-resizing";
 import ProductDetails from "@/components/product/ProductDetails.astro";
 
@@ -19,11 +20,19 @@ const lowStock = product.availableQuantity > 0 && product.availableQuantity <= 3
 const outOfStock = product.availableQuantity <= 0;
 const SITE = Astro.site?.origin ?? "https://zabirboutiques.com";
 const ogImage = ogImageFromProduct(product.imageUrl, SITE);
+
+// Generate dummy gallery images for showcase
+const galleryImages = [
+  product.imageUrl,
+  "/assets/product-pakistani.svg",
+  "/assets/product-indian.svg"
+].filter(Boolean);
+
 const productJsonLd = JSON.stringify({
   "@context": "https://schema.org",
   "@type": "Product",
   "name": product.title,
-  "image": [ogImage],
+  "image": galleryImages,
   "description": product.title,
   "sku": product.variantId,
   "brand": { "@type": "Brand", "name": "Zabir Boutiques" },
@@ -50,67 +59,86 @@ const breadcrumbJsonLd = JSON.stringify({
 <RootLayout title={`${product.title} | Zabir Boutiques`} activeCategory={product.categorySlug} ogImage={ogImage} description={product.title}>
   <script type="application/ld+json" set:html={productJsonLd} />
   <script type="application/ld+json" set:html={breadcrumbJsonLd} />
+  
   <article class="grid gap-5 md:grid-cols-[0.9fr_1fr] fade-up">
+    <!-- Left: Gallery Island -->
     <div class="md:sticky md:top-32 self-start">
-      <div class="relative aspect-[4/5] overflow-hidden rounded-3xl bg-[var(--surface-soft)] shadow-md shine-card">
-        <ProductImage
-          imageUrl={product.imageUrl}
-          alt={product.title}
-          layout="detail"
-          siteOrigin={SITE}
-          loading="eager"
-          decoding="async"
-          fetchpriority="high"
-          class="h-full w-full object-cover"
-        />
-        {lowStock && (
-          <span class="absolute left-3 top-3 chip chip-danger pop">
-            <span class="h-1.5 w-1.5 rounded-full bg-[var(--danger)]" aria-hidden="true"></span>
-            Only {product.availableQuantity} left
-          </span>
-        )}
-        {outOfStock && (
-          <span class="absolute left-3 top-3 chip" style="background:rgba(0,0,0,0.7);color:#fff;border-color:transparent">Sold out</span>
-        )}
-      </div>
+      <ProductGallery client:idle imageUrls={galleryImages} title={product.title} />
     </div>
 
+    <!-- Right: Product info -->
     <div class="md:py-2">
       <nav class="text-[11px] uppercase tracking-[0.18em] font-bold text-[var(--muted)]" aria-label="Breadcrumb">
-        <a href="/" class="hover:text-[var(--brand)]">Home</a> <span class="mx-1">/</span>
-        <a href={`/categories/${product.categorySlug}`} class="hover:text-[var(--brand)]">{product.categorySlug.replace(/-/g, " ")}</a>
+        <a href="/" class="hover:text-[var(--brand-storefront)]">Home</a> <span class="mx-1">/</span>
+        <a href={`/categories/${product.categorySlug}`} class="hover:text-[var(--brand-storefront)]">{product.categorySlug.replace(/-/g, " ")}</a>
       </nav>
-      <h1 class="mt-2 text-2xl sm:text-3xl font-extrabold leading-tight tracking-tight">{product.title}</h1>
+      <h1 class="mt-2 text-2xl sm:text-3xl font-extrabold leading-tight tracking-tight text-[var(--ink-storefront)]">{product.title}</h1>
       <p class="mt-1 text-sm text-[var(--muted)]">{product.variantLabel}</p>
-      <p class="mt-3 text-3xl font-extrabold text-[var(--ink)] tabular">{formatPaisa(product.pricePaisa)}</p>
-      <p class={`mt-2 inline-flex items-center gap-1.5 text-xs font-bold ${outOfStock ? "text-[var(--danger)]" : lowStock ? "text-amber-600" : "text-[var(--success)]"}`}>
-        <span class={`h-1.5 w-1.5 rounded-full ${outOfStock ? "bg-[var(--danger)]" : lowStock ? "bg-amber-500" : "bg-[var(--success)]"}`} aria-hidden="true"></span>
+      
+      <!-- PDP Price element (updates dynamically on client-side variant changes) -->
+      <p id="pdp-price" class="mt-3 text-3xl font-extrabold text-[var(--ink-storefront)] tabular">{formatPaisa(product.pricePaisa)}</p>
+      
+      <p class={`mt-2 inline-flex items-center gap-1.5 text-xs font-bold ${outOfStock ? "text-[var(--danger-storefront)]" : lowStock ? "text-amber-600 animate-pulse" : "text-[var(--success-storefront)]"}`}>
+        <span class={`h-1.5 w-1.5 rounded-full ${outOfStock ? "bg-[var(--danger-storefront)]" : lowStock ? "bg-amber-500" : "bg-[var(--success-storefront)]"}`} aria-hidden="true"></span>
         {outOfStock ? "Out of stock" : lowStock ? `Only ${product.availableQuantity} in stock — order soon` : `${product.availableQuantity} in stock`}
       </p>
 
-      <div class="mt-6 grid gap-3 text-sm leading-6 text-[var(--muted)] stagger">
-        <p class="shell-card p-3 flex gap-2 items-start">
-          <svg class="h-4 w-4 mt-0.5 text-[var(--brand)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
-          Checkout reserves stock with a fresh D1 conditional update. Displayed stock is never trusted during checkout.
+      <!-- Variant Selector Island -->
+      <VariantSelector 
+        client:idle 
+        productId={product.id}
+        baseVariantId={product.variantId}
+        baseVariantLabel={product.variantLabel}
+        basePricePaisa={product.pricePaisa}
+        baseAvailableQuantity={product.availableQuantity}
+      />
+
+      <div class="mt-6 hidden md:grid grid-cols-2 gap-4">
+        <AddToCartButton
+          client:idle
+          productId={product.id}
+          variantId={product.variantId}
+          title={product.title}
+          imageUrl={product.imageUrl}
+          variantLabel={product.variantLabel}
+          unitPricePaisa={product.pricePaisa}
+          availableQuantity={product.availableQuantity}
+        />
+        <BuyNowButton
+          client:idle
+          productId={product.id}
+          variantId={product.variantId}
+          slug={product.slug}
+          quantity={1}
+          disabled={outOfStock}
+        />
+      </div>
+
+      <div class="mt-8 grid gap-3 text-sm leading-6 text-[var(--muted)] stagger">
+        <p class="shell-card p-3.5 flex gap-2 items-start text-xs">
+          <svg class="h-4 w-4 mt-0.5 text-[var(--brand-storefront)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>
+          <span>Stock reserves on D1 conditionally. Displayed stock is never trusted during checkout.</span>
         </p>
-        <p class="shell-card p-3 flex gap-2 items-start">
-          <svg class="h-4 w-4 mt-0.5 text-[var(--brand)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
-          Inside Dhaka ৳70 · Outside Dhaka ৳130. COD default; UddoktaPay available.
+        <p class="shell-card p-3.5 flex gap-2 items-start text-xs">
+          <svg class="h-4 w-4 mt-0.5 text-[var(--brand-storefront)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5"><path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7z"/><circle cx="7" cy="18" r="2"/><circle cx="17" cy="18" r="2"/></svg>
+          <span>Inside Dhaka ৳70 · Outside Dhaka ৳130. COD default; UddoktaPay available.</span>
         </p>
-        <p class="shell-card p-3 flex gap-2 items-start">
-          <svg class="h-4 w-4 mt-0.5 text-[var(--brand)] shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M21 11.5a8.38 8.38 0 01-8.5 8.5 8.5 8.5 0 01-7.6-4.7L3 21l1.7-1.9A8.38 8.38 0 0112 3a8.5 8.5 0 019 8.5z"/></svg>
-          WhatsApp +880 1985-516000 for urgent delivery.
+        <p class="shell-card p-3.5 flex gap-2 items-start text-xs">
+          <svg class="h-4 w-4 mt-0.5 text-[var(--brand-storefront)] shrink-0" fill="currentColor" viewBox="0 0 24 24"><path d="M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884"/></svg>
+          <span>WhatsApp +880 1985-516000 for urgent delivery.</span>
         </p>
       </div>
+
       <ProductDetails description={product.title} pricePaisa={product.pricePaisa} />
     </div>
   </article>
 
+  <!-- Mobile Sticky Bottom CTA -->
   <div class="sticky-cta md:hidden">
     <div class="flex items-center gap-3">
       <div class="min-w-0 flex-1">
         <p class="line-clamp-1 text-[11px] font-semibold text-[var(--muted)]">{product.title}</p>
-        <p class="text-base font-extrabold tabular">{formatPaisa(product.pricePaisa)}</p>
+        <p id="mobile-pdp-price" class="text-base font-extrabold tabular">{formatPaisa(product.pricePaisa)}</p>
       </div>
       <div class="flex gap-2">
         <div class="w-32">
@@ -140,4 +168,18 @@ const breadcrumbJsonLd = JSON.stringify({
       </div>
     </div>
   </div>
+
+  <script is:inline define:vars={{ productId: product.id }}>
+    (function() {
+      window.addEventListener('zb-variant-changed', function(e) {
+        if (e.detail.productId === productId) {
+          const formatted = '৳' + Math.floor(e.detail.pricePaisa / 100).toLocaleString('en-US');
+          const desktopPrice = document.getElementById('pdp-price');
+          const mobilePrice = document.getElementById('mobile-pdp-price');
+          if (desktopPrice) desktopPrice.textContent = formatted;
+          if (mobilePrice) mobilePrice.textContent = formatted;
+        }
+      });
+    })();
+  </script>
 </RootLayout>

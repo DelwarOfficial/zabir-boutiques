@@ -4,6 +4,10 @@ import CategoryRail from "@/components/shell/CategoryRail.astro";
 import Footer from "@/components/shell/Footer.astro";
 import { BottomNav } from "@/islands/BottomNav";
 import { PwaInstallHint } from "@/islands/PwaInstallHint";
+import { CartDrawer } from "@/islands/CartDrawer";
+import { MobileMenu } from "@/islands/MobileMenu";
+import Toast from "@/components/primitives/Toast.astro";
+import { CATALOG_CATEGORIES } from "@/data/catalog";
 import "@/styles/global.css";
 
 type Props = {
@@ -60,7 +64,7 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
 
     <title>{title}</title>
   </head>
-  <body class="font-sans antialiased">
+  <body class="font-sans antialiased bg-[var(--bg-storefront)] text-[var(--ink-storefront)]">
     <div class="min-h-dvh pb-24 md:pb-0">
       <Header />
       <CategoryRail activeSlug={activeCategory} />
@@ -69,10 +73,53 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
       </main>
       <Footer />
     </div>
+
+    <!-- Global Client Islands -->
+    <CartDrawer client:idle />
+    <MobileMenu client:idle categories={CATALOG_CATEGORIES} />
+    <Toast />
+
     <!-- Bottom nav: idle-hydrated (not blocking LCP) -->
     <BottomNav client:idle />
     <PwaInstallHint client:idle />
-    <!-- Web Vitals RUM [Master_Prompt v7.0 §21] -->
+
+    <!-- Add to Cart helper for non-island cards -->
+    <script is:inline>
+      (function() {
+        window.addItemToLocalCart = function(item) {
+          if (item.availableQuantity <= 0) return;
+          try {
+            const raw = localStorage.getItem('zb_cart_v68a') || '[]';
+            const cart = JSON.parse(raw);
+            const existing = cart.find(function(i) { return i.variantId === item.variantId; });
+            if (existing) {
+              existing.quantity += item.quantity;
+            } else {
+              cart.push(item);
+            }
+            localStorage.setItem('zb_cart_v68a', JSON.stringify(cart));
+            
+            // Sync with server if session exists
+            fetch('/api/cart', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ action: 'add', variantId: item.variantId, quantity: item.quantity })
+            }).catch(function() {});
+            
+            window.dispatchEvent(new CustomEvent('zb-cart-updated'));
+            window.dispatchEvent(new CustomEvent('zb-cart-open'));
+            
+            if (typeof window.showToast === 'function') {
+              window.showToast("Added " + item.title + " to cart!", 'success');
+            }
+          } catch (err) {
+            console.error(err);
+          }
+        };
+      })();
+    </script>
+
+    <!-- Web Vitals RUM -->
     <script>
       import { initWebVitals } from '../lib/web-vitals';
       import { registerServiceWorker } from '../lib/pwa/register';

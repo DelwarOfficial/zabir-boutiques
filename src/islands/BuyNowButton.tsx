@@ -10,9 +10,31 @@ type Props = {
   variant?: "card" | "sticky";
 };
 
-export function BuyNowButton({ productId, variantId, quantity = 1, disabled = false, variant = "card" }: Props) {
+export function BuyNowButton({ productId, variantId: initialVariantId, quantity = 1, disabled: initialDisabled = false, variant = "card" }: Props) {
   const [loading, setLoading] = useState(false);
   const isSticky = variant === "sticky";
+  const [activeVariantId, setActiveVariantId] = useState(initialVariantId);
+  const [activeDisabled, setActiveDisabled] = useState(initialDisabled);
+
+  useEffect(() => {
+    function handleVariantChange(e: Event) {
+      const customEvent = e as CustomEvent<{
+        productId: string;
+        variantId: string;
+        variantLabel: string;
+        availableQuantity: number;
+        pricePaisa: number;
+      }>;
+      if (customEvent.detail.productId === productId) {
+        setActiveVariantId(customEvent.detail.variantId);
+        setActiveDisabled(customEvent.detail.availableQuantity <= 0);
+      }
+    }
+    window.addEventListener('zb-variant-changed', handleVariantChange);
+    return () => window.removeEventListener('zb-variant-changed', handleVariantChange);
+  }, [productId]);
+
+  const disabled = activeDisabled;
 
   async function handleBuyNow() {
     if (disabled || loading) return;
@@ -24,7 +46,7 @@ export function BuyNowButton({ productId, variantId, quantity = 1, disabled = fa
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           product_id: productId,
-          variant_id: variantId,
+          variant_id: activeVariantId,
           quantity,
         }),
       });
