@@ -1,0 +1,42 @@
+---
+export type BadgeVariant = 'primary' | 'accent' | 'danger' | 'success' | 'warning' | 'neutral';
+
+interface Props {
+  variant?: BadgeVariant;
+  class?: string;
+  dismissible?: boolean;
+  onclose?: string; // Inline script/action string for onclick, e.g. "this.parentElement.remove()"
+}
+
+const {
+  variant = 'neutral',
+  class: className = '',
+  dismissible = false,
+  onclose = 'this.parentElement.remove()'
+} = Astro.props;
+
+const styles: Record<BadgeVariant, string> = {
+  primary: 'bg-[var(--brand-storefront-light)] text-[var(--brand-storefront-hover)] border-transparent',
+  accent: 'bg-[var(--brand-storefront-light)] text-[var(--brand-storefront)] border-transparent',
+  danger: 'bg-red-50 text-red-700 border-red-100 dark:bg-red-950/20 dark:text-red-400 dark:border-transparent',
+  success: 'bg-emerald-50 text-emerald-700 border-emerald-100 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-transparent',
+  warning: 'bg-amber-50 text-amber-700 border-amber-100 dark:bg-amber-950/20 dark:text-amber-400 dark:border-transparent',
+  neutral: 'bg-[var(--surface-storefront-soft)] text-[var(--ink-storefront-secondary)] border-[var(--border-storefront)]',
+};
+
+const base = 'inline-flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold rounded-full border';
+---
+
+<span class={`${base} ${styles[variant]} ${className}`}>
+  <slot />
+  {dismissible && (
+    <button
+      type="button"
+      onclick={onclose}
+      class="tap-44 -mr-1 ml-0.5 inline-flex h-3.5 w-3.5 shrink-0 items-center justify-center rounded-full hover:bg-black/10 hover:text-current focus-visible:outline-none"
+      aria-label="Remove filter/badge"
+    >
+      <svg class="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M6 18L18 6M6 6l12 12"/></svg>
+    </button>
+  )}
+</span>

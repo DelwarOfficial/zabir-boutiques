@@ -1,0 +1,64 @@
+---
+import Spinner from "./Spinner.astro";
+
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type ButtonSize = 'sm' | 'md' | 'lg';
+
+interface Props {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  loading?: boolean;
+  disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
+  href?: string;
+  class?: string;
+  id?: string;
+  [key: string]: any; // Allow passing arbitrary HTML props
+}
+
+const {
+  variant = 'primary',
+  size = 'md',
+  loading = false,
+  disabled = false,
+  type = 'button',
+  href,
+  class: className = '',
+  id,
+  ...rest
+} = Astro.props;
+
+const base = 'inline-flex items-center justify-center font-semibold rounded-xl transition-all disabled:opacity-40 disabled:cursor-not-allowed focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--brand-glow)] focus-visible:border-[var(--brand)] press tap-44 no-underline';
+
+const variants: Record<ButtonVariant, string> = {
+  primary: 'bg-[var(--brand-storefront)] text-white hover:bg-[var(--brand-storefront-hover)]',
+  secondary: 'border border-[var(--border-storefront)] bg-[var(--surface-storefront)] text-[var(--ink-storefront)] hover:bg-[var(--surface-storefront-soft)] hover:border-[var(--brand-storefront)]',
+  danger: 'bg-[var(--danger-storefront)] text-white hover:opacity-90',
+  ghost: 'text-[var(--ink-storefront-secondary)] hover:bg-[var(--surface-storefront-soft)]',
+};
+
+const sizes: Record<ButtonSize, string> = {
+  sm: 'px-3.5 py-1.5 text-xs gap-1.5 h-9',
+  md: 'px-5 py-2 text-sm gap-2 h-11',
+  lg: 'px-7 py-2.5 text-base gap-2.5 h-14',
+};
+
+const cls = `${base} ${variants[variant]} ${sizes[size]} ${className}`;
+---
+
+{
+  href ? (
+    <a href={href} class={cls} id={id} {...rest}>
+      <slot />
+    </a>
+  ) : (
+    <button type={type} disabled={disabled || loading} class={cls} id={id} {...rest}>
+      {loading && (
+        <Spinner size="sm" class="text-current shrink-0" />
+      )}
+      <span class={loading ? 'opacity-70' : ''}>
+        <slot />
+      </span>
+    </button>
+  )
+}

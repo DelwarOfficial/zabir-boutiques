@@ -1,0 +1,69 @@
+---
+interface Option {
+  value: string;
+  label: string;
+  disabled?: boolean;
+}
+
+interface Props {
+  label: string;
+  name: string;
+  options: Option[];
+  required?: boolean;
+  error?: string;
+  value?: string;
+  placeholder?: string;
+  class?: string;
+  [key: string]: any;
+}
+
+const {
+  label,
+  name,
+  options,
+  required = false,
+  error,
+  value,
+  placeholder,
+  class: className = '',
+  ...rest
+} = Astro.props;
+
+const errorId = error ? `${name}-error` : undefined;
+const borderCls = error
+  ? 'border-[var(--danger-storefront)] focus:border-[var(--danger-storefront)] focus:ring-3 focus:ring-[var(--danger-storefront)]/10'
+  : 'border-[var(--border-storefront)] focus:border-[var(--brand-storefront)] focus:ring-3 focus:ring-[var(--brand-storefront-glow)]';
+---
+
+<div class={`space-y-1.5 ${className}`}>
+  <label for={name} class="block text-xs font-semibold text-[var(--ink-storefront-secondary)] uppercase tracking-wider">
+    {label}{required && <span class="text-[var(--danger-storefront)] ml-0.5" aria-hidden="true">*</span>}
+  </label>
+  <div class="relative">
+    <select
+      id={name}
+      name={name}
+      required={required}
+      aria-describedby={errorId}
+      aria-invalid={error ? "true" : "false"}
+      class={`w-full px-4 h-11 text-sm border rounded-xl bg-[var(--surface-storefront)] text-[var(--ink-storefront)] outline-none transition-all appearance-none ${borderCls}`}
+      {...rest}
+    >
+      {placeholder && <option value="" disabled={required} selected={!value}>{placeholder}</option>}
+      {options.map(opt => (
+        <option value={opt.value} selected={value === opt.value} disabled={opt.disabled}>
+          {opt.label}
+        </option>
+      ))}
+    </select>
+    <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-[var(--muted)]">
+      <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M19 9l-7 7-7-7"/></svg>
+    </div>
+  </div>
+  {error && (
+    <p id={errorId} class="text-xs text-[var(--danger-storefront)] font-medium flex items-center gap-1.5" role="alert">
+      <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 8v4"/><path d="M12 16h.01"/></svg>
+      {error}
+    </p>
+  )}
+</div>
