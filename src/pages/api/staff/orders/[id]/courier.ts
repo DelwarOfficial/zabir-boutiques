@@ -101,7 +101,6 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({
       ok: false,
       code: shipment.errorCode ?? 'COURIER_CREATE_FAILED',
-      rawResponse: shipment.rawResponse.slice(0, 500),
     }, { status: 502 });
   }
 

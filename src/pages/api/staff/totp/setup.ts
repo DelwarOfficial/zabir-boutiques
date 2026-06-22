@@ -17,6 +17,16 @@ export async function POST(context: APIContext): Promise<Response> {
     throw err;
   }
 
+  const env = getEnv(context);
   const totp = generateTotpSecret(`${user.id}@zabir.local`);
+  await writeCriticalAuditLog(env.DB, {
+    actorStaffId: user.id,
+    actorRole: user.role,
+    action: 'totp.setup',
+    entityType: 'staff_user',
+    entityId: user.id,
+    ipAddress: clientIp(context.request),
+    userAgent: userAgent(context.request),
+  });
   return Response.json({ ok: true, secret: totp.secret, uri: totp.uri });
 }

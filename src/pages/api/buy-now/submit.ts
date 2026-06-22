@@ -50,23 +50,56 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'MISSING_SESSION', message: 'Session ID required.' }, { status: 400 });
   }
 
-  // Load session from DirectCheckoutSessionDO
-  if (!env.DIRECT_CHECKOUT_DO) {
-    return Response.json({ ok: false, code: 'SERVICE_UNAVAILABLE' }, { status: 503 });
-  }
-
-  const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
-  const stub = env.DIRECT_CHECKOUT_DO.get(id);
   const sessionBinding = {
     origin: context.request.headers.get('Origin') ?? new URL(context.request.url).origin,
     userAgent: context.request.headers.get('User-Agent') ?? '',
   };
-  const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify(sessionBinding) });
-  const sessionData = (await sessionRes.json().catch(() => null)) as {
+
+  let sessionData: {
     ok?: boolean;
     session?: { productId: string; variantId: string; quantity: number; expiresAt: string };
     error?: string;
-  } | null;
+  } | null = null;
+
+  if (env.DIRECT_CHECKOUT_DO) {
+    const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+    const stub = env.DIRECT_CHECKOUT_DO.get(id);
+    const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify(sessionBinding) });
+    sessionData = (await sessionRes.json().catch(() => null)) as typeof sessionData;
+  } else {
+    // Database fallback
+    const dbSession = await env.DB.prepare(
+      `SELECT sessionId, productId, variantId, quantity, createdAt, deletedAt
+       FROM checkout_sessions WHERE sessionId = ?1`
+    ).bind(sessionId).first<{
+      sessionId: string;
+      productId: string;
+      variantId: string;
+      quantity: number;
+      createdAt: string;
+      deletedAt: string | null;
+    }>();
+
+    if (dbSession && !dbSession.deletedAt) {
+      const createdAt = new Date(dbSession.createdAt);
+      const expiresAt = new Date(createdAt.getTime() + 30 * 60 * 1000);
+      if (expiresAt > new Date()) {
+        sessionData = {
+          ok: true,
+          session: {
+            productId: dbSession.productId,
+            variantId: dbSession.variantId,
+            quantity: dbSession.quantity,
+            expiresAt: expiresAt.toISOString(),
+          }
+        };
+      } else {
+        sessionData = { ok: false, error: 'SESSION_EXPIRED' };
+      }
+    } else {
+      sessionData = { ok: false, error: 'SESSION_NOT_FOUND' };
+    }
+  }
 
   if (!sessionData?.ok || !sessionData.session) {
     return Response.json({
@@ -101,9 +134,24 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'INVALID_ADDRESS', message: 'Delivery address is required.' }, { status: 400 });
   }
 
-  // Build cart items from session
+  // Build cart items from session (supporting variant and quantity overrides)
+  const variantIdInput = typeof body.variant_id === 'string' ? body.variant_id : '';
+  const quantityInput = Number(body.quantity) || 0;
+
+  const targetVariantId = variantIdInput || session.variantId;
+  const targetQuantity = (quantityInput >= 1 && Number.isSafeInteger(quantityInput)) ? quantityInput : session.quantity;
+
+  // Validate that the variant actually belongs to the product in the session
+  const variantResult = await env.DB.prepare(
+    `SELECT v.id FROM product_variants v WHERE v.id = ?1 AND v.product_id = ?2 AND v.is_deleted = 0`
+  ).bind(targetVariantId, session.productId).first();
+
+  if (!variantResult && targetVariantId !== session.productId) {
+    return Response.json({ ok: false, code: 'VARIANT_UNAVAILABLE', message: 'Selected variant is not available.' }, { status: 409 });
+  }
+
   const items: Array<{ variantId: string; qty: number; reservationId?: string }> = [
-    { variantId: session.variantId, qty: session.quantity },
+    { variantId: targetVariantId, qty: targetQuantity },
   ];
 
   // Idempotency
@@ -256,7 +304,16 @@ export async function POST(context: APIContext): Promise<Response> {
     ).bind(orderId, advancePaisa, balancePaisa, now).run();
 
     // Clear the direct checkout session with conversion tracking
-    await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ ...sessionBinding, orderId }) });
+    if (env.DIRECT_CHECKOUT_DO) {
+      const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+      const stub = env.DIRECT_CHECKOUT_DO.get(id);
+      await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ ...sessionBinding, orderId }) });
+    } else {
+      const nowStr = new Date().toISOString();
+      await env.DB.prepare(
+        `UPDATE checkout_sessions SET deletedAt = ?2 WHERE sessionId = ?1`
+      ).bind(sessionId, nowStr).run().catch(() => {});
+    }
 
     // Create payment checkout URL for prepaid orders (AUDIT-B-014)
     let checkoutUrl: string | null = null;
@@ -348,7 +405,16 @@ export async function POST(context: APIContext): Promise<Response> {
       await env.DB.prepare(
         `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
       ).bind(createdOrderId, advancePaisa, balancePaisa, now).run().catch(() => {});
-      await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) }).catch(() => {});
+      if (env.DIRECT_CHECKOUT_DO) {
+        const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+        const stub = env.DIRECT_CHECKOUT_DO.get(id);
+        await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) }).catch(() => {});
+      } else {
+        const nowStr = new Date().toISOString();
+        await env.DB.prepare(
+          `UPDATE checkout_sessions SET deletedAt = ?2 WHERE sessionId = ?1`
+        ).bind(sessionId, nowStr).run().catch(() => {});
+      }
       await completeIdempotency(env.DB, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
       await doComplete(env, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
       safeLog.error('[buy-now/submit] Recovered after post-order failure', { error: err instanceof Error ? err.message : String(err), orderId: createdOrderId });

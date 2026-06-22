@@ -136,7 +136,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   type="text"
                   value={settings['store.name'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.name': e.target.value })}
-                  onBlur={() => handleUpdate('store.name', settings['store.name'])}
+                  onBlur={(e) => handleUpdate('store.name', e.target.value)}
                   className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
                 {saving === 'store.name' && <span className="text-xs text-muted-foreground block">Saving...</span>}
@@ -148,7 +148,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   type="text"
                   value={settings['store.tagline'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.tagline': e.target.value })}
-                  onBlur={() => handleUpdate('store.tagline', settings['store.tagline'])}
+                  onBlur={(e) => handleUpdate('store.tagline', e.target.value)}
                   className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
                 {saving === 'store.tagline' && <span className="text-xs text-muted-foreground block">Saving...</span>}
@@ -160,7 +160,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   type="text"
                   value={settings['store.phone'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.phone': e.target.value })}
-                  onBlur={() => handleUpdate('store.phone', settings['store.phone'])}
+                  onBlur={(e) => handleUpdate('store.phone', e.target.value)}
                   className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
                 {saving === 'store.phone' && <span className="text-xs text-muted-foreground block">Saving...</span>}
@@ -172,7 +172,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   type="email"
                   value={settings['store.email'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.email': e.target.value })}
-                  onBlur={() => handleUpdate('store.email', settings['store.email'])}
+                  onBlur={(e) => handleUpdate('store.email', e.target.value)}
                   className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
                 {saving === 'store.email' && <span className="text-xs text-muted-foreground block">Saving...</span>}
@@ -183,7 +183,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                 <textarea
                   value={settings['store.address'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.address': e.target.value })}
-                  onBlur={() => handleUpdate('store.address', settings['store.address'])}
+                  onBlur={(e) => handleUpdate('store.address', e.target.value)}
                   rows={3}
                   className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
@@ -207,7 +207,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   type="number"
                   value={settings['delivery_inside_dhaka_paisa'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'delivery_inside_dhaka_paisa': e.target.value })}
-                  onBlur={() => handleUpdate('delivery_inside_dhaka_paisa', settings['delivery_inside_dhaka_paisa'])}
+                  onBlur={(e) => handleUpdate('delivery_inside_dhaka_paisa', e.target.value)}
                   className="w-full max-w-xs rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
                 {saving === 'delivery_inside_dhaka_paisa' && <span className="text-xs text-muted-foreground block">Saving...</span>}
@@ -219,7 +219,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   type="number"
                   value={settings['delivery_outside_dhaka_paisa'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'delivery_outside_dhaka_paisa': e.target.value })}
-                  onBlur={() => handleUpdate('delivery_outside_dhaka_paisa', settings['delivery_outside_dhaka_paisa'])}
+                  onBlur={(e) => handleUpdate('delivery_outside_dhaka_paisa', e.target.value)}
                   className="w-full max-w-xs rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
                 />
                 {saving === 'delivery_outside_dhaka_paisa' && <span className="text-xs text-muted-foreground block">Saving...</span>}

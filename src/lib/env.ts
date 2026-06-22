@@ -3,19 +3,18 @@ import type { Env } from '../env';
 import { env as cloudflareEnv } from 'cloudflare:workers';
 
 export function getEnv(context: APIContext): Env {
-  void context;
-  // Primary: virtual module provided by @astrojs/cloudflare adapter (advanced runtime)
-  if (cloudflareEnv && (cloudflareEnv as any).DB) {
-    return cloudflareEnv as Env;
-  }
-  // Fallback for some page/API contexts or adapter variations: runtime injected on locals
-  const localsAny = (context as any)?.locals;
-  const runtimeEnv = localsAny?.runtime?.env ?? (context as any)?.runtime?.env;
+  // Prefer per-request env from Astro + Cloudflare adapter (advanced runtime mode).
+  // This is the most reliable for bindings and secrets on a per-request basis.
+  const localsAny = (context as any)?.locals ?? {};
+  const runtimeEnv = localsAny.runtime?.env ?? (context as any)?.runtime?.env ?? (context as any)?.env;
   if (runtimeEnv && runtimeEnv.DB) {
     return runtimeEnv as Env;
   }
-  if (cloudflareEnv) {
+
+  // Fallback to the cloudflare:workers virtual module (injected by the adapter).
+  if (cloudflareEnv && (cloudflareEnv as any).DB) {
     return cloudflareEnv as Env;
   }
+
   throw new Error('Cloudflare runtime env is unavailable');
 }

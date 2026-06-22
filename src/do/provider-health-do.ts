@@ -86,7 +86,7 @@ export class ProviderHealthDO implements DurableObject, ProviderHealthDOContract
   }
 
   async recordResult(input: { provider: string; success: boolean; duration_ms: number; error_code?: string }): Promise<{ new_state: CircuitState; open_until?: string }> {
-    const res = await this.fetch(new Request('https://do/record', { method: 'POST', body: JSON.stringify({ provider: input.provider, success: input.success }) }));
+    const res = await this.fetch(new Request('https://do/record', { method: 'POST', body: JSON.stringify({ provider: input.provider, success: input.success, duration_ms: input.duration_ms, error_code: input.error_code }) }));
     const data = await res.json() as { state: CircuitState; health?: ProviderHealth };
     return { new_state: data.state, open_until: data.health?.openedAt ?? undefined };
   }

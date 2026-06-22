@@ -28,7 +28,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   await storeStaffTotpSecret(env.DB, user.id, body.secret, env);
 
-  await writeAuditLog(env.DB, {
+  await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: 'totp.enabled',

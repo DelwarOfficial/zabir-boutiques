@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import type { Category, VariantInput, CreateProductResult } from '../../types/product';
 
 interface FormData {
@@ -33,9 +33,8 @@ function CheckIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="18"
 function PlusIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14M12 5v14"/></svg>; }
 function TrashIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>; }
 
-let slugManuallyEdited = false;
-
 export default function ProductForm() {
+  const slugManuallyEdited = useRef(false);
   const [form, setForm] = useState<FormData>({
     name: '', description: '', slug: '', categoryId: '',
     pricePaisa: '', comparePricePaisa: '', status: 'draft',
@@ -60,7 +59,7 @@ export default function ProductForm() {
   function setField<K extends keyof FormData>(key: K, value: FormData[K]) {
     setForm(prev => {
       const next = { ...prev, [key]: value };
-      if (key === 'name' && !slugManuallyEdited) {
+      if (key === 'name' && !slugManuallyEdited.current) {
         next.slug = slugify(value as string);
       }
       return next;
@@ -198,7 +197,7 @@ export default function ProductForm() {
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={labelStyle}>Slug</label>
-              <input type="text" value={form.slug} onChange={e => { slugManuallyEdited = true; setField('slug', e.target.value); }}
+              <input type="text" value={form.slug} onChange={e => { slugManuallyEdited.current = true; setField('slug', e.target.value); }}
                 maxLength={200} placeholder="auto-generated from name" style={{ ...inputStyle, color: '#6b7280', fontFamily: 'monospace', fontSize: '0.78rem' }} />
             </div>
             <div style={{ gridColumn: '1 / -1' }}>

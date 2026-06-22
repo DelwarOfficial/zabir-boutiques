@@ -177,9 +177,12 @@ export async function POST(context: APIContext): Promise<Response> {
     // Determine order status
     const status = isInStore ? 'staff_confirmed' : (prepayment.required ? 'pending_payment' : 'pending_review');
 
+    const customerName = (body.name ?? '').trim();
+    if (!customerName) return Response.json({ ok: false, code: 'NAME_REQUIRED', message: 'Customer name is required.' }, { status: 400 });
+
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
       phone: phoneResult.phone,
-      name: body.name ?? '',
+      name: customerName,
       address: body.address ?? (isInStore ? 'In-store pickup' : ''),
       shipping_zone: isInStore ? undefined : resolvedShippingZone,
       note: body.note,

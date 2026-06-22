@@ -397,8 +397,8 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     // Enqueue order confirmation email [Master_Prompt v7.0 §17.2]
-    await enqueueOrderEmail(env, orderId, 'order_confirmed').catch(() => {});
-    await enqueueFraudAudit(env, orderId, phoneResult.local, score === 50 ? 'fraud_check_review' : 'post_checkout_audit').catch(() => {});
+    await enqueueOrderEmail(env, orderId, 'order_confirmed').catch((err) => safeLog.warn('[checkout] Failed to enqueue order email', { error: err instanceof Error ? err.message : String(err), orderId }));
+    await enqueueFraudAudit(env, orderId, phoneResult.local, score === 50 ? 'fraud_check_review' : 'post_checkout_audit').catch((err) => safeLog.warn('[checkout] Failed to enqueue fraud audit', { error: err instanceof Error ? err.message : String(err), orderId }));
 
     return Response.json(response, { status: 201 });
   } catch (err) {

@@ -3,6 +3,7 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission } from '../../../../lib/rbac';
 import { doSyncFromD1 } from '../../../../lib/do-client';
 import { prepareAuditLogInsert } from '../../../../lib/audit';
+import { nowSql } from '../../../../lib/dates';
 import { safeLog } from '../../../../lib/pii-scrubber';
 import { ADJUSTMENT_REASONS } from '../../../../types/inventory';
 
@@ -100,7 +101,12 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     try {
-      await doSyncFromD1(env, variantId, newStock, 0, 0);
+      const invRow = await env.DB.prepare(
+        `SELECT COALESCE(reserved_quantity, 0) AS reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1`
+      ).bind(variantId).first<{ reserved_quantity: number; sold_quantity: number }>();
+      const reservedQty = invRow?.reserved_quantity ?? 0;
+      const soldQty = invRow?.sold_quantity ?? 0;
+      await doSyncFromD1(env, variantId, newStock, reservedQty, soldQty);
     } catch (e) {
       safeLog.warn('[inventory/adjust] DO sync failed after D1 commit', { variantId, error: e instanceof Error ? e.message : String(e) });
     }
@@ -114,7 +120,7 @@ export async function POST(context: APIContext): Promise<Response> {
       adjustmentId,
     });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return Response.json({ ok: false, error: msg }, { status: 500 });
+    safeLog.error('[inventory/adjust] Unexpected error', { error: err instanceof Error ? err.message : String(err) });
+    return Response.json({ ok: false, error: 'Internal server error' }, { status: 500 });
   }
 }

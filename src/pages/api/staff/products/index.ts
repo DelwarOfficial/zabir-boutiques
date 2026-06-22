@@ -142,7 +142,9 @@ export async function POST(context: APIContext): Promise<Response> {
     const result: CreateProductResult = { ok: true, productId, variantIds };
     return Response.json(result, { status: 201 });
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return Response.json({ ok: false, error: msg }, { status: 500 });
+    if (err instanceof Error && err.message?.includes('UNIQUE constraint')) {
+      return Response.json({ ok: false, error: 'SKU already exists', code: 'DUPLICATE_SKU' }, { status: 409 });
+    }
+    return Response.json({ ok: false, error: 'Internal server error' }, { status: 500 });
   }
 }

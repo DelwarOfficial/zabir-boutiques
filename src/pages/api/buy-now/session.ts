@@ -62,12 +62,30 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, error: 'VARIANT_NOT_FOUND' }, { status: 404 });
   }
 
-  // Create the DirectCheckoutSessionDO
+  const sessionId = await createHmacSessionId(env.SESSION_SECRET);
+
+  // Create the DirectCheckoutSessionDO or fallback to D1
   if (!env.DIRECT_CHECKOUT_DO) {
-    return Response.json({ ok: false, error: 'Service unavailable' }, { status: 503 });
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, createdAt)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(
+      sessionId,
+      productId,
+      variantId,
+      quantity,
+      JSON.stringify(selectedOptions),
+      now
+    ).run();
+
+    return Response.json({
+      ok: true,
+      session_id: sessionId,
+      redirect_url: `/buy-now/${product.slug}?sid=${sessionId}`,
+    }, { status: 201 });
   }
 
-  const sessionId = await createHmacSessionId(env.SESSION_SECRET);
   const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
   const stub = env.DIRECT_CHECKOUT_DO.get(id);
   const res = await stub.fetch('https://do/create', {

@@ -12,51 +12,81 @@ import { formatPaisa } from "@/lib/money";
 import { env } from "cloudflare:workers";
 
 const { slug } = Astro.params;
-const sid = Astro.url.searchParams.get("sid");
+let sid = Astro.url.searchParams.get("sid");
 
+// 1. Direct landing page access: generate session if sid is missing
 if (!sid) {
-  return Astro.redirect(`/products/${slug ?? ""}`);
+  const product = await env.DB.prepare(
+    `SELECT p.id, p.slug, p.name, p.price_paisa
+     FROM products p
+     WHERE p.slug = ?1 AND p.status = 'published'`
+  ).bind(slug).first<{
+    id: string; slug: string; name: string; price_paisa: number;
+  }>();
+
+  if (!product) {
+    return Astro.redirect("/");
+  }
+
+  const queryVariantId = Astro.url.searchParams.get("variantId");
+  let variantId = queryVariantId;
+
+  if (!variantId) {
+    const defaultVariant = await env.DB.prepare(
+      `SELECT v.id FROM product_variants v WHERE v.product_id = ?1 AND v.is_deleted = 0 ORDER BY v.size, v.color LIMIT 1`
+    ).bind(product.id).first<{ id: string }>();
+    variantId = defaultVariant?.id ?? product.id;
+  }
+
+  const queryQty = Number(Astro.url.searchParams.get("quantity")) || 1;
+
+  // Generate a new secure HMAC session ID
+  const secret = env.SESSION_SECRET || "dev-session-secret-at-least-32-chars-long-for-hmac";
+  const random = crypto.getRandomValues(new Uint8Array(32));
+  const payload = `${Date.now()}:${Array.from(random, b => b.toString(16).padStart(2, '0')).join('')}`;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  const sessionId = Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
+
+  const now = new Date();
+  if (env.DIRECT_CHECKOUT_DO) {
+    const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+    const stub = env.DIRECT_CHECKOUT_DO.get(id);
+    await stub.fetch('https://do/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        productId: product.id,
+        variantId: variantId,
+        quantity: queryQty,
+        selectedOptions: {},
+        sourcePage: `/products/${product.slug}`,
+        utmParams: Object.fromEntries(Astro.url.searchParams),
+        sessionId,
+        origin: Astro.url.origin,
+        userAgent: Astro.request.headers.get("User-Agent") ?? '',
+      }),
+    });
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, createdAt)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(
+      sessionId,
+      product.id,
+      variantId,
+      queryQty,
+      JSON.stringify({}),
+      now.toISOString()
+    ).run();
+  }
+
+  const newParams = new URLSearchParams(Astro.url.searchParams);
+  newParams.set("sid", sessionId);
+  return Astro.redirect(`/buy-now/${slug}?${newParams.toString()}`);
 }
 
-// Load session from DirectCheckoutSessionDO
+// 2. Load session from DirectCheckoutSessionDO or D1 database fallback
 const turnstileSiteKey: string | undefined = env.TURNSTILE_SITE_KEY;
-if (!env.DIRECT_CHECKOUT_DO) {
-  return Astro.redirect(`/products/${slug ?? ""}`);
-}
-
-const doId = env.DIRECT_CHECKOUT_DO.idFromName(sid);
-const stub = env.DIRECT_CHECKOUT_DO.get(doId);
-const sessionRes = await stub.fetch("https://do/get", {
-  method: "POST",
-  body: JSON.stringify({
-    origin: Astro.request.headers.get("Origin") ?? Astro.url.origin,
-    userAgent: Astro.request.headers.get("User-Agent") ?? "",
-  }),
-});
-const sessionData = (await sessionRes.json().catch(() => null)) as {
-  ok?: boolean;
-  session?: {
-    sessionId: string;
-    productId: string;
-    variantId: string;
-    quantity: number;
-    selectedOptions: Record<string, string>;
-    expiresAt: string;
-    formDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
-  };
-  error?: string;
-} | null;
-
-if (!sessionData?.ok || !sessionData.session) {
-  return Astro.redirect(`/products/${slug ?? ""}`);
-}
-
-const session = sessionData.session;
-
-// Load product from D1
-const product = await env.DB.prepare(
-  `SELECT p.id, p.slug, p.name, p.description, p.price_paisa, p.compare_price_paisa, p.status
-   FROM products p
    WHERE p.slug = ?1 AND p.status = 'published'`
 ).bind(slug).first<{
   id: string; slug: string; name: string; description: string | null;

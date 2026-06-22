@@ -1,7 +1,5 @@
 ---
 import RootLayout from "@/layouts/RootLayout.astro";
-import { AddToCartButton } from "@/islands/AddToCartButton";
-import { BuyNowButton } from "@/islands/BuyNowButton";
 import { ProductGallery } from "@/islands/ProductGallery";
 import { VariantSelector } from "@/islands/VariantSelector";
 import { CATALOG_PRODUCTS } from "@/data/catalog";
@@ -94,24 +92,22 @@ const breadcrumbJsonLd = JSON.stringify({
       />
 
       <div class="mt-6 hidden md:grid grid-cols-2 gap-4">
-        <AddToCartButton
-          client:idle
-          productId={product.id}
-          variantId={product.variantId}
-          title={product.title}
-          imageUrl={product.imageUrl}
-          variantLabel={product.variantLabel}
-          unitPricePaisa={product.pricePaisa}
-          availableQuantity={product.availableQuantity}
-        />
-        <BuyNowButton
-          client:idle
-          productId={product.id}
-          variantId={product.variantId}
-          slug={product.slug}
-          quantity={1}
-          disabled={outOfStock}
-        />
+        <button
+          type="button"
+          id="pdp-add-to-cart-btn"
+          class="press tap-44 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition-all duration-200 border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)] hover:border-[var(--brand-storefront)] hover:text-[var(--brand-storefront)] hover:bg-[var(--brand-light)] cursor-pointer"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+          <span class="btn-text">Add to cart</span>
+        </button>
+        <a
+          id="pdp-buy-now-btn"
+          href={`/buy-now/${product.slug}?variantId=${product.variantId}`}
+          class="press tap-44 flex h-11 w-full items-center justify-center gap-1.5 rounded-xl text-sm font-semibold transition-all duration-200 border border-[var(--danger-storefront)] bg-[var(--danger-storefront)]/10 text-[var(--danger-storefront)] hover:bg-[var(--danger-storefront)] hover:text-white"
+        >
+          <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+          <span>Buy Now</span>
+        </a>
       </div>
 
       <div class="mt-8 grid gap-3 text-sm leading-6 text-[var(--muted)] stagger">
@@ -142,44 +138,113 @@ const breadcrumbJsonLd = JSON.stringify({
       </div>
       <div class="flex gap-2">
         <div class="w-32">
-          <AddToCartButton
-            client:idle
-            productId={product.id}
-            variantId={product.variantId}
-            title={product.title}
-            imageUrl={product.imageUrl}
-            variantLabel={product.variantLabel}
-            unitPricePaisa={product.pricePaisa}
-            availableQuantity={product.availableQuantity}
-            variant="sticky"
-          />
+          <button
+            type="button"
+            id="mobile-pdp-add-to-cart-btn"
+            class="press tap-44 flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-base font-bold transition-all duration-200 bg-[var(--brand-storefront)] text-white shadow-[0_8px_24px_rgba(161,98,7,0.25)] hover:brightness-110 cursor-pointer"
+          >
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"/></svg>
+            <span class="btn-text">Add</span>
+          </button>
         </div>
         <div class="w-32">
-          <BuyNowButton
-            client:idle
-            productId={product.id}
-            variantId={product.variantId}
-            slug={product.slug}
-            quantity={1}
-            disabled={outOfStock}
-            variant="sticky"
-          />
+          <a
+            id="mobile-pdp-buy-now-btn"
+            href={`/buy-now/${product.slug}?variantId=${product.variantId}`}
+            class="press tap-44 flex h-14 w-full items-center justify-center gap-2 rounded-2xl text-base font-bold transition-all duration-200 bg-[var(--danger-storefront)] text-white shadow-[0_8px_24px_rgba(220,38,38,0.25)] hover:brightness-110"
+          >
+            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+            <span>Buy Now</span>
+          </a>
         </div>
       </div>
     </div>
   </div>
 
-  <script is:inline define:vars={{ productId: product.id }}>
+  <script is:inline define:vars={{ product }}>
     (function() {
+      const productId = product.id;
+      let activeVariantId = product.variantId;
+      let activeVariantLabel = product.variantLabel;
+      let activePricePaisa = product.pricePaisa;
+      let activeQty = product.availableQuantity;
+
+      function updateButtons() {
+        const desktopAddBtn = document.getElementById('pdp-add-to-cart-btn');
+        const mobileAddBtn = document.getElementById('mobile-pdp-add-to-cart-btn');
+        const desktopBuyBtn = document.getElementById('pdp-buy-now-btn');
+        const mobileBuyBtn = document.getElementById('mobile-pdp-buy-now-btn');
+
+        const isOutOfStock = activeQty <= 0;
+
+        [desktopAddBtn, mobileAddBtn].forEach(btn => {
+          if (!btn) return;
+          if (isOutOfStock) {
+            btn.disabled = true;
+            btn.classList.add('cursor-not-allowed', 'opacity-50');
+            btn.classList.remove('press');
+            const textNode = btn.querySelector('.btn-text');
+            if (textNode) textNode.textContent = btn.id.includes('mobile') ? "Sold Out" : "Out of stock";
+            btn.onclick = null;
+          } else {
+            btn.disabled = false;
+            btn.classList.remove('cursor-not-allowed', 'opacity-50');
+            btn.classList.add('press');
+            const textNode = btn.querySelector('.btn-text');
+            if (textNode) textNode.textContent = btn.id.includes('mobile') ? "Add" : "Add to cart";
+            
+            btn.onclick = function() {
+              if (typeof window.addItemToLocalCart === 'function') {
+                window.addItemToLocalCart({
+                  productId: productId,
+                  variantId: activeVariantId,
+                  title: product.title,
+                  imageUrl: product.imageUrl,
+                  variantLabel: activeVariantLabel,
+                  unitPricePaisa: activePricePaisa,
+                  quantity: 1,
+                  availableQuantity: activeQty
+                });
+              }
+            };
+          }
+        });
+
+        [desktopBuyBtn, mobileBuyBtn].forEach(btn => {
+          if (!btn) return;
+          if (isOutOfStock) {
+            btn.removeAttribute('href');
+            btn.classList.add('cursor-not-allowed', 'opacity-50');
+            btn.classList.remove('press');
+            btn.onclick = function(e) { e.preventDefault(); };
+          } else {
+            btn.href = `/buy-now/${product.slug}?variantId=${activeVariantId}`;
+            btn.classList.remove('cursor-not-allowed', 'opacity-50');
+            btn.classList.add('press');
+            btn.onclick = null;
+          }
+        });
+      }
+
       window.addEventListener('zb-variant-changed', function(e) {
         if (e.detail.productId === productId) {
-          const formatted = '৳' + Math.floor(e.detail.pricePaisa / 100).toLocaleString('en-US');
+          activeVariantId = e.detail.variantId;
+          activeVariantLabel = e.detail.variantLabel;
+          activePricePaisa = e.detail.pricePaisa;
+          activeQty = e.detail.availableQuantity;
+
+          const formatted = '৳' + Math.floor(activePricePaisa / 100).toLocaleString('en-US');
           const desktopPrice = document.getElementById('pdp-price');
           const mobilePrice = document.getElementById('mobile-pdp-price');
           if (desktopPrice) desktopPrice.textContent = formatted;
           if (mobilePrice) mobilePrice.textContent = formatted;
+
+          updateButtons();
         }
       });
+
+      // Initial run
+      updateButtons();
     })();
   </script>
 </RootLayout>

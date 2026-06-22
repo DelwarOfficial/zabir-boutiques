@@ -16,12 +16,12 @@
  *   auditor      → read-only audit + reports
  */
 import type { APIContext } from 'astro';
-import { env as cloudflareEnv } from 'cloudflare:workers';
 import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
 import { safeLog } from './pii-scrubber';
 import { writeAuditLog } from './audit';
 import { readStaffSessionCookie } from './staff-cookies';
+import { getEnv } from './env';
 
 export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
 
@@ -216,25 +216,33 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const locals = context.locals as App.Locals | undefined;
   if (locals?.staffUserResolved) return locals.staffUser ?? null;
 
-  const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string; SESSION?: KVNamespace };
-  if (!env?.DB || !env.SESSION_SECRET) return null;
+  let fullEnv: any;
+  try {
+    fullEnv = getEnv(context);
+  } catch {
+    return null;
+  }
+  const db = fullEnv.DB as D1Database | undefined;
+  const sessionSecret = fullEnv.SESSION_SECRET as string | undefined;
+  const sessionKV = fullEnv.SESSION as KVNamespace | undefined;
+  if (!db || !sessionSecret) return null;
 
   const sessionToken = readStaffSessionCookie(context.request);
   if (!sessionToken) return null;
 
-  const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
+  const tokenHash = await hashSessionToken(sessionToken, sessionSecret);
   const now = nowSql();
 
   // Extract from KV when available (Task 5). D1 is still used for authoritative revocation/idle checks.
   let kvCachedRole: string | null = null;
-  if (env.SESSION) {
+  if (sessionKV) {
     try {
-      const cached = await env.SESSION.get(`staff-session:${tokenHash}`, 'json') as any;
+      const cached = await sessionKV.get(`staff-session:${tokenHash}`, 'json') as any;
       if (cached && cached.role && isValidStaffRole(cached.role)) kvCachedRole = cached.role;
     } catch {}
   }
 
-  const row = await env.DB.prepare(
+  const row = await db.prepare(
     `SELECT s.id AS session_id, s.staff_user_id, u.role, u.full_name, s.last_active_at
      FROM staff_sessions s
      JOIN staff_users u ON u.id = s.staff_user_id
@@ -311,7 +319,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   // concurrent request, the guard causes 0 changes and we still return
   // the user (the revoke + our no-op refresh is benign; the next
   // request will hit the idle check or find is_revoked=1).
-  env.DB.prepare(
+  db.prepare(
     `UPDATE staff_sessions
      SET last_active_at = ?2, expires_at = ?3
      WHERE id = ?1 AND is_revoked = 0`,
@@ -338,8 +346,8 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   };
 
   // Cache to KV for subsequent extractions (Task 5)
-  if (env.SESSION) {
-    env.SESSION.put(
+  if (sessionKV) {
+    sessionKV.put(
       `staff-session:${tokenHash}`,
       JSON.stringify(staffUser),
       { expirationTtl: 30 * 60 }
