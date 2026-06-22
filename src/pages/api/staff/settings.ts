@@ -1,9 +1,10 @@
 /**
- * GET /api/staff/settings — list all site settings (settings.manage permission required)
+ * GET /api/staff/settings — list site settings (settings.manage permission required)
+ * Platform-group settings are only returned for super_admin.
  */
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
-import { requireAuth, requirePermission } from '../../../lib/rbac';
+import { requireAuth, requirePermission, isSuperAdmin } from '../../../lib/rbac';
 
 export async function GET(context: APIContext): Promise<Response> {
   const user = await requireAuth(context);
@@ -16,5 +17,9 @@ export async function GET(context: APIContext): Promise<Response> {
      ORDER BY group_name, sort_order, key`
   ).all<{ key: string; value: string; type: string; label: string; description: string; group_name: string; sort_order: number }>();
 
-  return Response.json({ ok: true, settings: rows.results || [] });
+  const settings = isSuperAdmin(user.role)
+    ? (rows.results || [])
+    : (rows.results || []).filter(s => s.group_name !== 'platform');
+
+  return Response.json({ ok: true, settings });
 }

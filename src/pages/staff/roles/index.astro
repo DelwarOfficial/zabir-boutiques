@@ -2,7 +2,7 @@
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
 import StepUpRequired from '@/components/staff/StepUpRequired.astro';
-import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getCurrentStaffUser, isSuperAdmin } from '../../../lib/rbac';
 import { getEnv } from '../../../lib/env';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../lib/critical-auth';
 import { readCsrfCookie } from '../../../lib/csrf';
@@ -11,7 +11,7 @@ import RbacManager from '../../../islands/staff/RbacManager.tsx';
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
-if (!can(user.role, 'roles.manage')) return new Response('Forbidden', { status: 403 });
+if (!isSuperAdmin(user.role)) return new Response('Forbidden', { status: 403 });
 
 let needsStepUp = false;
 try {

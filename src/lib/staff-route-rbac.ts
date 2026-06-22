@@ -29,7 +29,7 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/roles')) return 'roles.manage';
   if (p.includes('/users')) return 'staff.manage';
   if (p.includes('/settings')) return 'settings.manage';
-  if (p.includes('/backups')) return 'backups.read';
+  if (p.includes('/backups')) return 'backups.restore';
   if (p.includes('/audit')) return 'system.audit.view';
 
   if (p.includes('/products/categories')) return 'products.manage';
