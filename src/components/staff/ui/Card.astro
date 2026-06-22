@@ -1,0 +1,32 @@
+---
+interface Props {
+  title?: string;
+  subtitle?: string;
+  padding?: boolean;
+  hover?: boolean;
+}
+
+const { title, subtitle, padding = true, hover } = Astro.props;
+const hasHeader = title !== undefined && Astro.slots.has('title');
+const hasAction = Astro.slots.has('action');
+---
+
+<div class={`bg-surface border border-line rounded-lg shadow-sm ${hover ? 'hover:shadow-md transition-shadow' : ''}`}>
+  {(hasHeader || hasAction) && (
+    <div class="flex items-center justify-between px-4 sm:px-6 py-4 border-b border-line">
+      <div>
+        {title && <h3 class="text-base font-semibold text-ink m-0">{title}</h3>}
+        {subtitle && <p class="text-xs text-muted mt-0.5 m-0">{subtitle}</p>}
+        <slot name="title" />
+      </div>
+      {hasAction && (
+        <div class="shrink-0">
+          <slot name="action" />
+        </div>
+      )}
+    </div>
+  )}
+  <div class={padding ? 'p-4 sm:p-6' : ''}>
+    <slot />
+  </div>
+</div>

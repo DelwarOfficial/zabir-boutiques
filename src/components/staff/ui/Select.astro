@@ -1,0 +1,35 @@
+---
+interface Option {
+  value: string;
+  label: string;
+}
+
+interface Props {
+  label: string;
+  name: string;
+  options: Option[];
+  required?: boolean;
+  error?: string;
+  value?: string;
+  placeholder?: string;
+}
+
+const { label, name, options, required, error, value, placeholder } = Astro.props;
+const borderCls = error
+  ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/20'
+  : 'border-line focus:border-brand focus:ring-2 focus:ring-brand/20';
+---
+
+<div class="space-y-1">
+  <label for={name} class="block text-xs font-semibold text-ink-secondary">
+    {label}{required && <span class="text-danger ml-0.5">*</span>}
+  </label>
+  <select id={name} name={name} required={required}
+    class={`w-full px-3 py-2 text-sm border rounded-lg bg-surface text-ink outline-none transition-all ${borderCls}`}>
+    {placeholder && <option value="">{placeholder}</option>}
+    {options.map(opt => (
+      <option value={opt.value} selected={value === opt.value}>{opt.label}</option>
+    ))}
+  </select>
+  {error && <p class="text-xs text-red-500">{error}</p>}
+</div>

@@ -1,0 +1,32 @@
+---
+type InputType = 'text' | 'number' | 'email' | 'password' | 'search' | 'url' | 'tel' | 'date' | 'time' | 'file' | 'hidden';
+
+interface Props {
+  label: string;
+  name: string;
+  type?: InputType;
+  placeholder?: string;
+  required?: boolean;
+  error?: string;
+  hint?: string;
+  maxLength?: number;
+  value?: string;
+}
+
+const { label, name, type = 'text', placeholder, required, error, hint, maxLength, value } = Astro.props;
+const borderCls = error
+  ? 'border-red-400 focus:border-red-500 focus:ring-2 focus:ring-red-500/20'
+  : 'border-line focus:border-brand focus:ring-2 focus:ring-brand/20';
+const inputCls = `w-full px-3 py-2 text-sm border rounded-lg bg-surface text-ink outline-none transition-all ${borderCls}`;
+---
+
+<div class="space-y-1">
+  <label for={name} class="block text-xs font-semibold text-ink-secondary">
+    {label}{required && <span class="text-danger ml-0.5">*</span>}
+  </label>
+  <input id={name} name={name} type={type} placeholder={placeholder}
+    required={required} maxLength={maxLength} value={value}
+    class:list={[inputCls]} />
+  {error && <p class="text-xs text-red-500">{error}</p>}
+  {hint && !error && <p class="text-xs text-muted">{hint}</p>}
+</div>

@@ -1,0 +1,21 @@
+---
+export type BadgeVariant = 'default' | 'success' | 'danger' | 'warning' | 'brand';
+
+interface Props {
+  variant?: BadgeVariant;
+}
+
+const { variant = 'default' } = Astro.props;
+
+const styles: Record<BadgeVariant, string> = {
+  default: 'bg-surface-soft text-ink-secondary',
+  success: 'bg-green-100 text-green-700',
+  danger: 'bg-red-100 text-red-700',
+  warning: 'bg-amber-100 text-amber-700',
+  brand: 'bg-brand-light text-brand-strong',
+};
+---
+
+<span class={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full ${styles[variant]}`}>
+  <slot />
+</span>

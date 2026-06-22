@@ -12,17 +12,20 @@
     "dist/client/_astro/phone.CIsIWcAH.js": {
       "maxGz": 31565
     },
+    "dist/client/_astro/MergedProductUpload.CISEQRxR.js": {
+      "maxGz": 6505
+    },
     "dist/client/_astro/GuestCheckout.mygVsoIj.js": {
       "maxGz": 5627
     },
-    "dist/client/_astro/InventoryAdjustmentManager.DqNV4FmD.js": {
-      "maxGz": 5565
+    "dist/client/_astro/InventoryAdjustmentManager.BAo35_AF.js": {
+      "maxGz": 5576
     },
     "dist/client/_astro/RbacManager.CEIQuwhI.js": {
       "maxGz": 5483
     },
-    "dist/client/_astro/AuditLogViewer.B6Gi7rOB.js": {
-      "maxGz": 4251
+    "dist/client/_astro/AuditLogViewer.C7RRX9pz.js": {
+      "maxGz": 4261
     },
     "dist/client/_astro/BuyNowLandingForm.Dy6vhEcb.js": {
       "maxGz": 3602
@@ -32,6 +35,9 @@
     },
     "dist/client/_astro/RootLayout.astro_astro_type_script_index_0_lang.CUOG3Jk3.js": {
       "maxGz": 2914
+    },
+    "dist/client/_astro/SettingsTabs.6yhxmtZi.js": {
+      "maxGz": 2037
     },
     "dist/client/_astro/CartContent.UMlLZt1O.js": {
       "maxGz": 1595
@@ -77,6 +83,6 @@
     }
   },
   "total": {
-    "maxGz": 134886
+    "maxGz": 143448
   }
 }

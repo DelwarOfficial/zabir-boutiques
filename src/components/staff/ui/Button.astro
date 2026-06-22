@@ -1,0 +1,47 @@
+---
+export type ButtonVariant = 'primary' | 'secondary' | 'danger' | 'ghost';
+export type ButtonSize = 'sm' | 'md' | 'lg';
+
+interface Props {
+  variant?: ButtonVariant;
+  size?: ButtonSize;
+  loading?: boolean;
+  disabled?: boolean;
+  type?: 'button' | 'submit' | 'reset';
+  href?: string;
+  class?: string;
+  id?: string;
+}
+
+const { variant = 'primary', size = 'md', loading, disabled, type = 'button', href, class: className, id } = Astro.props;
+const base = 'inline-flex items-center justify-center font-semibold rounded-lg transition-all disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus:ring-2 focus:ring-offset-1 no-underline';
+const variants = {
+  primary: 'bg-brand text-white hover:opacity-90 focus:ring-brand/40',
+  secondary: 'border border-line bg-surface text-ink hover:bg-surface-soft focus:ring-ink/20',
+  danger: 'bg-danger text-white hover:opacity-90 focus:ring-danger/40',
+  ghost: 'text-ink-secondary hover:bg-surface-soft focus:ring-ink/20',
+};
+const sizes = {
+  sm: 'px-3 py-1.5 text-xs gap-1.5',
+  md: 'px-4 py-2 text-sm gap-2',
+  lg: 'px-6 py-2.5 text-base gap-2',
+};
+const cls = `${base} ${variants[variant]} ${sizes[size]} ${className || ''}`;
+---
+
+{
+  href ? (
+    <a href={href} class={cls} id={id}>
+      <slot />
+    </a>
+  ) : (
+    <button type={type} disabled={disabled || loading} class={cls} id={id}>
+      {loading && (
+        <span class="dots"><span></span><span></span><span></span></span>
+      )}
+      <span class={loading ? 'opacity-70' : ''}>
+        <slot />
+      </span>
+    </button>
+  )
+}

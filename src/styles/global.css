@@ -5,9 +5,9 @@
   --font-serif: Georgia, "Times New Roman", serif;
 
   /* Brand (from existing) */
-  --color-brand: #a16207;
-  --color-brand-strong: #713f12;
-  --color-brand-light: #fef3c7;
+  --color-brand: #bc1545;
+  --color-brand-strong: #8a0c2f;
+  --color-brand-light: #ffeef2;
   --color-accent: #a16207; /* alias for legacy admin pages */
   --color-text: #1c1917; /* alias */
 
@@ -39,10 +39,10 @@
   --ink-secondary: #44403c;
   --muted: #78716c;
   --muted-soft: #a8a29e;
-  --brand: #a16207;
-  --brand-strong: #713f12;
-  --brand-light: #fef3c7;
-  --brand-glow: rgba(161, 98, 7, 0.08);
+  --brand: #bc1545;
+  --brand-strong: #8a0c2f;
+  --brand-light: #ffeef2;
+  --brand-glow: rgba(188, 21, 69, 0.08);
   --line: #e7e5e4;
   --line-soft: #f0eeec;
   --danger: #dc2626;
@@ -65,12 +65,12 @@
   --ink-secondary: #d6d3d1;
   --muted: #a8a29e;
   --muted-soft: #78716c;
-  --brand: #d4a019;
-  --brand-strong: #eab308;
-  --brand-light: rgba(212, 160, 25, 0.12);
-  --accent: #d4a019;
+  --brand: #f43f5e;
+  --brand-strong: #fda4af;
+  --brand-light: rgba(244, 63, 94, 0.12);
+  --accent: #f43f5e;
   --text: #f5f5f4;
-  --brand-glow: rgba(212, 160, 25, 0.1);
+  --brand-glow: rgba(244, 63, 94, 0.1);
   --line: #3d3832;
   --line-soft: #302c27;
   --danger: #ef4444;
@@ -139,17 +139,18 @@ img {
   display: none;
 }
 
+/* Staff shell */
+.staff-shell { min-height: 100dvh; }
+
+/* Smooth width transition for sidebar collapse */
+.transition-width { transition: width 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+
 /* ─── Shared Components ─── */
 .skeleton {
-  background: linear-gradient(90deg, var(--surface-soft) 25%, var(--line-soft) 50%, var(--surface-soft) 75%);
+  background: linear-gradient(90deg, var(--surface-soft) 0%, var(--line-soft) 50%, var(--surface-soft) 100%);
   background-size: 200% 100%;
-  animation: skeleton-shimmer 1.5s ease-in-out infinite;
-  border-radius: 6px;
-}
-
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
+  animation: shimmer-x 1.4s ease-in-out infinite;
+  border-radius: 8px;
 }
 
 .shell-card {
@@ -365,18 +366,6 @@ img {
   ::view-transition-old(root), ::view-transition-new(root) {
     animation-duration: 220ms;
   }
-}
-
-/* Skeleton enhancement */
-.skeleton {
-  background: linear-gradient(90deg, var(--surface-soft) 0%, var(--line-soft) 50%, var(--surface-soft) 100%);
-  background-size: 200% 100%;
-  animation: shimmer-x 1.4s ease-in-out infinite;
-  border-radius: 8px;
-}
-@keyframes skeleton-shimmer {
-  0% { background-position: 200% 0; }
-  100% { background-position: -200% 0; }
 }
 
 /* Subtle lift on interactive cards on touch (so the user gets feedback) */
