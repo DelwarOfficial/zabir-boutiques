@@ -8,7 +8,7 @@ import type { APIContext } from "astro";
 import { getEnv } from "../../../../lib/env";
 import { nowSql } from "../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../lib/rbac";
-import { writeAuditLog, clientIp, userAgent } from "../../../../lib/audit";
+import { prepareAuditLogInsert, clientIp, userAgent } from "../../../../lib/audit";
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -31,14 +31,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
   const id = crypto.randomUUID();
   const now = nowSql();
-  await env.DB
-    .prepare(
-      `INSERT INTO return_requests (id, order_id, items_json, reason, status, refund_amount_paisa, created_at, updated_at)
-       VALUES (?1, ?2, ?3, ?4, 'pending', 0, ?5, ?5)`,
-    )
-    .bind(id, body.order_id, JSON.stringify(body.items), body.reason, now)
-    .run();
-  await writeAuditLog(env.DB, {
+  const auditStmt = await prepareAuditLogInsert(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: "return.create",
@@ -47,6 +40,13 @@ export async function POST(context: APIContext): Promise<Response> {
     metadata: { order_id: body.order_id, item_count: body.items.length },
     ipAddress: clientIp(context.request),
     userAgent: userAgent(context.request),
-  });
+  }, now);
+  await env.DB.batch([
+    env.DB.prepare(
+      `INSERT INTO return_requests (id, order_id, items_json, reason, status, refund_amount_paisa, created_at, updated_at)
+       VALUES (?1, ?2, ?3, ?4, 'pending', 0, ?5, ?5)`,
+    ).bind(id, body.order_id, JSON.stringify(body.items), body.reason, now),
+    auditStmt,
+  ], { atomic: true });
   return Response.json({ ok: true, id }, { status: 201 });
 }

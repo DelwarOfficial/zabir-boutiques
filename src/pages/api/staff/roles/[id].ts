@@ -3,7 +3,6 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';
 import { nowSql } from '../../../../lib/dates';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
-import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
 export async function GET(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -45,10 +44,8 @@ export async function PUT(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
-    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
-    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 
@@ -110,10 +107,8 @@ export async function DELETE(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
-    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
-    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

@@ -7,7 +7,6 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
-import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
 // Secret KEY NAMES only — values are never read or rendered.
 const SECRET_KEY_NAMES = [
@@ -53,10 +52,8 @@ export async function POST(context: APIContext): Promise<Response> {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
     requirePermission(user, 'api_code.update');
-    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
-    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

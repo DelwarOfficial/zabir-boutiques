@@ -2,7 +2,8 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission } from '../../../../lib/rbac';
 import { doSyncFromD1 } from '../../../../lib/do-client';
-import { writeAuditLog } from '../../../../lib/audit';
+import { prepareAuditLogInsert } from '../../../../lib/audit';
+import { safeLog } from '../../../../lib/pii-scrubber';
 import { ADJUSTMENT_REASONS } from '../../../../types/inventory';
 
 export async function POST(context: APIContext): Promise<Response> {
@@ -69,7 +70,22 @@ export async function POST(context: APIContext): Promise<Response> {
     const adjustmentId = crypto.randomUUID();
     const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
 
-    const batchResult = await env.DB.batch([
+    const auditStmt = await prepareAuditLogInsert(env.DB, {
+      actorStaffId: user.id,
+      actorRole: user.role,
+      action: 'inventory.adjust',
+      entityType: 'stock_adjustment',
+      entityId: adjustmentId,
+      metadata: {
+        variantId,
+        delta: stockDelta,
+        previousStock: currentStock,
+        newStock,
+        reason,
+      },
+    }, now);
+
+    await env.DB.batch([
       env.DB.prepare(
         `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?2 WHERE variant_id = ?3`
       ).bind(stockDelta, now, variantId),
@@ -77,30 +93,13 @@ export async function POST(context: APIContext): Promise<Response> {
         `INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
       ).bind(adjustmentId, variantId, stockDelta, reason, currentStock, newStock, notes ?? null, user.id, now),
+      auditStmt,
     ]);
 
     try {
       await doSyncFromD1(env, variantId, newStock, 0, 0);
     } catch (e) {
-      console.error('DO sync failed for', variantId, e);
-    }
-
-    try {
-      await writeAuditLog(env.DB, {
-        actorStaffId: user.id,
-        actorRole: user.role,
-        action: 'inventory.adjust',
-        entityType: 'stock_adjustment',
-        entityId: adjustmentId,
-        metadata: {
-          variantId,
-          delta: stockDelta,
-          previousStock: currentStock,
-          newStock,
-          reason,
-        },
-      });
-    } catch {
+      safeLog.warn('[inventory/adjust] DO sync failed after D1 commit', { variantId, error: e instanceof Error ? e.message : String(e) });
     }
 
     return Response.json({

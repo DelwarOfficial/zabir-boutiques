@@ -15,6 +15,7 @@ import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 import type { StaffUser } from '../../../lib/rbac';
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
+  const sessionKv = (env as typeof env & { SESSION?: KVNamespace }).SESSION;
   const now = nowSql();
 
   let body: any = {};
@@ -158,8 +159,8 @@ export async function POST(context: APIContext): Promise<Response> {
       `UPDATE staff_sessions SET is_revoked = 1 WHERE id = ?1 AND is_revoked = 0`
     ).bind(oldestId).run();
     // Also blacklist in KV if available
-    if ((env as any).SESSION) {
-      await (env as any).SESSION.put(`session:blacklist:${oldestId}`, '1', { expirationTtl: 8 * 60 * 60 });
+    if (sessionKv) {
+      await sessionKv.put(`session:blacklist:${oldestId}`, '1', { expirationTtl: 8 * 60 * 60 });
     }
     await writeAuditLog(env.DB, {
       actorStaffId: staff.id,
@@ -191,14 +192,14 @@ export async function POST(context: APIContext): Promise<Response> {
     );
 
     // Populate KV for fast RBAC extraction (Task 5). D1 remains source of truth.
-    if ((env as any).SESSION) {
+    if (sessionKv) {
       const sessPayload: Partial<StaffUser> & { sessionId: string } = {
         id: staff.id,
         role: staff.role as any,
         fullName: staff.full_name,
         sessionId,
       };
-      await (env as any).SESSION.put(
+      await sessionKv.put(
         `staff-session:${tokenHash}`,
         JSON.stringify(sessPayload),
         { expirationTtl: 8 * 60 * 60 }

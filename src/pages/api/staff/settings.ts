@@ -54,19 +54,19 @@ export async function POST(context: APIContext): Promise<Response> {
   if (result.success) {
     const { writeAuditLog, clientIp, userAgent } = await import('../../../lib/audit');
     await writeAuditLog(env.DB, {
-      target_type: 'settings',
-      target_id: body.key,
-      action: 'update',
       actorStaffId: user.id,
       actorRole: user.role,
-      details: {
+      action: 'settings.update',
+      entityType: 'settings',
+      entityId: body.key,
+      metadata: {
         group_name: setting.group_name,
         previous_value: setting.value,
         new_value: body.value,
         is_platform_setting: setting.group_name === 'platform'
       },
-      ip: clientIp(context.request),
-      user_agent: userAgent(context.request)
+      ipAddress: clientIp(context.request),
+      userAgent: userAgent(context.request)
     });
   }
 

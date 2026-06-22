@@ -29,7 +29,7 @@ export function userAgent(request: Request): string | null {
 
 async function getAuditChainHead(db: D1Database): Promise<{ id: string; chain_hash: string } | null> {
   return db.prepare(
-    `SELECT id, chain_hash FROM audit_log ORDER BY created_at DESC, rowid DESC LIMIT 1`
+    `SELECT id, chain_hash FROM audit_log ORDER BY rowid DESC LIMIT 1`
   ).first<{ id: string; chain_hash: string }>();
 }
 
@@ -61,33 +61,37 @@ async function computeHashChain(db: D1Database, entry: AuditEntry, now: string):
 
 export async function writeAuditLog(db: D1Database, entry: AuditEntry): Promise<boolean> {
   try {
-    const now = nowSql();
-    const id = crypto.randomUUID();
-    const { previousHash, chainHash } = await computeHashChain(db, entry, now);
-    await db.prepare(
-      `INSERT INTO audit_log (
-        id, actor_staff_id, actor_role, action, entity_type, entity_id,
-        metadata_json, ip_address, user_agent, created_at, previous_hash, chain_hash
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
-    ).bind(
-      id,
-      entry.actorStaffId,
-      entry.actorRole,
-      entry.action,
-      entry.entityType,
-      entry.entityId,
-      entry.metadata != null ? JSON.stringify(entry.metadata) : null,
-      entry.ipAddress ?? null,
-      entry.userAgent ?? null,
-      now,
-      previousHash,
-      chainHash
-    ).run();
+    const statement = await prepareAuditLogInsert(db, entry);
+    await statement.run();
     return true;
   } catch (err) {
     safeLog.error('[audit] write failed', { error: err instanceof Error ? err.message : String(err) });
     return false;
   }
+}
+
+export async function prepareAuditLogInsert(db: D1Database, entry: AuditEntry, now = nowSql()): Promise<D1PreparedStatement> {
+  const id = crypto.randomUUID();
+  const { previousHash, chainHash } = await computeHashChain(db, entry, now);
+  return db.prepare(
+    `INSERT INTO audit_log (
+      id, actor_staff_id, actor_role, action, entity_type, entity_id,
+      metadata_json, ip_address, user_agent, created_at, previous_hash, chain_hash
+    ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
+  ).bind(
+    id,
+    entry.actorStaffId,
+    entry.actorRole,
+    entry.action,
+    entry.entityType,
+    entry.entityId,
+    entry.metadata != null ? JSON.stringify(entry.metadata) : null,
+    entry.ipAddress ?? null,
+    entry.userAgent ?? null,
+    now,
+    previousHash,
+    chainHash
+  );
 }
 
 export async function writeCriticalAuditLog(db: D1Database, entry: AuditEntry): Promise<void> {

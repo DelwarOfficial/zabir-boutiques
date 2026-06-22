@@ -22,6 +22,7 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/invoices/') && (p.includes('/void') || p.includes('/print'))) return 'payments.verify';
   if (p.includes('/invoices')) return isMut ? 'orders.create' : 'orders.view';
   if (p.includes('/coupons')) return 'staff.manage';
+  if (p.includes('/cache/')) return 'settings.platform.update';
   if (p.includes('/api-keys')) return isMut ? 'api_keys.create' : 'api_keys.read';
   if (p.includes('/api-code')) return 'api_code.read';
   if (p.includes('/uploads')) return 'media.upload';
