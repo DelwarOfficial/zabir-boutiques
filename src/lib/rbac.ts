@@ -270,7 +270,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
       // Atomic idle-revoke. The guard `is_revoked = 0` makes this
       // idempotent: a second concurrent request sees 0 changes and
       // moves on.
-      const revoke = await env.DB.prepare(
+      const revoke = await db.prepare(
         `UPDATE staff_sessions
          SET is_revoked = 1, expires_at = ?2
          WHERE id = ?1 AND is_revoked = 0`,
@@ -279,9 +279,9 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
         // We won the race. Record the revocation event for the
         // session-blacklist mirror + audit log.
         try {
-          await env.DB.batch(
+          await db.batch(
             [
-              env.DB.prepare(
+              db.prepare(
                 `INSERT OR REPLACE INTO session_blacklist (token_hash, staff_user_id, revoked_at, expires_at)
                  SELECT ?1, staff_user_id, ?2, ?3 FROM staff_sessions WHERE id = ?4`,
               ).bind(tokenHash, now, nowSql(new Date(Date.now() + 8 * 60 * 60 * 1000)), row.session_id),
@@ -295,7 +295,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
         // Best-effort — the revoke has already committed. A failure here
         // is logged but does not block the response.
         try {
-          await writeAuditLog(env.DB, {
+          await writeAuditLog(db, {
             actorStaffId: row.staff_user_id,
             actorRole: row.role,
             action: 'staff.session.idle_revoked',

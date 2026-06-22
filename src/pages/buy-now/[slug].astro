@@ -9,6 +9,7 @@
 import RootLayout from "@/layouts/RootLayout.astro";
 import { BuyNowLandingForm } from "@/islands/BuyNowLandingForm";
 import { formatPaisa } from "@/lib/money";
+import type { DirectCheckoutState } from "@/lib/do-client";
 import { env } from "cloudflare:workers";
 
 const { slug } = Astro.params;
@@ -87,6 +88,63 @@ if (!sid) {
 
 // 2. Load session from DirectCheckoutSessionDO or D1 database fallback
 const turnstileSiteKey: string | undefined = env.TURNSTILE_SITE_KEY;
+let session: DirectCheckoutState | null = null;
+
+if (env.DIRECT_CHECKOUT_DO) {
+  const id = env.DIRECT_CHECKOUT_DO.idFromName(sid);
+  const stub = env.DIRECT_CHECKOUT_DO.get(id);
+  const response = await stub.fetch("https://do/get", {
+    method: "POST",
+    body: JSON.stringify({
+      sessionId: sid,
+      origin: Astro.url.origin,
+      userAgent: Astro.request.headers.get("User-Agent") ?? "",
+    }),
+  });
+  const data = (await response.json().catch(() => null)) as { ok?: boolean; session?: DirectCheckoutState } | null;
+  session = data?.ok ? data.session ?? null : null;
+}
+
+if (!session) {
+  const row = await env.DB.prepare(
+    `SELECT sessionId, productId, variantId, quantity, selectedOptions, sourcePage, utmParams, createdAt
+     FROM checkout_sessions
+     WHERE sessionId = ?1 AND deletedAt IS NULL`
+  ).bind(sid).first<{
+    sessionId: string;
+    productId: string;
+    variantId: string;
+    quantity: number;
+    selectedOptions: string | null;
+    sourcePage: string | null;
+    utmParams: string | null;
+    createdAt: string;
+  }>();
+
+  if (row) {
+    session = {
+      sessionId: row.sessionId,
+      productId: row.productId,
+      variantId: row.variantId,
+      quantity: row.quantity,
+      selectedOptions: row.selectedOptions ? JSON.parse(row.selectedOptions) : {},
+      sourcePage: row.sourcePage,
+      utmParams: row.utmParams ? JSON.parse(row.utmParams) : null,
+      createdAt: row.createdAt,
+      expiresAt: new Date(new Date(row.createdAt).getTime() + 30 * 60 * 1000).toISOString(),
+      landingVersion: 1,
+      formDraft: null,
+    };
+  }
+}
+
+if (!session || new Date(session.expiresAt) < new Date()) {
+  return Astro.redirect(`/products/${slug ?? ""}`);
+}
+
+const product = await env.DB.prepare(
+  `SELECT p.id, p.slug, p.name, p.description, p.price_paisa, p.compare_price_paisa, p.status
+   FROM products p
    WHERE p.slug = ?1 AND p.status = 'published'`
 ).bind(slug).first<{
   id: string; slug: string; name: string; description: string | null;
