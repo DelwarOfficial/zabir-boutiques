@@ -24,18 +24,20 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
   private sold = 0;
   private initialized = false;
   private reservations = new Map<string, { qty: number; expiresAt: number }>();
+  private env: { DB?: D1Database };
 
-  constructor(state: DurableObjectState, _env: unknown) {
+  constructor(state: DurableObjectState, env: { DB?: D1Database }) {
     this.state = state;
+    this.env = env;
   }
 
   private available(): number {
     return this.stock - this.reserved - this.sold;
   }
 
-  private async ensureInitialized(env: { DB?: D1Database }, variantId: string): Promise<void> {
+  private async ensureInitialized(_env: { DB?: D1Database }, variantId: string): Promise<void> {
     if (this.initialized) return;
-    if (env?.DB) {
+    if (this.env?.DB) {
       const row = await env.DB
         .prepare(
           `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity

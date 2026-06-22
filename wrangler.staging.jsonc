@@ -1,0 +1,74 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "zabir-boutiques-staging",
+  "account_id": "af7705b11e233be168f7a116c66cc812",
+  "main": "./src/entry-cloudflare.ts",
+  "compatibility_date": "2026-06-04",
+  "compatibility_flags": ["nodejs_compat"],
+  "assets": {
+    "directory": "./dist/client",
+    "binding": "ASSETS",
+    "run_worker_first": ["/staff/*", "/api/*"]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.1
+  },
+  "workers_dev": true,
+  "d1_databases": [
+    { "binding": "DB", "database_name": "zabir-db-staging", "database_id": "5dad7385-6221-4b6e-8b9a-afc751e6439e" }
+  ],
+  "kv_namespaces": [
+    { "binding": "CACHE", "id": "a656d8ebcdfd4c8bb9ef777ab1b2bfa2" },
+    { "binding": "SESSION", "id": "5e77b4aec22647c886970c17616f52d5" }
+  ],
+  "r2_buckets": [
+    { "binding": "MEDIA", "bucket_name": "zabir-product-images-staging" },
+    { "binding": "BACKUPS", "bucket_name": "zabir-backups-staging" },
+    { "binding": "LOGS", "bucket_name": "zabir-logs-staging" },
+    { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-staging" },
+    { "binding": "REPORTS", "bucket_name": "zabir-reports-staging" }
+  ],
+  "ai": { "binding": "AI" },
+  "analytics_engine_datasets": [
+    { "binding": "ANALYTICS", "dataset": "zabir_metrics_staging" }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
+      { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
+      { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
+      { "name": "WAF_RULES", "class_name": "WafRules" },
+      { "name": "CART_DO", "class_name": "CartDO" },
+      { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
+      { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
+    { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
+    { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
+  ],
+  "queues": {
+    "producers": [
+      { "queue": "payment-webhooks-staging", "binding": "PAYMENT_WEBHOOKS" },
+      { "queue": "order-emails-staging", "binding": "ORDER_EMAILS" },
+      { "queue": "image-processing-staging", "binding": "IMAGE_PROCESSING" },
+      { "queue": "fraud-audit-staging", "binding": "FRAUD_AUDIT" },
+      { "queue": "d1-backup-staging", "binding": "D1_BACKUP" },
+      { "queue": "cart-activity-staging", "binding": "CART_ACTIVITY" }
+    ],
+    "consumers": [
+      { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-staging" },
+      { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
+      { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
+      { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2 },
+      { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 },
+      { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
+    ]
+  },
+  "vars": {
+    "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
+    "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)"
+  }
+}
