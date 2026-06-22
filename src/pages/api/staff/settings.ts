@@ -35,8 +35,8 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const setting = await env.DB.prepare(
-    `SELECT group_name FROM site_settings WHERE key = ?`
-  ).bind(body.key).first<{ group_name: string }>();
+    `SELECT group_name, value FROM site_settings WHERE key = ?`
+  ).bind(body.key).first<{ group_name: string; value: string }>();
 
   if (!setting) {
     return Response.json({ ok: false, error: 'Setting not found' }, { status: 404 });
@@ -46,9 +46,29 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, error: 'Forbidden' }, { status: 403 });
   }
 
-  await env.DB.prepare(
+  const result = await env.DB.prepare(
     `UPDATE site_settings SET value = ?, updated_at = datetime('now') WHERE key = ?`
   ).bind(body.value, body.key).run();
+
+  // Audit log for settings updates (especially platform group changes)
+  if (result.success) {
+    const { writeAuditLog, clientIp, userAgent } = await import('../../../lib/audit');
+    await writeAuditLog(env.DB, {
+      target_type: 'settings',
+      target_id: body.key,
+      action: 'update',
+      actorStaffId: user.id,
+      actorRole: user.role,
+      details: {
+        group_name: setting.group_name,
+        previous_value: setting.value,
+        new_value: body.value,
+        is_platform_setting: setting.group_name === 'platform'
+      },
+      ip: clientIp(context.request),
+      user_agent: userAgent(context.request)
+    });
+  }
 
   return Response.json({ ok: true });
 }

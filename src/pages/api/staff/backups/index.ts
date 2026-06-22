@@ -1,12 +1,12 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, requirePermission, RbacError } from '../../../../lib/rbac';
+import { requireAuth, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';
 
 export async function GET(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requirePermission(user, 'backups.restore');
+    assertSuperAdminOnly(user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
@@ -45,7 +45,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requirePermission(user, 'backups.restore');
+    assertSuperAdminOnly(user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;

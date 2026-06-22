@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import type { Category, VariantInput } from '../../types/product';
 
 function getCsrf(): string {
@@ -64,12 +64,12 @@ export default function MergedProductUpload() {
   const [result, setResult] = useState<{ productId: string; name: string; variantCount: number } | null>(null);
 
   // Load categories once
-  useState(() => {
+  useEffect(() => {
     fetch('/api/staff/products/categories', { headers: { 'X-CSRF-Token': getCsrf() } })
       .then(r => r.json() as Promise<{ ok: boolean; categories: Category[] }>)
       .then(d => { if (d.ok) setCategories(d.categories); })
       .catch(() => {});
-  });
+  }, []);
 
   const handleNameChange = useCallback((val: string) => {
     setName(val);
