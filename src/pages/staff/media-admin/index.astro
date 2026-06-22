@@ -1,12 +1,12 @@
 ---
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
-import { getCurrentStaffUser, isSuperAdmin } from '../../../lib/rbac';
+import { getCurrentStaffUser, isOwnerTier } from '../../../lib/rbac';
 import { getEnv } from '../../../lib/env';
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
-if (!isSuperAdmin(user.role)) return new Response('Forbidden', { status: 403 });
+if (!isOwnerTier(user.role)) return new Response('Forbidden', { status: 403 });
 
 const env = getEnv(Astro);
 const { searchParams } = new URL(Astro.request.url);

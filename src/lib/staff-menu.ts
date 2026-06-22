@@ -34,8 +34,8 @@ const ALL: MenuItem[] = [
   { label: 'POS Invoice', href: '/staff/sales/pos', roles: ['owner-tier', 'manager', 'salesman'] },
   { label: 'POS History', href: '/staff/sales/pos-history', roles: ['owner-tier', 'manager', 'salesman'] },
   { label: 'My Orders', href: '/staff/sales/orders', roles: ['salesman'] },
-  { label: 'Product Search', href: '/staff/sales/search', roles: ['owner-tier', 'manager', 'salesman'] },
-  { label: 'Customer Notes', href: '/staff/sales/notes', roles: ['owner-tier', 'manager', 'salesman'] },
+  { label: 'Product Search', href: '/staff/sales/search', roles: ['salesman'] },
+  { label: 'Customer Notes', href: '/staff/sales/notes', roles: ['salesman'] },
   // Packing
   { label: 'Packing Queue', href: '/staff/packing', roles: ['packing'] },
   { label: 'Packed Orders', href: '/staff/packing/packed', roles: ['packing'] },
@@ -43,14 +43,14 @@ const ALL: MenuItem[] = [
   { label: 'Print Slips', href: '/staff/packing/slips', roles: ['packing'] },
   // Support extras
   { label: 'Order Search', href: '/staff/support/search', roles: ['support'] },
-  { label: 'Escalations', href: '/staff/support/escalations', roles: ['owner-tier', 'manager', 'support'] },
+  { label: 'Escalations', href: '/staff/support/escalations', roles: ['support'] },
   // Business owner-level (super_admin + owner)
   { label: 'Coupon Management', href: '/staff/coupons', roles: ['owner-tier'] },
   { label: 'Staff Users', href: '/staff/users', roles: ['owner-tier'] },
   { label: 'Roles & Permissions', href: '/staff/roles', roles: ['super-admin-only'] },
   { label: 'Site Settings', href: '/staff/settings', roles: ['owner-tier'] },
   { label: 'Security (2FA)', href: '/staff/settings/totp', roles: ['owner-tier'] },
-  { label: 'Media / R2', href: '/staff/media-admin', roles: ['super-admin-only'] },
+  { label: 'Media / R2', href: '/staff/media-admin', roles: ['owner-tier'] },
   { label: 'Audit Logs', href: '/staff/audit', roles: ['owner-tier', 'auditor'] },
   { label: 'Guardrails', href: '/staff/guardrails', roles: ['owner-tier', 'auditor'] },
   // Platform-control (super_admin ONLY)

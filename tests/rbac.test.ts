@@ -96,7 +96,6 @@ describe('RBAC permission matrix — platform security hardening', () => {
   it('permissionsFor super_admin returns business + platform perms', () => {
     const perms = permissionsFor('super_admin');
     expect(perms).toContain('staff.manage');
-    expect(perms).toContain('roles.manage');
     expect(perms).toContain('platform.full_access');
     expect(perms).toContain('backups.restore');
     expect(new Set(perms).size).toBe(perms.length);

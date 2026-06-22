@@ -1,12 +1,12 @@
 ---
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import PageHeader from "@/components/staff/PageHeader.astro";
-import { getCurrentStaffUser, can } from "@/lib/rbac";
+import { getCurrentStaffUser, isOwnerTier } from "@/lib/rbac";
 import { getEnv } from "@/lib/env";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
-if (!can(user.role, "reports.view")) return new Response("Forbidden", { status: 403 });
+if (!isOwnerTier(user.role) && user.role !== 'auditor') return new Response("Forbidden", { status: 403 });
 
 const env = getEnv(Astro);
 
