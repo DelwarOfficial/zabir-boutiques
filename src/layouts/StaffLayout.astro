@@ -50,7 +50,7 @@ const roleColor: Record<string, string> = {
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>{title} — Zabir Boutiques Staff</title>
-    <script is:inline define:vars={{ csrfToken }}>
+    <script is:inline define:vars={{ csrfToken }} nonce={Astro.locals.cspNonce}>
       window.__ZB_CSRF__ = csrfToken;
       try { if (csrfToken) sessionStorage.setItem('zb-csrf', csrfToken); } catch (_) {}
       (function(){
@@ -153,7 +153,7 @@ const roleColor: Record<string, string> = {
       </div>
     </div>
 
-    <script is:inline>
+    <script is:inline nonce={Astro.locals.cspNonce}>
       (function() {
         const sidebar = document.getElementById('sidebar');
         const toggle = document.getElementById('sidebar-toggle');
@@ -171,7 +171,7 @@ const roleColor: Record<string, string> = {
       })();
     </script>
 
-    <script is:inline>
+    <script is:inline nonce={Astro.locals.cspNonce}>
       // Logout + CSRF helper
       function getCsrf() {
         if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
