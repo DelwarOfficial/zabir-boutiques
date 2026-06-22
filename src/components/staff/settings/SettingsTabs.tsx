@@ -15,6 +15,12 @@ interface SettingItem {
   group_name: string;
 }
 
+interface SettingsResponse {
+  ok?: boolean;
+  settings?: SettingItem[];
+  error?: string;
+}
+
 export const SettingsTabs: React.FC = () => {
   const [activeTab, setActiveTab] = useState('general');
   const [settings, setSettings] = useState<Record<string, string>>({});
@@ -24,7 +30,7 @@ export const SettingsTabs: React.FC = () => {
 
   useEffect(() => {
     fetch('/api/staff/settings')
-      .then((r) => r.json())
+      .then((r) => r.json() as Promise<SettingsResponse>)
       .then((data) => {
         if (data.ok && data.settings) {
           const mapped: Record<string, string> = {};
@@ -49,7 +55,7 @@ export const SettingsTabs: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ key, value }),
       });
-      const data = await res.json();
+      const data = await res.json() as SettingsResponse;
       if (data.ok) {
         setSettings((prev) => ({ ...prev, [key]: value }));
       } else {

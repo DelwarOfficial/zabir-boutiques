@@ -21,7 +21,7 @@ async function api(method: string, path: string, body?: unknown): Promise<any> {
     },
     body: body ? JSON.stringify(body) : undefined,
   });
-  const data = await res.json();
+  const data = await res.json() as any;
   if (!res.ok || data.ok === false) {
     throw new Error(data.error || data.message || `Request failed (${res.status})`);
   }

@@ -27,6 +27,7 @@ export async function POST(context: APIContext): Promise<Response> {
     if (!Number.isSafeInteger(delta) || delta === 0) {
       return Response.json({ ok: false, error: 'delta must be a non-zero integer' }, { status: 400 });
     }
+    const stockDelta = delta as number;
     if (!reason || typeof reason !== 'string' || !ADJUSTMENT_REASONS.find(r => r.value === reason)) {
       return Response.json({ ok: false, error: 'reason must be a valid adjustment reason' }, { status: 400 });
     }
@@ -35,10 +36,10 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     const reasonDef = ADJUSTMENT_REASONS.find(r => r.value === reason)!;
-    if (delta > 0 && !reasonDef.isPositive) {
+    if (stockDelta > 0 && !reasonDef.isPositive) {
       return Response.json({ ok: false, error: `Reason "${reasonDef.label}" does not allow stock increases` }, { status: 400 });
     }
-    if (delta < 0 && !reasonDef.isNegative) {
+    if (stockDelta < 0 && !reasonDef.isNegative) {
       return Response.json({ ok: false, error: `Reason "${reasonDef.label}" does not allow stock decreases` }, { status: 400 });
     }
 
@@ -53,15 +54,15 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     const currentStock = variant.quantity ?? 0;
-    const newStock = currentStock + delta;
+    const newStock = currentStock + stockDelta;
 
     if (newStock < 0) {
       return Response.json({
         ok: false,
         error: 'Insufficient stock',
         currentStock,
-        delta,
-        message: `Cannot remove ${Math.abs(delta)} units — only ${currentStock} available`,
+        delta: stockDelta,
+        message: `Cannot remove ${Math.abs(stockDelta)} units — only ${currentStock} available`,
       }, { status: 409 });
     }
 
@@ -71,11 +72,11 @@ export async function POST(context: APIContext): Promise<Response> {
     const batchResult = await env.DB.batch([
       env.DB.prepare(
         `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?2 WHERE variant_id = ?3`
-      ).bind(delta, now, variantId),
+      ).bind(stockDelta, now, variantId),
       env.DB.prepare(
         `INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-      ).bind(adjustmentId, variantId, delta, reason, currentStock, newStock, notes ?? null, user.id, now),
+      ).bind(adjustmentId, variantId, stockDelta, reason, currentStock, newStock, notes ?? null, user.id, now),
     ]);
 
     try {
@@ -85,7 +86,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     try {
-      await writeAuditLog(env, {
+      await writeAuditLog(env.DB, {
         actorStaffId: user.id,
         actorRole: user.role,
         action: 'inventory.adjust',
@@ -93,7 +94,7 @@ export async function POST(context: APIContext): Promise<Response> {
         entityId: adjustmentId,
         metadata: {
           variantId,
-          delta,
+          delta: stockDelta,
           previousStock: currentStock,
           newStock,
           reason,
@@ -107,7 +108,7 @@ export async function POST(context: APIContext): Promise<Response> {
       variantId,
       previousStock: currentStock,
       newStock,
-      delta,
+      delta: stockDelta,
       adjustmentId,
     });
   } catch (err) {

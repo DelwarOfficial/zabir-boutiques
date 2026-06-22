@@ -44,7 +44,7 @@ export async function PUT(context: APIContext): Promise<Response> {
 
   await env.DB.batch([
     env.DB.prepare(`DELETE FROM role_permissions WHERE role_id = ?1`).bind(id),
-    ...permissions.map(perm =>
+    ...permissions.map((perm: string) =>
       env.DB.prepare(
         `INSERT INTO role_permissions (role_id, permission, assigned_by, assigned_at)
          VALUES (?1, ?2, ?3, ?4)`

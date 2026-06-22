@@ -17,21 +17,22 @@ describe('RBAC permission matrix — platform security hardening', () => {
   it('owner has business access but NOT platform-control access', () => {
     // Business permissions owner HAS:
     expect(can('owner', 'staff.manage')).toBe(true);
-    expect(can('owner', 'roles.manage')).toBe(true);
     expect(can('owner', 'fraud.override')).toBe(true);
     expect(can('owner', 'orders.confirm')).toBe(true);
     expect(can('owner', 'payments.refund')).toBe(true);
     expect(can('owner', 'integrations.read')).toBe(true);
     expect(can('owner', 'api_code.read')).toBe(true);
-    expect(can('owner', 'backups.read')).toBe(true);
 
     // Platform-control permissions owner does NOT have:
     expect(can('owner', 'platform.full_access')).toBe(false);
+    expect(can('owner', 'roles.manage')).toBe(false);
     expect(can('owner', 'api_keys.create')).toBe(false);
     expect(can('owner', 'api_keys.revoke')).toBe(false);
     expect(can('owner', 'api_keys.delete')).toBe(false);
     expect(can('owner', 'integrations.test')).toBe(false);
     expect(can('owner', 'api_code.update')).toBe(false);
+    expect(can('owner', 'backups.read')).toBe(false);
+    expect(can('owner', 'backups.download')).toBe(false);
     expect(can('owner', 'backups.restore')).toBe(false);
     expect(can('owner', 'webhooks.update')).toBe(false);
     expect(can('owner', 'settings.platform.update')).toBe(false);
@@ -92,8 +93,13 @@ describe('RBAC permission matrix — platform security hardening', () => {
     expect(can('support', 'integrations.test')).toBe(false);
   });
 
-  it('permissionsFor super_admin returns platform.full_access sentinel', () => {
-    expect(permissionsFor('super_admin')).toEqual(['platform.full_access']);
+  it('permissionsFor super_admin returns business + platform perms', () => {
+    const perms = permissionsFor('super_admin');
+    expect(perms).toContain('staff.manage');
+    expect(perms).toContain('roles.manage');
+    expect(perms).toContain('platform.full_access');
+    expect(perms).toContain('backups.restore');
+    expect(new Set(perms).size).toBe(perms.length);
   });
 
   it('permissionsFor owner returns business perms (not platform.full_access)', () => {

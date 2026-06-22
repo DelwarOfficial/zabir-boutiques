@@ -3,11 +3,11 @@ import { menuForRole } from '../src/lib/staff-menu';
 import type { StaffRole } from '../src/lib/rbac';
 
 // Platform-control items visible only to super_admin
-const SUPER_ADMIN_ONLY_HREFS = ['/staff/api-code', '/staff/backups'];
+const SUPER_ADMIN_ONLY_HREFS = ['/staff/api-code', '/staff/backups', '/staff/roles', '/staff/media-admin'];
 
 // Business owner items visible to both super_admin + owner
 const OWNER_TIER_HREFS = [
-  '/staff/users', '/staff/roles', '/staff/settings', '/staff/media-admin', '/staff/audit', '/staff/guardrails', '/staff/coupons'
+  '/staff/users', '/staff/settings', '/staff/audit', '/staff/guardrails', '/staff/coupons'
 ];
 
 describe('Role-aware staff menu — platform security hardening', () => {

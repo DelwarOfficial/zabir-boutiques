@@ -38,7 +38,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
   private async ensureInitialized(_env: { DB?: D1Database }, variantId: string): Promise<void> {
     if (this.initialized) return;
     if (this.env?.DB) {
-      const row = await env.DB
+      const row = await this.env.DB
         .prepare(
           `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
            FROM inventory_items WHERE variant_id = ?1`,

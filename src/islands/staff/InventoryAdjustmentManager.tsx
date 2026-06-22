@@ -24,9 +24,29 @@ function timeAgo(d: string): string {
   } catch { return d; }
 }
 
-function shortId(id: string): string {
+function shortId(id: string | null): string {
   return id?.substring(0, 8) || '…';
 }
+
+interface VariantListResponse {
+  ok?: boolean;
+  error?: string;
+  variants?: InventoryVariant[];
+  total?: number;
+  page?: number;
+  totalPages?: number;
+}
+
+interface MovementListResponse {
+  ok?: boolean;
+  error?: string;
+  movements?: InventoryMovement[];
+  total?: number;
+  page?: number;
+  totalPages?: number;
+}
+
+type AdjustResponse = AdjustStockResult & { ok?: boolean; error?: string; message?: string };
 
 function reasonLabel(reason: string): string {
   return ADJUSTMENT_REASONS.find(r => r.value === reason)?.label || reason;
@@ -89,12 +109,12 @@ export default function InventoryAdjustmentManager() {
       const res = await fetch(`/api/staff/inventory/variants?${params}`, {
         headers: { 'X-CSRF-Token': getCsrf() },
       });
-      const data = await res.json();
+      const data = await res.json() as VariantListResponse;
       if (data.ok) {
-        setVariants(data.variants);
-        setVTotal(data.total);
-        setVPage(data.page);
-        setVTotalPages(data.totalPages);
+        setVariants(data.variants ?? []);
+        setVTotal(data.total ?? 0);
+        setVPage(data.page ?? p);
+        setVTotalPages(data.totalPages ?? 1);
       } else setVError(data.error || 'Failed to load');
     } catch { setVError('Network error'); }
     finally { setVLoading(false); }
@@ -110,12 +130,12 @@ export default function InventoryAdjustmentManager() {
       const res = await fetch(`/api/staff/inventory/movements?${params}`, {
         headers: { 'X-CSRF-Token': getCsrf() },
       });
-      const data = await res.json();
+      const data = await res.json() as MovementListResponse;
       if (data.ok) {
-        setMovements(data.movements);
-        setMTotal(data.total);
-        setMPage(data.page);
-        setMTotalPages(data.totalPages);
+        setMovements(data.movements ?? []);
+        setMTotal(data.total ?? 0);
+        setMPage(data.page ?? p);
+        setMTotalPages(data.totalPages ?? 1);
       } else setMError(data.error || 'Failed to load');
     } catch { setMError('Network error'); }
     finally { setMLoading(false); }
@@ -152,7 +172,7 @@ export default function InventoryAdjustmentManager() {
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
         body: JSON.stringify({ variantId: adjustTarget.variantId, delta, reason: adjReason, notes: adjNotes || undefined }),
       });
-      const data = await res.json();
+      const data = await res.json() as AdjustResponse;
       if (data.ok) {
         setAdjSuccess(data);
         setConfirmStep(false);

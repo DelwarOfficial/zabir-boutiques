@@ -19,6 +19,20 @@ interface ActionTypeOption {
   count: number;
 }
 
+interface AuditActionsResponse {
+  ok?: boolean;
+  types?: ActionTypeOption[];
+}
+
+interface AuditPageResponse {
+  ok?: boolean;
+  error?: string;
+  entries?: AuditEntryWithActor[];
+  total?: number;
+  page?: number;
+  totalPages?: number;
+}
+
 function formatDate(dateStr: string): string {
   const d = dateStr.replace(' ', 'T') + 'Z';
   try { return new Date(d).toLocaleString(); } catch { return dateStr; }
@@ -171,7 +185,7 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
     window.__ZB_CSRF__ = _csrf;
     fetch('/api/staff/audit/actions', {
       headers: { 'X-CSRF-Token': getCsrf() }
-    }).then(r => r.json()).then(d => {
+    }).then(r => r.json() as Promise<AuditActionsResponse>).then(d => {
       if (d.ok) setActionTypes(d.types ?? []);
     }).catch(() => {});
   }, [_csrf]);
@@ -190,12 +204,12 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
       const res = await fetch(`/api/staff/audit?${params}`, {
         headers: { 'X-CSRF-Token': getCsrf() }
       });
-      const data = await res.json();
+      const data = await res.json() as AuditPageResponse;
       if (!data.ok) throw new Error(data.error || 'Failed');
       setEntries(data.entries ?? []);
-      setTotal(data.total);
-      setCurrentPage(data.page);
-      setTotalPages(data.totalPages);
+      setTotal(data.total ?? 0);
+      setCurrentPage(data.page ?? page);
+      setTotalPages(data.totalPages ?? 1);
     } catch (err: any) {
       setError(err.message);
     } finally {

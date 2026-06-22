@@ -109,7 +109,8 @@ export const PLATFORM_PERMS: ReadonlySet<Permission> = new Set([
   'integrations.test', 'integrations.logs.read',
   'api_keys.read', 'api_keys.create', 'api_keys.revoke', 'api_keys.delete',
   'api_code.update',
-  'backups.restore',
+  'roles.manage',
+  'backups.read', 'backups.download', 'backups.restore',
   'webhooks.read', 'webhooks.update',
   'settings.platform.read', 'settings.platform.update'
 ]);
@@ -145,8 +146,8 @@ const AUDITOR_PERMS: Permission[] = [
 
 // Owner: business-level permissions (not platform-control)
 const OWNER_PERMS: Permission[] = [
-  'staff.manage', 'roles.manage', 'settings.manage',
-  'system.audit.view', 'system.backup.manage',
+  'staff.manage', 'settings.manage',
+  'system.audit.view',
   'products.manage', 'categories.manage', 'inventory.manage', 'inventory.adjust',
   'orders.view', 'orders.create', 'orders.update', 'orders.confirm', 'orders.cancel',
   'orders.pack', 'orders.ship', 'fraud.view', 'fraud.override', 'media.upload',
@@ -399,7 +400,7 @@ export function assertSupportAccess(user: StaffUser): void {
 
 /**
  * List of permissions granted to a role (for menu building / debugging).
- * Super_admin gets all known permissions (business + platform).
+ * Super_admin gets all business and platform-control permissions.
  */
 export function permissionsFor(role: StaffRole): Permission[] {
   if (SUPER_ADMIN_ONLY.has(role)) {

@@ -5,7 +5,7 @@ import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
-if (!can(user.role, 'products.manage')) return new Response('Forbidden', { status: 403 });
+if (!can(user.role, 'orders.create')) return new Response('Forbidden', { status: 403 });
 ---
 <StaffLayout title="Product Search" user={user}>
   <PageHeader title="Product Search" subtitle="Quick product lookup by name, SKU, or category." />

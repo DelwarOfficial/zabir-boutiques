@@ -58,9 +58,9 @@ describe('Backup permission (super_admin only for platform control)', () => {
     expect(can('owner', 'backups.restore')).toBe(false);
   });
 
-  it('owner can read/download backups but not restore', () => {
-    expect(can('owner', 'backups.read')).toBe(true);
-    expect(can('owner', 'backups.download')).toBe(true);
+  it('owner cannot read, download, or restore backups', () => {
+    expect(can('owner', 'backups.read')).toBe(false);
+    expect(can('owner', 'backups.download')).toBe(false);
     expect(can('owner', 'backups.restore')).toBe(false);
   });
 

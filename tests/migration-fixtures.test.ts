@@ -202,14 +202,14 @@ describe('migration fixtures — DDL execution', () => {
   });
 
   // 0030: staff step-up timestamp
-  it('0030 adds step_up_at to staff_sessions', () => {
-    const base = 'CREATE TABLE staff_sessions (id TEXT PRIMARY KEY, staff_user_id TEXT, token_hash TEXT, is_revoked INTEGER, expires_at TEXT, absolute_expires_at TEXT, last_active_at TEXT, created_at TEXT);';
+  it('0030 preserves baseline step_up_at on staff_sessions', () => {
+    const base = 'CREATE TABLE staff_sessions (id TEXT PRIMARY KEY, staff_user_id TEXT, token_hash TEXT, is_revoked INTEGER, expires_at TEXT, absolute_expires_at TEXT, last_active_at TEXT, step_up_at TEXT, created_at TEXT);';
     const d = dbWithBase('db/migrations/0030_staff_sessions_step_up.sql', base);
     expect(d.hasColumn('staff_sessions', 'step_up_at')).toBe(true);
   });
 
   it('0030 rollback does not throw and leaves column in place', () => {
-    const base = 'CREATE TABLE staff_sessions (id TEXT PRIMARY KEY, staff_user_id TEXT, token_hash TEXT, is_revoked INTEGER, expires_at TEXT, absolute_expires_at TEXT, last_active_at TEXT, created_at TEXT);';
+    const base = 'CREATE TABLE staff_sessions (id TEXT PRIMARY KEY, staff_user_id TEXT, token_hash TEXT, is_revoked INTEGER, expires_at TEXT, absolute_expires_at TEXT, last_active_at TEXT, step_up_at TEXT, created_at TEXT);';
     const d = dbWithBase('db/migrations/0030_staff_sessions_step_up.sql', base);
     expect(() => { d.exec(read('db/migrations/rollback/0030_rollback_staff_sessions_step_up.sql')); }).not.toThrow();
     expect(d.hasColumn('staff_sessions', 'step_up_at')).toBe(true);
