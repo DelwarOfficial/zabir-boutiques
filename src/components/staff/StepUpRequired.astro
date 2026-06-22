@@ -44,8 +44,10 @@ const { message = 'This section requires recent authentication for security.' } 
     const errEl = document.getElementById('step-up-error');
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const pw = form.querySelector('[name=password]').value;
+      const input = form.querySelector('[name=password]') as HTMLInputElement | null;
+      const pw = input ? input.value : '';
       if (!pw) return;
+      if (!btn || !errEl) return;
       btn.disabled = true; btn.textContent = 'Verifying…';
       errEl.classList.add('hidden');
       try {

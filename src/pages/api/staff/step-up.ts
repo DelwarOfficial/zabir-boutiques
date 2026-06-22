@@ -69,9 +69,13 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Stamp dedicated step_up_at so ordinary traffic cannot refresh it.
   const now = nowSql();
-  await env.DB.prepare(
-    `UPDATE staff_sessions SET step_up_at = ?1 WHERE id = ?2 AND staff_user_id = ?3`
+  const upd = await env.DB.prepare(
+    `UPDATE staff_sessions SET step_up_at = ?1 WHERE id = ?2 AND staff_user_id = ?3 AND is_revoked = 0`
   ).bind(now, user.sessionId, user.id).run();
+
+  if ((upd.meta?.changes ?? 0) < 1) {
+    return Response.json({ error: 'Session no longer valid' }, { status: 401 });
+  }
 
   await writeAuditLog(env.DB, {
     actorStaffId: user.id,

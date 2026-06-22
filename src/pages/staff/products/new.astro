@@ -2,7 +2,7 @@
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
-import ProductForm from '../../../islands/staff/ProductForm.tsx';
+import MergedProductUpload from '../../../islands/staff/MergedProductUpload.tsx';
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
@@ -11,5 +11,5 @@ if (!can(user.role, 'products.manage')) return new Response('Forbidden', { statu
 
 <StaffLayout title="New Product" user={user}>
   <PageHeader title="New Product" subtitle="Create a new product with variants and inventory" />
-  <ProductForm client:load />
+  <MergedProductUpload client:load />
 </StaffLayout>

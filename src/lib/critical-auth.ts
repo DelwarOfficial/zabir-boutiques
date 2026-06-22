@@ -1,5 +1,5 @@
 import type { APIContext } from 'astro';
-import { env as cloudflareEnv } from 'cloudflare:workers';
+import { getEnv } from './env';
 import type { StaffUser } from './rbac';
 
 const STEP_UP_WINDOW_SECONDS = 10 * 60;
@@ -16,11 +16,15 @@ export class CriticalAuthError extends Error {
 }
 
 export async function requireRecentStaffSession(context: APIContext, user: StaffUser): Promise<void> {
-  void context;
-  const env = cloudflareEnv as { DB?: D1Database };
-  if (!env.DB) throw new CriticalAuthError(500, 'DB_UNAVAILABLE', 'Database unavailable');
+  let db: D1Database;
+  try {
+    const env = getEnv(context);
+    db = env.DB;
+  } catch {
+    throw new CriticalAuthError(500, 'DB_UNAVAILABLE', 'Database unavailable');
+  }
 
-  const row = await env.DB.prepare(
+  const row = await db.prepare(
     `SELECT step_up_at FROM staff_sessions
      WHERE id = ?1 AND staff_user_id = ?2 AND is_revoked = 0`
   ).bind(user.sessionId, user.id).first<{ step_up_at: string | null }>();
