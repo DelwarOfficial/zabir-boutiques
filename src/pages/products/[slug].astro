@@ -6,6 +6,7 @@ import { CATALOG_PRODUCTS } from "@/data/catalog";
 import { formatPaisa } from "@/lib/money";
 import ProductImage from "@/components/product/ProductImage.astro";
 import { ogImageFromProduct } from "@/lib/image-resizing";
+import ProductDetails from "@/components/product/ProductDetails.astro";
 
 export const prerender = true;
 
@@ -101,6 +102,7 @@ const breadcrumbJsonLd = JSON.stringify({
           WhatsApp +880 1985-516000 for urgent delivery.
         </p>
       </div>
+      <ProductDetails description={product.title} pricePaisa={product.pricePaisa} />
     </div>
   </article>
 

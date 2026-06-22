@@ -1,0 +1,74 @@
+---
+import { formatPaisa } from "@/lib/money";
+
+interface Props {
+  description: string;
+  pricePaisa: number;
+}
+
+const { description, pricePaisa } = Astro.props;
+
+const tabs = [
+  { id: "description", label: "Description" },
+  { id: "shipping", label: "Shipping & Delivery" },
+  { id: "help", label: "Need Help?" },
+];
+---
+
+<div class="mt-8 border-t border-[var(--line)] pt-6">
+  <div class="border-b border-[var(--line)]">
+    <nav class="-mb-px flex space-x-6" role="tablist">
+      {tabs.map((tab, index) => (
+        <button
+          type="button"
+          role="tab"
+          data-tab-id={tab.id}
+          aria-selected={index === 0 ? "true" : "false"}
+          aria-controls={`panel-${tab.id}`}
+          class={`shrink-0 whitespace-nowrap pb-4 px-1 border-b-2 font-bold text-xs uppercase tracking-wider transition-all duration-200 ${
+            index === 0
+              ? "border-[var(--brand)] text-[var(--brand)]"
+              : "border-transparent text-[var(--muted)] hover:text-[var(--ink)]"
+          }`}
+        >
+          {tab.label}
+        </button>
+      ))}
+    </nav>
+  </div>
+
+  <div class="mt-5 text-sm leading-relaxed text-[var(--muted)]">
+    {/* Description Panel */}
+    <div id="panel-description" role="tabpanel" data-tab-panel="description" class="tab-panel">
+      <p>{description || "Premium fabric and boutique craft details."}</p>
+    </div>
+
+    {/* Shipping Panel */}
+    <div id="panel-shipping" role="tabpanel" data-tab-panel="shipping" class="tab-panel hidden space-y-2">
+      <p>We deliver across Bangladesh via trusted courier services:</p>
+      <ul class="list-disc pl-4 space-y-1">
+        <li><strong>Inside Dhaka:</strong> Delivery fee ৳70, typical transit 24–48 hours.</li>
+        <li><strong>Outside Dhaka:</strong> Delivery fee ৳130, typical transit 2–4 days.</li>
+        <li>Cash on Delivery (COD) is default; secure prepayment available via UddoktaPay.</li>
+      </ul>
+    </div>
+
+    {/* Help Panel */}
+    <div id="panel-help" role="tabpanel" data-tab-panel="help" class="tab-panel hidden space-y-2">
+      <p>Have questions about sizing, fabric quality, or ordering?</p>
+      <p>Reach out to our customer support on WhatsApp for quick assistance:</p>
+      <a 
+        href="https://wa.me/8801985516000" 
+        target="_blank"
+        rel="noopener noreferrer"
+        class="inline-flex items-center gap-1.5 rounded-full bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-700 mt-2"
+      >
+        Chat on WhatsApp
+      </a>
+    </div>
+  </div>
+</div>
+
+<script>
+  import "./scripts/product-tabs.ts";
+</script>
