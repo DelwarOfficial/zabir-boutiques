@@ -69,7 +69,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     const adjustmentId = crypto.randomUUID();
-    const now = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    const now = nowSql();
 
     const auditStmt = await prepareAuditLogInsert(env.DB, {
       actorStaffId: user.id,

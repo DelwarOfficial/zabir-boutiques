@@ -6,7 +6,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { verifyTotpCode } from '../../../../lib/totp';
-import { writeAuditLog } from '../../../../lib/audit';
+import { writeCriticalAuditLog } from '../../../../lib/audit';
 import { storeStaffTotpSecret } from '../../../../lib/otp-secrets';
 
 export async function POST(context: APIContext): Promise<Response> {

@@ -209,7 +209,8 @@
       ],
       "vars": {
         "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
-        "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)"
+        "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)",
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAAStagingTestKey"
       }
     },
     "dev": {
