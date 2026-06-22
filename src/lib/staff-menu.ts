@@ -21,6 +21,7 @@ const ALL: MenuItem[] = [
   { label: 'Dashboard', href: '/staff', roles: ['owner-tier', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'] },
   { label: 'Orders', href: '/staff/orders', roles: ['owner-tier', 'manager'] },
   { label: 'Products', href: '/staff/products', roles: ['owner-tier', 'manager'] },
+  { label: 'New Product', href: '/staff/products/new', roles: ['owner-tier', 'manager'] },
   { label: 'Inventory', href: '/staff/inventory', roles: ['owner-tier', 'manager'] },
   { label: 'Fraud Review', href: '/staff/fraud', roles: ['owner-tier', 'manager'] },
   { label: 'Reports', href: '/staff/reports', roles: ['owner-tier', 'manager', 'auditor'] },
