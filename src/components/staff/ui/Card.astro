@@ -7,7 +7,7 @@ interface Props {
 }
 
 const { title, subtitle, padding = true, hover } = Astro.props;
-const hasHeader = title !== undefined && Astro.slots.has('title');
+const hasHeader = title !== undefined || subtitle !== undefined || Astro.slots.has('title');
 const hasAction = Astro.slots.has('action');
 ---
 

@@ -1,6 +1,10 @@
 ---
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import PageHeader from "@/components/staff/PageHeader.astro";
+import Table from "@/components/staff/ui/Table.astro";
+import Badge from "@/components/staff/ui/Badge.astro";
+import Pagination from "@/components/staff/ui/Pagination.astro";
+import EmptyState from "@/components/staff/ui/EmptyState.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
 
@@ -42,11 +46,38 @@ const orders = await env.DB.prepare(
 
 const statuses = ["pending_review", "pending_payment", "payment_verified", "paid_over_allocated", "staff_confirmed", "packing", "shipped", "delivered", "cancelled", "refunded"];
 
-const badge: Record<string, string> = {
-  pending_review: "#f59e0b", pending_payment: "#f59e0b", payment_verified: "#3b82f6",
-  paid_over_allocated: "#8b5cf6", staff_confirmed: "#06b6d4", packing: "#06b6d4",
-  shipped: "#6366f1", delivered: "#22c55e", cancelled: "#ef4444", refunded: "#64748b",
+const statusBadge: Record<string, string> = {
+  pending_review: 'bg-amber-100 text-amber-700', pending_payment: 'bg-amber-100 text-amber-700',
+  payment_verified: 'bg-blue-100 text-blue-700', paid_over_allocated: 'bg-purple-100 text-purple-700',
+  staff_confirmed: 'bg-cyan-100 text-cyan-700', packing: 'bg-cyan-100 text-cyan-700',
+  shipped: 'bg-indigo-100 text-indigo-700', delivered: 'bg-green-100 text-green-700',
+  cancelled: 'bg-red-100 text-red-700', refunded: 'bg-slate-100 text-slate-700',
 };
+
+const fraudBadge: Record<string, string> = {
+  approved: 'bg-green-100 text-green-700', blocked: 'bg-red-100 text-red-700',
+  review: 'bg-amber-100 text-amber-700',
+};
+
+const paymentBadge: Record<string, { variant: 'success' | 'danger' | 'warning'; label: string }> = {
+  paid: { variant: 'success', label: 'Paid' },
+  partially_paid: { variant: 'warning', label: 'Partial' },
+  failed: { variant: 'danger', label: 'Failed' },
+};
+
+const columns = [
+  { key: 'order_number', label: 'Order' },
+  { key: 'customer', label: 'Customer' },
+  { key: 'total', label: 'Total', align: 'right' as const },
+  { key: 'payment', label: 'Payment' },
+  { key: 'status', label: 'Status' },
+  { key: 'channel', label: 'Channel' },
+  { key: 'fraud', label: 'Fraud' },
+  { key: 'created', label: 'Created' },
+  { key: 'by', label: 'By' },
+];
+
+const filterQuery = statusFilter ? `?status=${statusFilter}` : '';
 ---
 
 <StaffLayout title="Orders" user={user}>
@@ -61,61 +92,34 @@ const badge: Record<string, string> = {
     ))}
   </div>
 
-  <div class="overflow-x-auto border border-line rounded-lg">
-    <table class="w-full border-collapse text-sm">
-      <thead>
-        <tr class="bg-surface-soft text-left">
-          <th class="px-3 py-2.5 font-semibold">Order</th>
-          <th class="px-3 py-2.5 font-semibold">Customer</th>
-          <th class="px-3 py-2.5 font-semibold">Total</th>
-          <th class="px-3 py-2.5 font-semibold">Payment</th>
-          <th class="px-3 py-2.5 font-semibold">Status</th>
-          <th class="px-3 py-2.5 font-semibold">Channel</th>
-          <th class="px-3 py-2.5 font-semibold">Fraud</th>
-          <th class="px-3 py-2.5 font-semibold">Created</th>
-          <th class="px-3 py-2.5 font-semibold">By</th>
-        </tr>
-      </thead>
-      <tbody>
-        {orders.results?.length ? orders.results.map(o => (
-          <tr class="border-t border-line-soft">
-            <td class="px-3 py-2.5"><a href={`/staff/orders/${o.id}`} class="text-brand font-semibold no-underline">{o.order_number}</a></td>
-            <td class="px-3 py-2.5">
-              <div>{o.name}</div>
-              <div class="text-muted text-xs">{o.phone}</div>
-            </td>
-            <td class="px-3 py-2.5 font-semibold">৳{(o.total_paisa / 100).toFixed(2)}</td>
-            <td class="px-3 py-2.5">
-              <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] ${['paid','partially_paid'].includes(o.payment_status) ? 'bg-green-100 text-green-800' : o.payment_status === 'failed' ? 'bg-red-100 text-red-800' : 'bg-amber-100 text-amber-800'}`}>
-                {o.payment_method}{o.payment_status !== 'paid' ? ` (${o.payment_status})` : ''}
-              </span>
-            </td>
-            <td class="px-3 py-2.5">
-              <span class="inline-block px-1.5 py-0.5 rounded text-[10px]" style={`background:${badge[o.status] || '#f1f5f9'}22;color:${badge[o.status] || '#475569'};`}>
-                {o.status.replace(/_/g, " ")}
-              </span>
-            </td>
-            <td class="px-3 py-2.5 text-muted text-xs">{o.order_channel}</td>
-            <td class="px-3 py-2.5">
-              <span class="inline-block px-1.5 py-0.5 rounded text-[10px]" style={`background:${o.fraud_decision === 'approved' ? '#dcfce7' : o.fraud_decision === 'blocked' ? '#fee2e2' : '#fef3c7'};color:${o.fraud_decision === 'approved' ? '#166534' : o.fraud_decision === 'blocked' ? '#991b1b' : '#92400e'};`}>
-                {o.fraud_decision}
-              </span>
-            </td>
-            <td class="px-3 py-2.5 text-muted text-xs">{o.created_at?.split(" ")[0]}</td>
-            <td class="px-3 py-2.5 text-muted text-xs">{o.created_by_name || "—"}</td>
-          </tr>
-        )) : <tr><td colspan="9" class="px-4 py-8 text-center text-muted">No orders found.</td></tr>}
-      </tbody>
-    </table>
-  </div>
+  <Table columns={columns} empty={!orders.results?.length} emptyMessage="No orders found matching your filters.">
+    {orders.results?.length ? orders.results.map(o => (
+      <tr class="border-t border-line-soft hover:bg-surface-soft transition-colors">
+        <td class="px-3 py-2.5"><a href={`/staff/orders/${o.id}`} class="text-brand font-semibold no-underline">{o.order_number}</a></td>
+        <td class="px-3 py-2.5">
+          <div>{o.name}</div>
+          <div class="text-muted text-xs">{o.phone}</div>
+        </td>
+        <td class="px-3 py-2.5 font-semibold">৳{(o.total_paisa / 100).toFixed(2)}</td>
+        <td class="px-3 py-2.5">
+          <Badge variant={paymentBadge[o.payment_status]?.variant ?? 'warning'}>{paymentBadge[o.payment_status]?.label ?? o.payment_status}</Badge>
+        </td>
+        <td class="px-3 py-2.5">
+          <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${statusBadge[o.status] || 'bg-surface-soft text-ink-secondary'}`}>{o.status.replace(/_/g, " ")}</span>
+        </td>
+        <td class="px-3 py-2.5 text-muted text-xs">{o.order_channel}</td>
+        <td class="px-3 py-2.5">
+          <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${fraudBadge[o.fraud_decision] || 'bg-amber-100 text-amber-700'}`}>{o.fraud_decision}</span>
+        </td>
+        <td class="px-3 py-2.5 text-muted text-xs">{o.created_at?.split(" ")[0]}</td>
+        <td class="px-3 py-2.5 text-muted text-xs">{o.created_by_name || "—"}</td>
+      </tr>
+    )) : (
+      <tr><td colspan="9"><EmptyState icon="search" title="No orders found" description={statusFilter ? `No orders with status "${statusFilter.replace(/_/g, ' ')}"` : "No orders have been placed yet."} /></td></tr>
+    )}
+  </Table>
 
   {totalPages > 1 && (
-    <div class="flex gap-2 justify-center mt-6">
-      {Array.from({ length: totalPages }, (_, i) => (
-        <a href={`/staff/orders?page=${i + 1}${statusFilter ? `&status=${statusFilter}` : ""}`} class={`px-2.5 py-1 rounded text-xs no-underline ${page === i + 1 ? 'bg-brand text-white' : 'bg-surface text-ink-secondary border border-line'}`}>
-          {i + 1}
-        </a>
-      ))}
-    </div>
+    <Pagination current={page} total={totalPages} baseUrl={`/staff/orders${filterQuery}`} />
   )}
 </StaffLayout>

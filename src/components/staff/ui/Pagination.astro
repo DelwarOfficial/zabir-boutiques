@@ -6,10 +6,15 @@ interface Props {
   preserveParams?: boolean;
 }
 
-const { current, total, baseUrl } = Astro.props;
+const { current, total, baseUrl, preserveParams } = Astro.props;
 
 function buildPageUrl(page: number): string {
   const url = new URL(baseUrl, 'http://x');
+  if (preserveParams) {
+    for (const [key, val] of Astro.url.searchParams.entries()) {
+      if (key !== 'page') url.searchParams.set(key, val);
+    }
+  }
   url.searchParams.set('page', String(page));
   return url.pathname + url.search;
 }
