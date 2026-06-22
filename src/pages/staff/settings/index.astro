@@ -2,26 +2,15 @@
 import StaffLayout from "@/layouts/StaffLayout.astro";
 import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
+import { SettingsTabs } from "@/components/staff/settings/SettingsTabs";
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
 if (!can(user.role, "settings.manage")) return new Response("Forbidden", { status: 403 });
 ---
 <StaffLayout title="Site Settings" user={user}>
   <PageHeader title="Site Settings" subtitle="Platform configuration, shipping rates, payment gateways, and feature flags." />
-  <div class="bg-surface border border-line rounded-lg p-4">
-    <table class="w-full border-collapse text-sm" id="settings-table">
-      <thead><tr class="border-b border-line text-left"><th class="py-2 px-3">Key</th><th class="py-2 px-3">Value</th><th class="py-2 px-3">Group</th></tr></thead>
-      <tbody id="settings-body"><tr><td colspan="3" class="px-3 py-4 text-center text-muted">Loading...</td></tr></tbody>
-    </table>
+  <div class="mt-6">
+    <SettingsTabs client:load />
   </div>
-  <script>
-    fetch('/api/staff/settings').then(r => r.json()).then((data: any) => {
-      const tbody = document.getElementById('settings-body') as HTMLElement | null;
-      if (tbody && data?.settings?.length) {
-        tbody.innerHTML = data.settings.map((s: any) => `<tr style="border-bottom:1px solid var(--line-soft);"><td style="padding:0.5rem 0.75rem;font-family:monospace;">${s.key}</td><td style="padding:0.5rem 0.75rem;">${s.value}</td><td style="padding:0.5rem 0.75rem;color:var(--muted);">${s.group_name}</td></tr>`).join('');
-      } else if (tbody) {
-        tbody.innerHTML = '<tr><td colspan="3" style="padding:1rem;text-align:center;color:var(--muted);">No settings found.</td></tr>';
-      }
-    }).catch(() => {});
-  </script>
 </StaffLayout>
