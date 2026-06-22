@@ -75,50 +75,50 @@ function DetailModal({ entry, onClose }: { entry: AuditEntryWithActor; onClose: 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={onClose}>
-      <div className="bg-[var(--surface)] rounded-xl border border-[var(--line)] shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="flex items-center justify-between px-5 py-4 border-b border-[var(--line)]">
+      <div className="bg-surface rounded-xl border border-line shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between px-5 py-4 border-b border-line">
           <h2 className="text-lg font-extrabold m-0">Audit Entry</h2>
-          <button type="button" onClick={onClose} className="press text-[var(--muted)] hover:text-[var(--ink)] text-xl leading-none">&times;</button>
+          <button type="button" onClick={onClose} className="press text-muted hover:text-ink text-xl leading-none">&times;</button>
         </div>
 
         <div className="p-5 space-y-4">
           <div className="flex items-center gap-2 flex-wrap">
             <ActionBadge action={entry.action} />
             <span className="text-sm font-semibold">{actionLabel(entry.action)}</span>
-            <code className="text-[11px] text-[var(--muted)] font-mono">{entry.action}</code>
+            <code className="text-[11px] text-muted font-mono">{entry.action}</code>
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="p-2.5 rounded-lg bg-[var(--surface-soft)]">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Date & Time</p>
+            <div className="p-2.5 rounded-lg bg-surface-soft">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">Date & Time</p>
               <p className="font-semibold tabular-nums">{formatDate(entry.created_at)}</p>
             </div>
-            <div className="p-2.5 rounded-lg bg-[var(--surface-soft)]">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Staff</p>
+            <div className="p-2.5 rounded-lg bg-surface-soft">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">Staff</p>
               <p className="font-semibold">{entry.actor_name || 'Unknown'}</p>
-              {entry.actor_role && <p className="text-[11px] text-[var(--muted)]">{entry.actor_role}</p>}
+              {entry.actor_role && <p className="text-[11px] text-muted">{entry.actor_role}</p>}
             </div>
-            <div className="p-2.5 rounded-lg bg-[var(--surface-soft)]">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Entity</p>
+            <div className="p-2.5 rounded-lg bg-surface-soft">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">Entity</p>
               <p className="font-semibold">{formatEntityType(entry.entity_type)}</p>
-              <code className="text-[11px] text-[var(--muted)] font-mono">{shortId(entry.entity_id)}</code>
+              <code className="text-[11px] text-muted font-mono">{shortId(entry.entity_id)}</code>
             </div>
-            <div className="p-2.5 rounded-lg bg-[var(--surface-soft)]">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">IP Address</p>
+            <div className="p-2.5 rounded-lg bg-surface-soft">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">IP Address</p>
               <p className="font-mono text-[13px]">{entry.ip_address || '—'}</p>
             </div>
           </div>
 
           {entry.chain_hash && (
-            <div className="p-2.5 rounded-lg bg-[var(--surface-soft)]">
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1">Chain Integrity</p>
+            <div className="p-2.5 rounded-lg bg-surface-soft">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1">Chain Integrity</p>
               <div className="space-y-0.5">
-                <p className="text-[11px] font-mono text-[var(--muted)] break-all">
-                  <span className="text-[var(--ink-secondary)] font-semibold">Previous: </span>
+                <p className="text-[11px] font-mono text-muted break-all">
+                  <span className="text-ink-secondary font-semibold">Previous: </span>
                   {entry.previous_hash ? shortId(entry.previous_hash) : '(genesis)'}
                 </p>
-                <p className="text-[11px] font-mono text-[var(--muted)] break-all">
-                  <span className="text-[var(--ink-secondary)] font-semibold">Chain: </span>
+                <p className="text-[11px] font-mono text-muted break-all">
+                  <span className="text-ink-secondary font-semibold">Chain: </span>
                   {shortId(entry.chain_hash)}
                 </p>
               </div>
@@ -127,8 +127,8 @@ function DetailModal({ entry, onClose }: { entry: AuditEntryWithActor; onClose: 
 
           {metadata && (
             <div>
-              <p className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)] mb-1.5">Metadata</p>
-              <div className="rounded-lg border border-[var(--line)] overflow-hidden">
+              <p className="text-[10px] font-bold uppercase tracking-wider text-muted mb-1.5">Metadata</p>
+              <div className="rounded-lg border border-line overflow-hidden">
                 <table className="w-full text-xs border-collapse">
                   <tbody>
                     {Object.entries(metadata).map(([key, val]) => {
@@ -138,8 +138,8 @@ function DetailModal({ entry, onClose }: { entry: AuditEntryWithActor; onClose: 
                       const valStr = val === null ? '—' : typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
                       const isDiff = isPriorKey || isNewKey;
                       return (
-                        <tr key={key} className="border-t border-[var(--line)]">
-                          <td className="px-2.5 py-1.5 text-[var(--muted)] font-mono whitespace-nowrap">{key}</td>
+                        <tr key={key} className="border-t border-line">
+                          <td className="px-2.5 py-1.5 text-muted font-mono whitespace-nowrap">{key}</td>
                           <td className={`px-2.5 py-1.5 font-mono break-all ${isPriorKey ? 'text-red-700 bg-red-50' : ''} ${isNewKey ? 'text-green-700 bg-green-50' : ''}`}>
                             {isDiff && (isPriorKey ? '← ' : '→ ')}
                             {valStr}
@@ -154,8 +154,8 @@ function DetailModal({ entry, onClose }: { entry: AuditEntryWithActor; onClose: 
           )}
         </div>
 
-        <div className="flex items-center justify-end px-5 py-4 border-t border-[var(--line)] bg-[var(--surface-soft)] rounded-b-xl">
-          <button type="button" onClick={onClose} className="press px-4 py-2 text-sm font-semibold rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--ink)]">
+        <div className="flex items-center justify-end px-5 py-4 border-t border-line bg-surface-soft rounded-b-xl">
+          <button type="button" onClick={onClose} className="press px-4 py-2 text-sm font-semibold rounded-lg border border-line bg-surface text-ink">
             Close
           </button>
         </div>
@@ -236,14 +236,14 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
       {error && <div className="bg-red-100 text-red-800 px-4 py-2 rounded-lg text-sm mb-4">{error}</div>}
 
       <div className="flex items-center justify-between mb-4">
-        <p className="text-sm text-[var(--muted)]">
+        <p className="text-sm text-muted">
           {total.toLocaleString()} entr{total === 1 ? 'y' : 'ies'}
           {totalPages > 1 && ` · Page ${currentPage}/${totalPages}`}
         </p>
         <button
           type="button"
           onClick={() => fetchPage(currentPage)}
-          className="press text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-[var(--line)] bg-[var(--surface)] text-[var(--ink-secondary)] hover:bg-[var(--surface-soft)] flex items-center gap-1"
+          className="press text-xs font-semibold px-2.5 py-1.5 rounded-lg border border-line bg-surface text-ink-secondary hover:bg-surface-soft flex items-center gap-1"
         >
           <svg className="h-3 w-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M1 4v6h6M23 20v-6h-6"/><path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15"/></svg>
           Refresh
@@ -252,11 +252,11 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
 
       <form onSubmit={handleSearch} className="flex flex-wrap gap-2 mb-4 items-end">
         <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] mb-0.5">Action Type</label>
+          <label className="block text-[10px] font-semibold text-muted mb-0.5">Action Type</label>
           <select
             value={filterAction}
             onChange={e => setFilterAction(e.target.value)}
-            className="px-2.5 py-1.5 border border-[var(--line)] rounded-md bg-[var(--surface)] text-[var(--ink)] text-xs w-44"
+            className="px-2.5 py-1.5 border border-line rounded-md bg-surface text-ink text-xs w-44"
           >
             <option value="">All actions</option>
             {actionTypes.map(a => (
@@ -265,49 +265,49 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
           </select>
         </div>
         <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] mb-0.5">Entity Type</label>
+          <label className="block text-[10px] font-semibold text-muted mb-0.5">Entity Type</label>
           <input
             type="text"
             value={filterEntityType}
             onChange={e => setFilterEntityType(e.target.value)}
             placeholder="e.g. order, role"
-            className="px-2.5 py-1.5 border border-[var(--line)] rounded-md bg-[var(--surface)] text-[var(--ink)] text-xs w-32"
+            className="px-2.5 py-1.5 border border-line rounded-md bg-surface text-ink text-xs w-32"
           />
         </div>
         <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] mb-0.5">Entity ID</label>
+          <label className="block text-[10px] font-semibold text-muted mb-0.5">Entity ID</label>
           <input
             type="text"
             value={filterEntityId}
             onChange={e => setFilterEntityId(e.target.value)}
             placeholder="UUID"
-            className="px-2.5 py-1.5 border border-[var(--line)] rounded-md bg-[var(--surface)] text-[var(--ink)] text-xs w-36"
+            className="px-2.5 py-1.5 border border-line rounded-md bg-surface text-ink text-xs w-36"
           />
         </div>
         <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] mb-0.5">From</label>
+          <label className="block text-[10px] font-semibold text-muted mb-0.5">From</label>
           <input
             type="date"
             value={filterDateFrom}
             onChange={e => setFilterDateFrom(e.target.value)}
-            className="px-2.5 py-1.5 border border-[var(--line)] rounded-md bg-[var(--surface)] text-[var(--ink)] text-xs w-36"
+            className="px-2.5 py-1.5 border border-line rounded-md bg-surface text-ink text-xs w-36"
           />
         </div>
         <div>
-          <label className="block text-[10px] font-semibold text-[var(--muted)] mb-0.5">To</label>
+          <label className="block text-[10px] font-semibold text-muted mb-0.5">To</label>
           <input
             type="date"
             value={filterDateTo}
             onChange={e => setFilterDateTo(e.target.value)}
-            className="px-2.5 py-1.5 border border-[var(--line)] rounded-md bg-[var(--surface)] text-[var(--ink)] text-xs w-36"
+            className="px-2.5 py-1.5 border border-line rounded-md bg-surface text-ink text-xs w-36"
           />
         </div>
         <div className="flex gap-1">
-          <button type="submit" className="px-3 py-1.5 bg-[var(--brand)] text-white rounded-md text-xs font-semibold border-0 cursor-pointer hover:brightness-110">
+          <button type="submit" className="px-3 py-1.5 bg-brand text-white rounded-md text-xs font-semibold border-0 cursor-pointer hover:brightness-110">
             Filter
           </button>
           {(filterAction || filterEntityType || filterEntityId || filterDateFrom || filterDateTo) && (
-            <button type="button" onClick={handleClear} className="px-3 py-1.5 border border-[var(--line)] rounded-md text-xs text-[var(--muted)] bg-[var(--surface)] cursor-pointer hover:bg-[var(--surface-soft)]">
+            <button type="button" onClick={handleClear} className="px-3 py-1.5 border border-line rounded-md text-xs text-muted bg-surface cursor-pointer hover:bg-surface-soft">
               Clear
             </button>
           )}
@@ -315,16 +315,16 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
       </form>
 
       {loading ? (
-        <p className="text-sm text-[var(--muted)] py-8 text-center">Loading audit entries…</p>
+        <p className="text-sm text-muted py-8 text-center">Loading audit entries…</p>
       ) : entries.length === 0 ? (
-        <div className="text-center text-[var(--muted)] text-sm py-8 border border-[var(--line)] rounded-lg">
+        <div className="text-center text-muted text-sm py-8 border border-line rounded-lg">
           No audit entries match your filters.
         </div>
       ) : (
-        <div className="overflow-x-auto border border-[var(--line)] rounded-lg">
+        <div className="overflow-x-auto border border-line rounded-lg">
           <table className="w-full border-collapse text-xs">
             <thead>
-              <tr className="bg-[var(--surface-soft)] text-left">
+              <tr className="bg-surface-soft text-left">
                 <th className="px-2.5 py-2 font-semibold whitespace-nowrap">Date</th>
                 <th className="px-2.5 py-2 font-semibold">Action</th>
                 <th className="px-2.5 py-2 font-semibold">Staff</th>
@@ -337,9 +337,9 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
                 <tr
                   key={e.id}
                   onClick={() => setDetailEntry(e)}
-                  className="border-t border-[var(--line-soft)] hover:bg-[var(--surface-soft)] cursor-pointer transition-colors"
+                  className="border-t border-line-soft hover:bg-surface-soft cursor-pointer transition-colors"
                 >
-                  <td className="px-2.5 py-1.5 whitespace-nowrap tabular-nums text-[var(--muted)]">
+                  <td className="px-2.5 py-1.5 whitespace-nowrap tabular-nums text-muted">
                     {formatDate(e.created_at)}
                   </td>
                   <td className="px-2.5 py-1.5">
@@ -350,13 +350,13 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
                   </td>
                   <td className="px-2.5 py-1.5">
                     <span className="font-semibold">{e.actor_name || '—'}</span>
-                    {e.actor_role && <span className="text-[10px] text-[var(--muted)] ml-1">({e.actor_role})</span>}
+                    {e.actor_role && <span className="text-[10px] text-muted ml-1">({e.actor_role})</span>}
                   </td>
                   <td className="px-2.5 py-1.5">
-                    <span className="text-[var(--muted)]">{formatEntityType(e.entity_type)}</span>
-                    <code className="text-[10px] text-[var(--muted)] font-mono ml-1">#{shortId(e.entity_id)}</code>
+                    <span className="text-muted">{formatEntityType(e.entity_type)}</span>
+                    <code className="text-[10px] text-muted font-mono ml-1">#{shortId(e.entity_id)}</code>
                   </td>
-                  <td className="px-2.5 py-1.5 font-mono text-[10px] text-[var(--muted)] hidden sm:table-cell">
+                  <td className="px-2.5 py-1.5 font-mono text-[10px] text-muted hidden sm:table-cell">
                     {e.ip_address || '—'}
                   </td>
                 </tr>
@@ -372,22 +372,22 @@ export function AuditLogViewer({ initialEntries, total: initialTotal, page: init
             type="button"
             onClick={() => fetchPage(currentPage - 1)}
             disabled={currentPage <= 1}
-            className="press px-3 py-1.5 border border-[var(--line)] rounded-md text-xs font-semibold bg-[var(--surface)] hover:bg-[var(--surface-soft)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="press px-3 py-1.5 border border-line rounded-md text-xs font-semibold bg-surface hover:bg-surface-soft disabled:opacity-40 disabled:cursor-not-allowed"
           >
             &larr; Previous
           </button>
-          <span className="text-xs text-[var(--muted)]">
+          <span className="text-xs text-muted">
             Page {currentPage} of {totalPages}
           </span>
           <button
             type="button"
             onClick={() => fetchPage(currentPage + 1)}
             disabled={currentPage >= totalPages}
-            className="press px-3 py-1.5 border border-[var(--line)] rounded-md text-xs font-semibold bg-[var(--surface)] hover:bg-[var(--surface-soft)] disabled:opacity-40 disabled:cursor-not-allowed"
+            className="press px-3 py-1.5 border border-line rounded-md text-xs font-semibold bg-surface hover:bg-surface-soft disabled:opacity-40 disabled:cursor-not-allowed"
           >
             Next &rarr;
           </button>
-          <span className="text-xs text-[var(--muted)] ml-auto">Showing {entries.length} of {total.toLocaleString()}</span>
+          <span className="text-xs text-muted ml-auto">Showing {entries.length} of {total.toLocaleString()}</span>
         </div>
       )}
 
