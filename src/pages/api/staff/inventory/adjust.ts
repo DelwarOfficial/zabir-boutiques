@@ -85,7 +85,7 @@ export async function POST(context: APIContext): Promise<Response> {
       },
     }, now);
 
-    await env.DB.batch([
+    const batchResult = await env.DB.batch([
       env.DB.prepare(
         `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?2 WHERE variant_id = ?3`
       ).bind(stockDelta, now, variantId),
@@ -95,6 +95,9 @@ export async function POST(context: APIContext): Promise<Response> {
       ).bind(adjustmentId, variantId, stockDelta, reason, currentStock, newStock, notes ?? null, user.id, now),
       auditStmt,
     ]);
+    if (batchResult[0].meta.changes !== 1) {
+      return Response.json({ ok: false, error: 'Stock update failed' }, { status: 500 });
+    }
 
     try {
       await doSyncFromD1(env, variantId, newStock, 0, 0);

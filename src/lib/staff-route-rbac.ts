@@ -21,7 +21,7 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/fraud/override')) return 'fraud.override';
   if (p.includes('/invoices/') && (p.includes('/void') || p.includes('/print'))) return 'payments.verify';
   if (p.includes('/invoices')) return isMut ? 'orders.create' : 'orders.view';
-  if (p.includes('/coupons')) return 'staff.manage';
+  if (p.includes('/coupons')) return null; // handler enforces assertOwnerOnly
   if (p.includes('/cache/')) return 'settings.platform.update';
   if (p.includes('/api-keys')) return isMut ? 'api_keys.create' : 'api_keys.read';
   if (p.includes('/api-code')) return 'api_code.read';
@@ -30,7 +30,7 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/roles')) return 'roles.manage';
   if (p.includes('/users')) return 'staff.manage';
   if (p.includes('/settings')) return 'settings.manage';
-  if (p.includes('/backups')) return 'backups.restore';
+  if (p.includes('/backups')) return null; // handler enforces assertSuperAdminOnly
   if (p.includes('/audit')) return 'system.audit.view';
 
   if (p.includes('/products/categories')) return 'products.manage';
