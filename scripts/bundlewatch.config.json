@@ -15,6 +15,15 @@
     "dist/client/_astro/GuestCheckout.mygVsoIj.js": {
       "maxGz": 5627
     },
+    "dist/client/_astro/InventoryAdjustmentManager.DqNV4FmD.js": {
+      "maxGz": 5565
+    },
+    "dist/client/_astro/RbacManager.CEIQuwhI.js": {
+      "maxGz": 5483
+    },
+    "dist/client/_astro/AuditLogViewer.B6Gi7rOB.js": {
+      "maxGz": 4251
+    },
     "dist/client/_astro/BuyNowLandingForm.Dy6vhEcb.js": {
       "maxGz": 3602
     },
@@ -68,6 +77,6 @@
     }
   },
   "total": {
-    "maxGz": 119588
+    "maxGz": 134886
   }
 }

@@ -30,6 +30,11 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/users')) return 'staff.manage';
   if (p.includes('/settings')) return 'settings.manage';
   if (p.includes('/backups')) return 'backups.read';
+  if (p.includes('/audit')) return 'system.audit.view';
+
+  if (p.includes('/inventory/adjust')) return 'inventory.adjust';
+  if (p.includes('/inventory/movements')) return 'inventory.manage';
+  if (p.includes('/inventory/variants')) return 'inventory.manage';
 
   if (p.includes('/orders')) return isMut ? 'orders.update' : 'orders.view';
 

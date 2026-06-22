@@ -1,0 +1,15 @@
+---
+import StaffLayout from '@/layouts/StaffLayout.astro';
+import PageHeader from '@/components/staff/PageHeader.astro';
+import { getCurrentStaffUser, can } from '../../../../lib/rbac';
+import InventoryAdjustmentManager from '../../../../islands/staff/InventoryAdjustmentManager.tsx';
+
+const user = await getCurrentStaffUser(Astro);
+if (!user) return Astro.redirect('/staff/login');
+if (!can(user.role, 'inventory.manage')) return new Response('Forbidden', { status: 403 });
+---
+
+<StaffLayout title="Stock Adjustments" user={user}>
+  <PageHeader title="Stock Adjustments" subtitle="Search variants, adjust stock levels, and view movement history" />
+  <InventoryAdjustmentManager client:load />
+</StaffLayout>

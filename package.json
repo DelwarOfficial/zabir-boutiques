@@ -17,6 +17,8 @@
     "pwa:generate": "node scripts/generate-sw.mjs",
     "preview": "astro preview",
     "deploy": "npm run build:with-snapshots && wrangler deploy",
+    "deploy:staging": "npm run build:with-snapshots && wrangler deploy --env staging",
+    "deploy:dev": "npm run build:with-snapshots && wrangler deploy --env dev",
     "db:migrate:local": "tsx scripts/apply-migrations.ts --local",
     "db:migrate:prod": "tsx scripts/apply-migrations.ts --remote",
     "typecheck": "tsc --noEmit",
