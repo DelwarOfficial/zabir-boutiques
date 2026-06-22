@@ -9,6 +9,13 @@ type CouponState = {
   loading: boolean;
 };
 
+type CouponValidationResponse = {
+  ok?: boolean;
+  code?: string;
+  discountPaisa?: number;
+  message?: string;
+};
+
 export function CartDrawer() {
   const cart = useLocalCart();
   const [isOpen, setIsOpen] = useState(false);
@@ -108,8 +115,8 @@ export function CartDrawer() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ code: code.toUpperCase().trim(), subtotalPaisa: subtotal })
       });
-      const data = await res.json();
-      if (res.ok && data.ok) {
+      const data = (await res.json().catch(() => ({}))) as CouponValidationResponse;
+      if (res.ok && data.ok && typeof data.code === 'string' && typeof data.discountPaisa === 'number') {
         setCoupon({
           code: data.code,
           discountPaisa: data.discountPaisa,

@@ -12,23 +12,26 @@
     "dist/client/_astro/phone.CIsIWcAH.js": {
       "maxGz": 31565
     },
-    "dist/client/_astro/MergedProductUpload.CISEQRxR.js": {
-      "maxGz": 6505
+    "dist/client/_astro/MergedProductUpload.C3mSL3O-.js": {
+      "maxGz": 6477
     },
-    "dist/client/_astro/GuestCheckout.mygVsoIj.js": {
-      "maxGz": 5627
+    "dist/client/_astro/GuestCheckout.kla0bY7E.js": {
+      "maxGz": 5912
     },
     "dist/client/_astro/InventoryAdjustmentManager.BAo35_AF.js": {
       "maxGz": 5576
     },
-    "dist/client/_astro/RbacManager.CEIQuwhI.js": {
-      "maxGz": 5483
+    "dist/client/_astro/RbacManager.BPi8GYYz.js": {
+      "maxGz": 5525
     },
-    "dist/client/_astro/AuditLogViewer.C7RRX9pz.js": {
-      "maxGz": 4261
+    "dist/client/_astro/AuditLogViewer.BubdMQ8Z.js": {
+      "maxGz": 4225
     },
     "dist/client/_astro/BuyNowLandingForm.Dy6vhEcb.js": {
       "maxGz": 3602
+    },
+    "dist/client/_astro/CartDrawer.WTK_X_S2.js": {
+      "maxGz": 3141
     },
     "dist/client/_astro/index.DQ_U63bv.js": {
       "maxGz": 3079
@@ -39,6 +42,12 @@
     "dist/client/_astro/SettingsTabs.6yhxmtZi.js": {
       "maxGz": 2037
     },
+    "dist/client/_astro/MobileMenu.Dvv-f1HI.js": {
+      "maxGz": 1904
+    },
+    "dist/client/_astro/Search.CU0STCCE.js": {
+      "maxGz": 1642
+    },
     "dist/client/_astro/CartContent.UMlLZt1O.js": {
       "maxGz": 1595
     },
@@ -48,14 +57,20 @@
     "dist/client/_astro/useLocalCart.BwF7HVMQ.js": {
       "maxGz": 1268
     },
+    "dist/client/_astro/VariantSelector.BU40Hxw7.js": {
+      "maxGz": 1221
+    },
+    "dist/client/_astro/BuyNowButton.g6yIJXRb.js": {
+      "maxGz": 1213
+    },
+    "dist/client/_astro/AddToCartButton.CEO1TVRS.js": {
+      "maxGz": 1193
+    },
+    "dist/client/_astro/ProductGallery.D9vaQnU1.js": {
+      "maxGz": 1151
+    },
     "dist/client/_astro/page.B9eF5IcF.js": {
       "maxGz": 1099
-    },
-    "dist/client/_astro/BuyNowButton.BvZcO7-4.js": {
-      "maxGz": 1082
-    },
-    "dist/client/_astro/AddToCartButton.DI9GB9IX.js": {
-      "maxGz": 1007
     },
     "dist/client/_astro/ThemeToggle.CB7FvKVy.js": {
       "maxGz": 817
@@ -83,6 +98,6 @@
     }
   },
   "total": {
-    "maxGz": 143448
+    "maxGz": 153083
   }
 }

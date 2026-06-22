@@ -12,6 +12,17 @@ type CheckoutStatus =
   | { type: "success"; orderNumber: string; redirectUrl?: string }
   | { type: "error"; code: string; message: string };
 
+type StoredCoupon = {
+  code?: string;
+  discountPaisa?: number;
+};
+
+type CouponValidationResponse = {
+  ok?: boolean;
+  code?: string;
+  discountPaisa?: number;
+};
+
 const SHIPPING_COST: Record<DeliveryZone, Paisa> = {
   inside_dhaka: 7000,
   outside_dhaka: 13000,
@@ -45,7 +56,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
     const saved = localStorage.getItem('zb-coupon');
     if (saved) {
       try {
-        const parsed = JSON.parse(saved);
+        const parsed = JSON.parse(saved) as StoredCoupon;
         if (parsed && parsed.code && typeof parsed.discountPaisa === 'number') {
           setCouponCode(parsed.code);
           setCouponDiscount(parsed.discountPaisa);
@@ -61,9 +72,9 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ code: couponCode, subtotalPaisa: cart.subtotalPaisa })
     })
-      .then(res => res.json())
+      .then(res => res.json() as Promise<CouponValidationResponse>)
       .then(data => {
-        if (data.ok) {
+        if (data.ok && typeof data.code === "string" && typeof data.discountPaisa === "number") {
           setCouponDiscount(data.discountPaisa);
           localStorage.setItem('zb-coupon', JSON.stringify({ code: data.code, discountPaisa: data.discountPaisa }));
         } else {

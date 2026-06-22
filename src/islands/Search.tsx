@@ -10,6 +10,10 @@ type SearchResult = {
   variantLabel: string;
 };
 
+type SearchResponse = {
+  products?: SearchResult[];
+};
+
 export function Search() {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -35,7 +39,7 @@ export function Search() {
     searchTimeout.current = window.setTimeout(async () => {
       try {
         const res = await fetch(`/api/search?q=${encodeURIComponent(query.trim())}`);
-        const data = await res.json();
+        const data = (await res.json().catch(() => ({}))) as SearchResponse;
         if (res.ok && Array.isArray(data.products)) {
           setResults(data.products.slice(0, 8));
           setIsOpen(data.products.length > 0);

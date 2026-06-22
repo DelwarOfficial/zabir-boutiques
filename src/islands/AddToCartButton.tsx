@@ -1,5 +1,5 @@
 import { Check, ShoppingBag } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocalCart } from "../hooks/useLocalCart";
 import type { Paisa } from "../lib/money";
 

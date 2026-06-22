@@ -1,5 +1,5 @@
 import { Zap, Loader2 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 type Props = {
   productId: string;
