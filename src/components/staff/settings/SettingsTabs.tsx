@@ -3,7 +3,6 @@ import React, { useState, useEffect } from 'react';
 const tabs = [
   { value: 'general', label: 'General & Brand' },
   { value: 'delivery', label: 'Delivery Rules' },
-  { value: 'cache', label: 'Cache & Systems' },
 ] as const;
 
 interface SettingItem {
@@ -21,7 +20,18 @@ interface SettingsResponse {
   error?: string;
 }
 
-export const SettingsTabs: React.FC = () => {
+function getCsrf(): string {
+  if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
+  try { return sessionStorage.getItem('zb-csrf') || ''; } catch { return ''; }
+}
+
+interface SettingsTabsProps {
+  role?: string;
+}
+
+export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
+  const isSuperAdmin = role === 'super_admin';
+  const visibleTabs = isSuperAdmin ? [...tabs, { value: 'cache', label: 'Cache & Systems' } as const] : tabs;
   const [activeTab, setActiveTab] = useState('general');
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -52,7 +62,7 @@ export const SettingsTabs: React.FC = () => {
     try {
       const res = await fetch('/api/staff/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
         body: JSON.stringify({ key, value }),
       });
       const data = await res.json() as SettingsResponse;
@@ -68,6 +78,25 @@ export const SettingsTabs: React.FC = () => {
     }
   };
 
+  const handlePurgeCache = async () => {
+    if (!confirm('Purge Cloudflare edge cache for storefront product, category, and stock data?')) return;
+    setSaving('cache.purge');
+    try {
+      const res = await fetch('/api/staff/cache/purge', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+        body: JSON.stringify({ tags: ['products', 'categories', 'stock'] }),
+      });
+      const data = await res.json() as SettingsResponse;
+      if (!res.ok || !data.ok) throw new Error(data.error || 'Cache purge failed');
+      alert('Cache purge requested.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Cache purge failed');
+    } finally {
+      setSaving(null);
+    }
+  };
+
   if (loading) {
     return <div className="text-center py-8 text-muted-foreground text-sm">Loading settings...</div>;
   }
@@ -76,7 +105,7 @@ export const SettingsTabs: React.FC = () => {
     <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
       {/* Sidebar Nav */}
       <nav className="flex flex-col gap-1 md:col-span-1">
-        {tabs.map((tab) => (
+        {visibleTabs.map((tab) => (
           <button
             key={tab.value}
             onClick={() => setActiveTab(tab.value)}
@@ -199,7 +228,7 @@ export const SettingsTabs: React.FC = () => {
           </div>
         )}
 
-        {activeTab === 'cache' && (
+        {isSuperAdmin && activeTab === 'cache' && (
           <div className="space-y-6">
             <div>
               <h3 className="text-lg font-medium text-foreground">Cache & Systems</h3>
@@ -209,10 +238,11 @@ export const SettingsTabs: React.FC = () => {
             <div className="space-y-4">
               <button 
                 type="button"
-                onClick={() => alert('Cache purge triggered.')}
+                onClick={handlePurgeCache}
+                disabled={saving === 'cache.purge'}
                 className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90"
               >
-                Purge CDN Edge Cache
+                {saving === 'cache.purge' ? 'Purging...' : 'Purge CDN Edge Cache'}
               </button>
             </div>
           </div>

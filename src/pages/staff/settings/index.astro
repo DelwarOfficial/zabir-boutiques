@@ -11,6 +11,6 @@ if (!can(user.role, "settings.manage")) return new Response("Forbidden", { statu
 <StaffLayout title="Site Settings" user={user}>
   <PageHeader title="Site Settings" subtitle="Platform configuration, shipping rates, payment gateways, and feature flags." />
   <div class="mt-6">
-    <SettingsTabs client:load />
+    <SettingsTabs role={user.role} client:load />
   </div>
 </StaffLayout>
