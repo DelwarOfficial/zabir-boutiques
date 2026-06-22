@@ -1,5 +1,4 @@
 import React from 'react';
-import { TrendingUp, TrendingDown } from 'lucide-react';
 
 interface MetricCardProps {
   title: string;
@@ -41,7 +40,11 @@ export const MetricCard: React.FC<MetricCardProps> = ({
               ? 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-400' 
               : 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
           }`}>
-            {trend.isPositive ? <TrendingUp className="h-3.5 w-3.5" /> : <TrendingDown className="h-3.5 w-3.5" />}
+            {trend.isPositive ? (
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
+            ) : (
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"/></svg>
+            )}
             {trend.isPositive ? '+' : ''}{trend.value}%
           </span>
         )}
