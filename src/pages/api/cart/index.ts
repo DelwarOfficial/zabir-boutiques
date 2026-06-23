@@ -45,8 +45,14 @@ async function enrichItems(
   const variantIds = items.map((i) => i.variantId);
   const rows = await env.DB
     .prepare(
-      `SELECT pv.id AS variant_id, pv.product_id, p.title, pv.label AS variant_label,
-              COALESCE(pv.image_url, p.image_url) AS image_url,
+      `SELECT pv.id AS variant_id, pv.product_id, p.name AS title,
+              CASE
+                WHEN pv.size IS NOT NULL AND pv.color IS NOT NULL THEN pv.size || ', ' || pv.color
+                WHEN pv.size IS NOT NULL THEN pv.size
+                WHEN pv.color IS NOT NULL THEN pv.color
+                ELSE pv.sku
+              END AS variant_label,
+              (SELECT pi.r2_key FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.sort_order LIMIT 1) AS image_url,
               pv.price_paisa, inv.quantity AS available_quantity
        FROM product_variants pv
        JOIN products p ON p.id = pv.product_id
