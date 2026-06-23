@@ -15,18 +15,18 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/refund')) return 'payments.refund';
   if (p.includes('/orders/create')) return 'orders.create';
   if (p.includes('/orders/') && p.includes('/confirm')) return 'orders.confirm';
-  if (p.includes('/orders/') && p.includes('/label')) return 'orders.view';
+  if (p.includes('/orders/') && p.includes('/label')) return 'orders.pack';
   if (p.includes('/orders/') && p.includes('/ship')) return 'orders.ship';
   if (p.includes('/orders/') && p.includes('/pack')) return 'orders.pack';
   if (p.includes('/orders/') && p.includes('/courier')) return 'orders.ship';
-  if (p.includes('/returns/') && p.includes('/approve')) return 'payments.refund';
+  if (p.includes('/returns/') && p.includes('/approve')) return 'orders.update';
   if (p.includes('/returns/') && p.includes('/reject')) return 'orders.update';
   if (p.includes('/returns')) return isMut ? 'orders.update' : 'orders.view';
   if (p.includes('/fraud/override')) return 'fraud.override';
   if (p.includes('/invoices/') && p.includes('/void')) return 'orders.cancel';
   if (p.includes('/invoices/') && p.includes('/print')) return 'orders.view';
   if (p.includes('/invoices')) return isMut ? 'orders.create' : 'orders.view';
-  if (p.includes('/coupons')) return null; // handler enforces assertOwnerOnly
+  if (p.includes('/coupons')) return 'staff.manage';
   if (p.includes('/cache/')) return 'settings.platform.update';
   if (p.includes('/api-keys')) return isMut ? 'api_keys.create' : 'api_keys.read';
   if (p.includes('/api-code')) return isMut ? 'api_code.update' : 'api_code.read';
