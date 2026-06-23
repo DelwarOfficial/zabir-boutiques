@@ -87,6 +87,7 @@ Every implementation, prompt, ticket, PR, and agent instruction must follow thes
 | External APIs | All third-party APIs must go through provider adapters with secrets, sandbox/prod config, timeout, retry, idempotency, circuit breaker, and audit logging. | Prevents hidden vendor coupling and unsafe direct API calls. |
 | Staff-assisted orders | Phone/Messenger/WhatsApp orders use the guest checkout pipeline and prepayment/fraud rules. | Same risk controls as customer checkout. |
 | Money | All money is stored as integer paisa. No floating-point money values anywhere. | Prevents rounding bugs. |
+| ORM / Query Layer | Use Drizzle ORM for D1 schema definitions, type-safe query building, and Drizzle Kit-assisted migrations. D1 remains the database; Durable Objects remain the consistency layer. | Reduces schema drift, raw SQL mistakes, and AI-agent implementation errors without changing the source-of-truth architecture. |
 | Cost posture | Build for the $5 Workers Paid plan first. Expensive add-ons are optional upgrade paths, not launch requirements. | Keeps launch cost low. |
 
 ---
@@ -117,6 +118,8 @@ The project uses **Astro 6 + React 19 Islands + Tailwind CSS + Cloudflare adapte
 | Rendering | `output: 'server'` (universal). All routes are dynamic by default. Static pages must explicitly opt in with `export const prerender = true`. `output: 'static'` is FORBIDDEN anywhere in the project. |
 | UI | React 19 Islands + Tailwind CSS |
 | Database | Cloudflare D1 |
+| ORM / Query Layer | Drizzle ORM |
+| Migration Tooling | Drizzle Kit + reviewed SQL migration files |
 | Object storage | Cloudflare R2 |
 | Strong consistency | Durable Objects |
 | Async jobs | Cloudflare Queues |
@@ -143,6 +146,7 @@ Cost rules:
 - Generate image variants during staff upload where possible; keep Cloudflare Images/Image Resizing as an optional upgrade.
 - Use Workers AI within free/daily budget first; use DeepSeek only for complex content generation with BudgetCounterDO enforcement.
 - Email provider is abstracted behind an adapter so the project can start with the lowest-cost reliable provider and switch later.
+- Drizzle ORM and Drizzle Kit are allowed because they do not add runtime hosting cost. Do not require paid Drizzle products, hosted Drizzle services, or external database services for launch.
 
 
 ### 2.3 External API Governance
@@ -406,6 +410,7 @@ With `output: 'server'` as the universal default, **dynamic routes require NO fl
 | Static hosting | Pages/CDN | Prerendered public pages and hashed assets |
 | Dynamic routes | Pages Functions / Workers | Checkout, staff, cart, payment, APIs |
 | Relational data | D1 | Products, variants, orders, staff, invoices, audit logs, cart_activity |
+| D1 Query/Schema Layer | Drizzle ORM | Type-safe D1 access, schema definitions, query building, migration generation support |
 | Object storage | R2 | Product images, email templates, logs, backups, generated reports |
 | Read-mostly state | KV | Session blacklist, feature flags, redirects, autocomplete prefix cache |
 | Strong consistency | Durable Objects | VariantInventoryDO, CartDO, IdempotencyDO, BudgetCounterDO |
@@ -438,6 +443,7 @@ With `output: 'server'` as the universal default, **dynamic routes require NO fl
 | AI budget | BudgetCounterDO | D1 `ai_budget_limits` table | DO enforces counters; D1 is the durable source of truth for configured limits (per migration 0023 / Section 24.2). |
 | API provider health | ProviderHealthDO | Analytics/audit logs | Circuit breaker state for FraudBD, UddoktaPay, DeepSeek, Imagify, email, and courier APIs. |
 | Audit events | D1 audit_log | R2 log archive | Append-only. |
+| **Note:** Drizzle is never an authoritative store. It is a code-layer interface over D1. Source-of-truth ownership remains unchanged — Durable Objects, D1 tables, KV, and R2 retain their canonical roles. |
 
 ---
 
@@ -769,7 +775,77 @@ async alarm() {
 
 Cron sweeps may exist as a safety net, but the primary cleanup mechanism for short-lived DO state is the Durable Object Alarm API. The hourly reservation cleanup cron (Section 12.3) is a D1 sweep, not a DO alarm — it operates on `stock_reservations` rows, calling `VariantInventoryDO.release()` for each expired row.
 
----
+### 6.9 Drizzle ORM Contract
+
+#### 6.9.1 Core Rules
+
+1. **All D1 tables must have matching Drizzle schema definitions** in `src/db/schema/`. The Drizzle schema is the TypeScript source of truth for D1 column types, constraints, and relations. Any D1 table without a matching Drizzle schema is a P2 finding.
+
+2. **Money fields must use integer columns ending in `_paisa`.** The Drizzle schema MUST use `integer()` for all paisa columns. No `real()`, `numeric()`, or string-based money types are allowed.
+
+3. **SQLite-compatible Drizzle column types only.** The following Drizzle column types are approved for D1: `integer()`, `text()`, `real()` (for AI cost tracking only), `blob()`. Do NOT use PostgreSQL-only or MySQL-only column types (`serial`, `jsonb`, `timestamp with time zone`, `varchar` with length arguments that SQLite ignores, `boolean` — use `integer` with `0`/`1`, etc.).
+
+4. **Drizzle relations MAY be used for developer ergonomics** in query building (e.g. `findMany()` with `with` for joined reads). However, **high-traffic commerce queries must remain explicit and optimized** — use `select({ columns: {...} })` with explicit column lists, not `select()`. The checkout, cart, order creation, payment verification, and product listing paths must never use `select()` without explicit columns.
+
+5. **All public-facing and checkout-critical queries must avoid `SELECT *`.** Explicit column selection prevents schema drift from silently changing wire format, protects against over-fetching on mobile networks, and makes query intent clear to reviewers.
+
+6. **Route handlers must call service/query functions**, not build complex Drizzle queries inline. Query construction lives in `src/db/queries/` and `src/db/services/`. A route handler that assembles a Drizzle `select()` or `insert()` inline is non-conformant.
+
+7. **Raw SQL is allowed** for FTS5, advanced indexes, partial indexes, audit-safe batch operations, D1-specific performance paths, and complex aggregate queries that Drizzle cannot express efficiently. Raw SQL must be isolated in `src/db/queries/*.ts` files with clear documentation of why Drizzle was insufficient. It must never appear inside route handlers.
+
+#### 6.9.2 Recommended File Structure
+
+```
+src/db/
+├── schema/
+│   ├── catalog.ts          # products, product_variants, categories, product_categories, product_images, product_tags, inventory_items
+│   ├── cart.ts             # cart_activity, direct_checkout_activity
+│   ├── checkout.ts         # coupons, coupon_redemptions, idempotency_keys, stock_reservations
+│   ├── orders.ts           # orders, order_items, order_status_events, payment_events, return_requests
+│   ├── pos.ts              # invoices, invoice_items, invoice_payments, invoice_audit, daily_invoice_counters
+│   ├── staff.ts            # staff_users, staff_roles, staff_permissions, staff_sessions, password_reset_tokens, password_reset_rate_limits
+│   ├── operations.ts       # email_log, stock_adjustments, inventory_reconciliation_runs, ai_generation_log, backup_log, ai_budget_limits, otp_secrets, api_audit_logs
+│   └── index.ts            # barrel re-export of all schema modules
+├── queries/
+│   ├── products.ts         # Product listing, search, variants — explicit column selects only
+│   ├── checkout.ts         # Cart reads, coupon validation, order creation queries
+│   ├── orders.ts           # Order listing, status history, payment events
+│   ├── staff.ts            # Staff queries, role/permission lookups
+│   ├── pos.ts              # POS invoice queries, daily counters
+│   └── search.ts           # FTS5 queries (raw SQL approved here)
+├── services/
+│   ├── checkout-service.ts # Server-authoritative checkout engine (pricing, delivery, VAT, discount, COD rule)
+│   ├── order-service.ts    # Order creation, status transitions, returns
+│   └── inventory-read-service.ts  # Inventory snapshots for display/admin (never writes stock)
+├── migrations/
+│   ├── drizzle/            # Drizzle Kit-generated migration SQL (reviewed before moving to reviewed-sql/)
+│   └── reviewed-sql/       # Reviewed, D1-validated canonical SQL migration files
+└── client.ts               # D1 database client factory
+```
+
+#### 6.9.3 Money Field Type Convention
+
+Every integer paisa field in the Drizzle schema MUST use the following pattern:
+
+```ts
+export const orders = sqliteTable('orders', {
+  subtotalPaisa: integer('subtotal_paisa').notNull(),
+  deliveryPaisa: integer('delivery_paisa').notNull().default(0),
+  discountPaisa: integer('discount_paisa').notNull().default(0),
+  vatPaisa: integer('vat_paisa').notNull().default(0),
+  totalPaisa: integer('total_paisa').notNull(),
+  advancePaisa: integer('advance_paisa').notNull().default(0),
+  balancePaisa: integer('balance_paisa').notNull(),
+});
+```
+
+Column names in D1 SQL use `snake_case`. The Drizzle field accessor uses `camelCase` for TypeScript ergonomics (e.g. `.subtotalPaisa`). This mapping MUST be explicit in the `sqliteTable` column definition — never use `camelCase` SQL column names.
+
+#### 6.9.4 Validation Rules
+
+- Drizzle `insert()` and `update()` must not accept client-supplied money fields. Checkout service functions strip `price_paisa`, `subtotal_paisa`, `delivery_paisa`, `discount_paisa`, `vat_paisa`, `total_paisa` from any client-provided input before passing to Drizzle.
+- Drizzle queries in checkout, order creation, and payment paths must run within explicit column selects to prevent over-fetching.
+- Any Drizzle query pattern detected as N+1 in CI (via the drift audit) must be refactored to use explicit joins or batch queries.
 
 ## 7. UI/UX Design System
 
@@ -1119,6 +1195,8 @@ Store summary in D1 `direct_checkout_activity` for conversion analysis.
 
 Checkout is server-authoritative, idempotent, and race-condition-aware.
 
+**Drizzle contract (checkout):** Checkout may use Drizzle to read authoritative D1 product, variant, coupon, customer, and order data through `src/db/queries/checkout.ts` and `src/db/services/checkout-service.ts`. However, stock reservation and release must still go through `VariantInventoryDO` command methods — Drizzle must never directly decrement `inventory_items.quantity`. Any Drizzle write that modifies sellable stock outside `VariantInventoryDO` is a P0 violation. Additionally, checkout must never pass client-supplied price, delivery fee, VAT, discount, stock, or total values to Drizzle insert/update calls — the service layer strips these fields before query construction.
+
 ### 11.1 Guest Checkout Canonical Flow
 
 1. Validate `Idempotency-Key`. Claim operation through IdempotencyDO. If existing successful response exists, return it.
@@ -1396,6 +1474,8 @@ Cron every 15 minutes:
 
 ## 12. Inventory and Stock Control
 
+**Drizzle contract (inventory):** Drizzle may read inventory snapshots from D1 for display, admin views, and reporting through `src/db/services/inventory-read-service.ts`. All stock mutations (reserve, release, confirm, directSale, reverseDirectSale) must go through `VariantInventoryDO` command methods. Any Drizzle update that directly changes sellable stock outside the inventory DO is a P0 violation. The drift audit (D-53) detects this pattern.
+
 ### 12.1 Inventory Model
 
 Inventory is tracked at variant level.
@@ -1595,6 +1675,8 @@ Staff role cannot override unless explicitly granted later.
 ---
 
 ## 15. POS and In-Store Sales
+
+**Drizzle contract (POS):** POS may use Drizzle for invoice ledger writes (`invoices`, `invoice_items`, `invoice_payments`) and product lookup through `src/db/queries/pos.ts`. Stock deduction must still pass through `VariantInventoryDO.directSale()` — Drizzle must not directly decrement inventory. POS Drizzle writes are wrapped in the D1 atomic batch that succeeds the DO directSale call.
 
 ### 15.1 POS Scope
 
@@ -2047,6 +2129,8 @@ Stock changes purge product cache only when availability changes in a user-visib
 
 ## 20. SEO Architecture
 
+**Drizzle contract (SEO):** Drizzle may be used to generate product, category, and blog snapshots for prerendered pages through `src/db/queries/products.ts`. Static snapshots are display-only — checkout must reload authoritative data server-side. Drizzle queries for SEO snapshots must select only the columns needed for rendering (no `SELECT *` on product data passed to public templates).
+
 ### 20.1 URL Rules
 
 - Product: `/products/{slug}`.
@@ -2175,6 +2259,8 @@ Optimization rules:
 ---
 
 ## 22. Search Architecture
+
+**Drizzle contract (search):** Drizzle may wrap normal search metadata reads (product name, category, SKU queries) through `src/db/queries/search.ts`. However, FTS5 SQL and advanced search indexes may remain raw SQL where Drizzle abstraction is insufficient. Raw search SQL must be isolated under `src/db/queries/search.ts` with clear documentation of why Drizzle was not used.
 
 ### 22.1 Phase 1: D1 FTS5
 
@@ -2617,10 +2703,22 @@ Do not collect unnecessary date of birth, NID, gender, or payment card details.
 
 ## 29. Implementation Phases
 
+**Drizzle setup (Phase 1, week 1 — pre-M1):** Before building any feature milestone, set up the Drizzle ORM infrastructure:
+- Install Drizzle ORM and Drizzle Kit (`drizzle-orm`, `drizzle-kit`).
+- Create Drizzle Kit config (`drizzle.config.ts`) with D1-compatible SQLite driver.
+- Define initial Drizzle schema files under `src/db/schema/` for all existing D1 tables.
+- Create `src/db/client.ts` with D1 database client factory.
+- Set up local D1 migration workflow (generate → review → apply → smoke test).
+- Add CI validation step: `npx drizzle-kit check` runs on every PR to detect schema drift.
+- Verify that no existing route handler directly imports Drizzle — all access must go through `src/db/queries/` or `src/db/services/`.
+
+This setup is complete before any checkout or inventory logic ships.
+
 ### Phase 1: Core Commerce, Weeks 1-6
 
 | Milestone | Features | Priority |
 |---|---|---|
+| M0 Drizzle Setup | Drizzle ORM + Kit install, schema definitions, client factory, migration workflow, CI gate | P0 |
 | M1 Product Catalog | Product CRUD, variants, categories, slug URLs, R2 image upload, static snapshots | P0 |
 | M2 Cart + Checkout | CartDO, checkout API, idempotency, phone normalization, server pricing | P0 |
 | M3 Payment | UddoktaPay, SSLCommerz fallback interface, HMAC webhook, reconciliation | P0 |
@@ -2707,6 +2805,18 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
 49. **(New) Webhook vs reconciliation conflict resolution:** payment webhooks MUST use the canonical UPSERT in Section 11.5.1 with `transition`-aware source stamping (`webhook`, `reconciliation`, `manual`). Stale rows are rejected via `WHERE last_status_change_at <= COALESCE(:last_change_received_at, '1970-01-01')`. This binds Section 11.5.1 across all payment gateways (UddoktaPay, SSLCommerz, bKash-adjacent adapters added post-launch). Drift rule D-31 series asserts adherence.
 50. **(New) POS compensating transaction matrix:** the POS void flow MUST exercise the test matrix in Section 37.7 (POS-01 through POS-11). POS-06 (concurrent `directSale` + `reverseDirectSale` race) raises a P0 if the variant's `available` count drifts more than 1 unit — escalation must trigger before staff logout. `reverseDirectSale(reason='same_day_void')` is mandatory for same-day voids (already covered by guardrail #16, but the test matrix pins the regression check).
 
+51. **(New) Drizzle reads only for stock — no direct stock mutation:** Drizzle may read inventory snapshots from D1 for display, admin, and reporting. All stock mutations (reserve, release, confirm, directSale, reverseDirectSale) must go through `VariantInventoryDO`. Any Drizzle query that directly updates `inventory_items.quantity` outside the DO is a P0 violation.
+
+52. **(New) No Drizzle queries in route handlers:** Route handlers must not build Drizzle queries inline. Query and service functions live in `src/db/queries/` and `src/db/services/`. A route handler importing Drizzle directly is non-conformant.
+
+53. **(New) No client-supplied money through Drizzle:** Drizzle `insert()` and `update()` calls in checkout, order creation, and POS must never accept client-supplied `price_paisa`, `subtotal_paisa`, `delivery_paisa`, `discount_paisa`, `vat_paisa`, or `total_paisa` values. The service layer strips these fields before query construction.
+
+54. **(New) No paid Drizzle service dependency for launch:** Drizzle ORM and Drizzle Kit are allowed because they do not add runtime hosting cost. Do not require paid Drizzle products, hosted Drizzle services, or external database services for launch.
+
+55. **(New) No generated migration goes to production without SQL review:** Drizzle Kit-generated migration SQL must be reviewed for D1 compatibility, indexed lookup paths, and constraint safety before moving to `migrations/reviewed-sql/`. An unreviewed generated migration in production is a P1 finding.
+
+56. **(New) No N+1 Drizzle queries on high-traffic paths:** Public product listing, checkout, staff order table, POS, and reporting pages must not exhibit N+1 query patterns. Drift audit rule D-56 detects N+1 patterns in these paths.
+
 ---
 
 ## 31. AI Coding Agent Instructions
@@ -2722,7 +2832,11 @@ When an AI coding agent works on this repository, it must follow this order:
 7. If implementing POS, keep it separate from online orders but route stock mutation through VariantInventoryDO.directSale().
 8. If implementing staff-assisted order, use checkout pipeline.
 9. Every feature must include tests for failure paths, not only happy paths.
-10. Before PR completion, run conflict checklist below.
+10. **Use the Drizzle schema as the TypeScript source of truth for D1 access.** Agents must not invent columns, tables, enum values, or money fields. If the schema is missing a required table or column, the agent must update the Drizzle schema AND create a matching reviewed migration together — never one without the other.
+11. **Do not write ad-hoc Drizzle queries in route handlers.** Query construction must live in `src/db/queries/` or `src/db/services/`. A route handler that imports Drizzle directly must be refactored.
+12. **Use explicit column lists in Drizzle `select()` calls** on high-traffic paths (product listing, checkout, order tables, POS, reporting). Never use `select()` without columns in these paths.
+13. **Never pass client-supplied money fields through Drizzle.** Strip `price_paisa`, `subtotal_paisa`, `delivery_paisa`, `discount_paisa`, `vat_paisa`, `total_paisa` from client input before constructing Drizzle queries.
+14. Before PR completion, run conflict checklist below.
 
 ### Agent Conflict Checklist
 
@@ -2771,6 +2885,13 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] No PII logs.
 - [ ] Tests cover D1 constraint failures.
 - [ ] Bangla localization follows v1 scope: URLs are Latin-only matching `^[a-z0-9](?:[a-z0-9-]{0,98}[a-z0-9])?$`; Bangla requested via `?lang=bn`; `<html lang="bn">` only on translated pages. Cross-script search synonyms are post-launch (D-46, D-47).
+- [ ] Drizzle schema covers all D1 tables in `src/db/schema/`. No table exists in D1 without a matching Drizzle schema definition.
+- [ ] Drizzle queries use explicit column lists on checkout, product listing, order table, POS, and reporting paths — no `select()` without columns.
+- [ ] Stock mutations go through `VariantInventoryDO` — Drizzle never directly decrements `inventory_items.quantity`.
+- [ ] Route handlers do not import Drizzle directly — query/service functions in `src/db/queries/` and `src/db/services/` are used instead.
+- [ ] Client-supplied money fields are stripped before Drizzle insert/update calls.
+- [ ] No paid Drizzle service dependency introduced for launch.
+- [ ] Drizzle Kit-generated migration SQL reviewed for D1 compatibility before moving to `migrations/reviewed-sql/`.
 - [ ] D1 FTS5 search uses `unicode61` tokenizer with `tokenchars='_৳'`. Search query is lowercased and NFC-normalized. Insert and query tokenizer settings are identical (D-51).
 - [ ] Product publish/update writes are transactional and keep `products_fts` in sync (D-48). nullable `name_bn` presence on `products` is mirrored in `products_fts` (D-49).
 - [ ] Webhook vs reconciliation uses Section 11.5.1 canonical UPSERT SQL with `last_status_change_at <= COALESCE(...)` check to reject stale state (D-31 series).
@@ -4171,6 +4292,164 @@ export class VariantInventoryDOImpl extends DurableObject implements VariantInve
 
 A PR that introduces a DO class without `implements` (or that drifts from the interface signature) fails the TypeScript check and is blocked. The contracts directory is the single source of truth; prose in Sections 11.3, 17.1, 24.2, 10.6, 9.1 is the human-readable mirror.
 
+### 36.7 Drizzle Schema Stubs
+
+The Drizzle schema files under `src/db/schema/` are the TypeScript source of truth for D1 table shapes. Every D1 table must have a matching Drizzle schema definition; any table without one is a D-53 finding.
+
+#### 36.7.1 `src/db/schema/staff.ts`
+
+```ts
+// src/db/schema/staff.ts
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const staffUsers = sqliteTable('staff_users', {
+  id: text('id').primaryKey(),
+  username: text('username').notNull().unique(),
+  password_hash: text('password_hash').notNull(),
+  role_id: text('role_id').notNull(),
+  is_active: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  mfa_enabled: integer('mfa_enabled', { mode: 'boolean' }).notNull().default(false),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+});
+```
+
+#### 36.7.2 `src/db/schema/catalog.ts`
+
+```ts
+// src/db/schema/catalog.ts
+import { sqliteTable, text, integer, real, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const products = sqliteTable('products', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  name_bn: text('name_bn'),
+  slug: text('slug').notNull().unique(),
+  description: text('description'),
+  description_bn: text('description_bn'),
+  category_id: text('category_id'),
+  base_price_paisa: integer('base_price_paisa').notNull(),
+  vat_rate_paisa: integer('vat_rate_paisa').notNull().default(0),
+  is_active: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+});
+
+export const productVariants = sqliteTable('product_variants', {
+  id: text('id').primaryKey(),
+  product_id: text('product_id').notNull().references(() => products.id, { onDelete: 'cascade' }),
+  sku: text('sku').notNull().unique(),
+  name: text('name').notNull(),
+  price_paisa: integer('price_paisa').notNull(),
+  is_active: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  sort_order: integer('sort_order').notNull().default(0),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+});
+```
+
+#### 36.7.3 `src/db/schema/checkout.ts`
+
+```ts
+// src/db/schema/checkout.ts
+import { sqliteTable, text, integer, uniqueIndex } from 'drizzle-orm/sqlite-core';
+
+export const coupons = sqliteTable('coupons', {
+  id: text('id').primaryKey(),
+  code: text('code').notNull().unique(),
+  discount_type: text('discount_type', { enum: ['percentage', 'fixed'] }).notNull(),
+  discount_value_paisa: integer('discount_value_paisa'),
+  discount_percent: integer('discount_percent'),
+  max_uses: integer('max_uses').notNull().default(0),
+  current_uses: integer('current_uses').notNull().default(0),
+  min_order_paisa: integer('min_order_paisa').notNull().default(0),
+  is_active: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  expires_at: text('expires_at'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+});
+
+export const stockReservations = sqliteTable('stock_reservations', {
+  id: text('id').primaryKey(),
+  variant_id: text('variant_id').notNull(),
+  order_id: text('order_id'),
+  checkout_id: text('checkout_id').notNull(),
+  quantity: integer('quantity').notNull(),
+  status: text('status', { enum: ['active', 'released', 'confirmed'] }).notNull().default('active'),
+  created_at: text('created_at').notNull(),
+  released_at: text('released_at'),
+  release_requested_at: text('release_requested_at'),
+  confirmed_at: text('confirmed_at'),
+});
+```
+
+#### 36.7.4 `src/db/schema/orders.ts`
+
+```ts
+// src/db/schema/orders.ts
+import { sqliteTable, text, integer } from 'drizzle-orm/sqlite-core';
+
+export const orders = sqliteTable('orders', {
+  id: text('id').primaryKey(),
+  customer_name: text('customer_name'),
+  customer_phone: text('customer_phone').notNull(),
+  customer_email: text('customer_email'),
+  delivery_address: text('delivery_address'),
+  subtotal_paisa: integer('subtotal_paisa').notNull(),
+  delivery_paisa: integer('delivery_paisa').notNull().default(0),
+  discount_paisa: integer('discount_paisa').notNull().default(0),
+  vat_paisa: integer('vat_paisa').notNull().default(0),
+  total_paisa: integer('total_paisa').notNull(),
+  advance_paisa: integer('advance_paisa').notNull().default(0),
+  balance_paisa: integer('balance_paisa').notNull(),
+  payment_status: text('payment_status', { enum: ['pending', 'partial', 'paid', 'refunded', 'cancelled'] }).notNull().default('pending'),
+  order_status: text('order_status', { enum: ['pending', 'confirmed', 'processing', 'shipped', 'delivered', 'cancelled', 'returned'] }).notNull().default('pending'),
+  courier_id: text('courier_id'),
+  tracking_number: text('tracking_number'),
+  notes: text('notes'),
+  staff_notes: text('staff_notes'),
+  created_at: text('created_at').notNull(),
+  updated_at: text('updated_at').notNull(),
+});
+
+export const orderItems = sqliteTable('order_items', {
+  id: text('id').primaryKey(),
+  order_id: text('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  variant_id: text('variant_id').notNull(),
+  product_name: text('product_name').notNull(),
+  variant_name: text('variant_name').notNull(),
+  quantity: integer('quantity').notNull(),
+  unit_price_paisa: integer('unit_price_paisa').notNull(),
+  subtotal_paisa: integer('subtotal_paisa').notNull(),
+});
+
+export const orderStatusEvents = sqliteTable('order_status_events', {
+  id: text('id').primaryKey(),
+  order_id: text('order_id').notNull().references(() => orders.id, { onDelete: 'cascade' }),
+  from_status: text('from_status'),
+  to_status: text('to_status').notNull(),
+  changed_by_staff_id: text('changed_by_staff_id'),
+  reason: text('reason'),
+  created_at: text('created_at').notNull(),
+});
+```
+
+#### 36.7.5 `src/db/client.ts` — D1 Client Factory
+
+```ts
+// src/db/client.ts
+import { drizzle } from 'drizzle-orm/d1';
+import * as schema from './schema';
+
+export function createDbClient(d1: D1Database) {
+  return drizzle(d1, { schema });
+}
+
+export type DbClient = ReturnType<typeof createDbClient>;
+```
+
+All Drizzle schema files must use SQLite-compatible column types only. Money fields must be `integer()` with the `_paisa` suffix. The `createDbClient` factory is the only entry point — route handlers must not instantiate `drizzle()` directly.
+
 ---
 
 ## 37. FraudBD Circuit Breaker Test Fixtures
@@ -4710,6 +4989,10 @@ The findings below are the known drift patterns. Each has a stable finding code 
 | D-50 | `Locale` enum widened (e.g. `'hi'`, `'ur'`) without Section 34.8 amendment and ARB sign-off | `rg "Locale\b" src/lib/i18n/` and inspect type union | New locale codes require ARB amendment and reissue of Section 20.5 + Section 22.1. PIPELINE MUST fail. |
 | D-51 | FTS5 tokenizer config differs between index insert path and customer query path | Diff the `tokenize=` / `tokenchars=` config in `scripts/drift/search-tokenizer-drift.ts` between insert and query call sites | Per Section 22.1. Same tokenizer implementation MUST be used. Asymmetric tokenization silently drops Bangla matches. |
 | D-52 | Staff dashboard or checkout rendering `<html lang="bn">` for a page where no Bangla strings exist (synthetic Bangla bounce) | Render test in `tests/i18n/render-lang/`: count Bangla-only strings on a `?lang=bn` page; assert > 0 when locale active | Per Section 20.5.1. Bangla-mode pages MUST have at least one localized string otherwise the URL canonicalizes to Latin default. |
+| D-53 | D1 table exists without matching Drizzle schema definition | D1 `PRAGMA table_info` cross-referenced against `src/db/schema/*.ts` exports — any D1 table name without a matching `sqliteTable` definition | Create the missing Drizzle schema definition. Drizzle schema is the TypeScript source of truth for all D1 columns. |
+| D-54 | Drizzle schema uses non-SQLite column type (e.g. `serial`, `jsonb`, `timestamp with time zone`, `boolean`, `varchar` with length) | `rg "(serial\|jsonb\|timestamp with time zone\|varchar\(\d+\|boolean\b)" src/db/schema/` | Replace with approved SQLite column type per Section 6.9.1 rule #3. |
+| D-55 | Route handler imports Drizzle directly or builds ad-hoc Drizzle queries inline | `rg "drizzle-orm" src/pages/ --type ts` — any import of `drizzle-orm` from `src/pages/` or `src/api/` (excluding `src/db/`) | Move query to `src/db/queries/` or `src/db/services/` per Section 6.9.1 rule #6. |
+| D-56 | Drizzle direct stock mutation outside VariantInventoryDO | `rg "\.update\(.*inventory_items\)\|\.insert\(.*inventory_items\)" src/` excluding `src/durable-objects/variant-inventory-do.ts` and `src/db/` query files that are read-only snapshot wrappers | Any Drizzle write to `inventory_items.quantity` that bypasses VariantInventoryDO is a P0 violation — fix must route through the DO. |
 
 ### 38.3 Audit Execution Procedure
 
@@ -4786,7 +5069,7 @@ const checks: Array<{
     rgGlobs: ['-t', 'ts', '-t', 'sql', '-t', 'md'],
     fix: 'Replace with abandoned_email_sent_at. See Section 38.2 D-04.',
   },
-  // ... all 35 checks ...
+  // ... all 56 checks (D-01 through D-56) ...
 ];
 
 function runCheck(check: typeof checks[number]): Finding[] {
@@ -4826,8 +5109,8 @@ function main() {
   mkdirSync(outDir, { recursive: true });
 
   // COMPLETENESS GATE: refuse to run if the checks array is not fully populated.
-  // The skeleton above shows only 3 checks; the production script must have all 35.
-  if (checks.length !== 35) {
+  // The skeleton above shows only 3 checks; the production script must have all 56.
+  if (checks.length !== 56) {
     console.error(`audit-drift.ts: expected 35 checks, found ${checks.length}.`);
     console.error('Implement all checks from Section 38.2 before running this script.');
     process.exit(2);
