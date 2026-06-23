@@ -7,7 +7,7 @@ export const staffUsers = sqliteTable('staff_users', {
   passwordHash: text('password_hash').notNull(),
   passwordSalt: text('password_salt'),
   fullName: text('full_name').notNull(),
-  role: text('role', { enum: ['super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'] }).notNull().default('support'),
+  role: text('role', { enum: ['super_admin', 'owner', 'manager', 'staff', 'viewer'] }).notNull().default('staff'),
   isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
   lastLoginAt: text('last_login_at'),
   totpSecret: text('totp_secret'),

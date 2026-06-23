@@ -1,7 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission } from '../../../../lib/rbac';
-import { doSyncFromD1 } from '../../../../lib/do-client';
+import { doAdjustStock } from '../../../../lib/do-client';
 import { prepareAuditLogInsert } from '../../../../lib/audit';
 import { nowSql } from '../../../../lib/dates';
 import { safeLog } from '../../../../lib/pii-scrubber';
@@ -45,79 +45,37 @@ export async function POST(context: APIContext): Promise<Response> {
       return Response.json({ ok: false, error: `Reason "${reasonDef.label}" does not allow stock decreases` }, { status: 400 });
     }
 
-    const variant = await env.DB.prepare(
-      `SELECT v.id, i.quantity FROM product_variants v
-       LEFT JOIN inventory_items i ON i.variant_id = v.id
-       WHERE v.id = ?1 AND v.is_deleted = 0`
-    ).bind(variantId).first<{ id: string; quantity: number | null }>();
-
-    if (!variant) {
-      return Response.json({ ok: false, error: 'Variant not found or deleted' }, { status: 404 });
-    }
-
-    const currentStock = variant.quantity ?? 0;
-    const newStock = currentStock + stockDelta;
-
-    if (newStock < 0) {
-      return Response.json({
-        ok: false,
-        error: 'Insufficient stock',
-        currentStock,
-        delta: stockDelta,
-        message: `Cannot remove ${Math.abs(stockDelta)} units — only ${currentStock} available`,
-      }, { status: 409 });
-    }
-
-    const adjustmentId = crypto.randomUUID();
     const now = nowSql();
+
+    const result = await doAdjustStock(env, variantId, stockDelta, reason, user.id, notes ?? undefined);
+    if (!result.ok) {
+      const status = result.error === 'INSUFFICIENT_STOCK' ? 409 : 500;
+      return Response.json({ ok: false, error: result.error, currentStock: result.current_stock }, { status });
+    }
 
     const auditStmt = await prepareAuditLogInsert(env.DB, {
       actorStaffId: user.id,
       actorRole: user.role,
       action: 'inventory.adjust',
       entityType: 'stock_adjustment',
-      entityId: adjustmentId,
+      entityId: result.adjustment_id,
       metadata: {
         variantId,
         delta: stockDelta,
-        previousStock: currentStock,
-        newStock,
+        previousStock: result.previous_stock,
+        newStock: result.new_stock,
         reason,
       },
     }, now);
-
-    const batchResult = await env.DB.batch([
-      env.DB.prepare(
-        `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = ?2 WHERE variant_id = ?3`
-      ).bind(stockDelta, now, variantId),
-      env.DB.prepare(
-        `INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`
-      ).bind(adjustmentId, variantId, stockDelta, reason, currentStock, newStock, notes ?? null, user.id, now),
-      auditStmt,
-    ]);
-    if (batchResult[0].meta.changes !== 1) {
-      return Response.json({ ok: false, error: 'Stock update failed' }, { status: 500 });
-    }
-
-    try {
-      const invRow = await env.DB.prepare(
-        `SELECT COALESCE(reserved_quantity, 0) AS reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1`
-      ).bind(variantId).first<{ reserved_quantity: number; sold_quantity: number }>();
-      const reservedQty = invRow?.reserved_quantity ?? 0;
-      const soldQty = invRow?.sold_quantity ?? 0;
-      await doSyncFromD1(env, variantId, newStock, reservedQty, soldQty);
-    } catch (e) {
-      safeLog.warn('[inventory/adjust] DO sync failed after D1 commit', { variantId, error: e instanceof Error ? e.message : String(e) });
-    }
+    await auditStmt.run().catch((e) => safeLog.warn('[inventory/adjust] Audit log write failed', { error: e instanceof Error ? e.message : String(e) }));
 
     return Response.json({
       ok: true,
       variantId,
-      previousStock: currentStock,
-      newStock,
+      previousStock: result.previous_stock,
+      newStock: result.new_stock,
       delta: stockDelta,
-      adjustmentId,
+      adjustmentId: result.adjustment_id,
     });
   } catch (err) {
     safeLog.error('[inventory/adjust] Unexpected error', { error: err instanceof Error ? err.message : String(err) });

@@ -1,19 +1,12 @@
 /**
- * Central RBAC System [v6.8D — Platform Security Hardening]
+ * Central RBAC System [Master Plan §17.2]
  *
- * KEY DISTINCTION (v6.8D security audit):
- *   super_admin → FULL platform-control access (API keys, integrations, backups, webhooks)
- *   owner       → Business-level full access, but NO platform secret/API-control authority
- *
- * Roles:
- *   super_admin  → full platform + business access
- *   owner        → full business access, limited platform read
- *   manager      → daily operations
- *   salesman     → sales + COD order creation
- *   packing      → packing queue + courier handoff
- *   support      → order search + support notes
- *   developer    → read-only API Code / Developer info
- *   auditor      → read-only audit + reports
+ * 5 roles per Master Plan:
+ *   super_admin → full platform + business access
+ *   owner       → full business access, limited platform read
+ *   manager     → daily operations (products, orders, inventory, fraud review)
+ *   staff       → combined sales + packing + support (create orders, pack, ship, support notes)
+ *   viewer      → read-only (audit logs, reports, API code view)
  */
 import type { APIContext } from 'astro';
 import { hashSessionToken } from './sessions';
@@ -23,10 +16,10 @@ import { writeAuditLog } from './audit';
 import { readStaffSessionCookie } from './staff-cookies';
 import { getEnv } from './env';
 
-export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
+export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'staff' | 'viewer';
 
 const VALID_STAFF_ROLES: ReadonlySet<string> = new Set<StaffRole>([
-  'super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'
+  'super_admin', 'owner', 'manager', 'staff', 'viewer'
 ]);
 
 export function isValidStaffRole(value: unknown): value is StaffRole {
@@ -121,26 +114,15 @@ const MANAGER_PERMS: Permission[] = [
   'support.view', 'support.note', 'reports.view', 'payments.view'
 ];
 
-const SALESMAN_PERMS: Permission[] = [
-  'orders.view', 'orders.create', 'orders.update', 'support.note'
+// Staff merges former salesman + packing + support roles
+const STAFF_PERMS: Permission[] = [
+  'orders.view', 'orders.create', 'orders.update', 'orders.pack', 'orders.ship',
+  'support.view', 'support.note'
 ];
 
-const PACKING_PERMS: Permission[] = [
-  'orders.view', 'orders.pack', 'orders.ship'
-];
-
-const SUPPORT_PERMS: Permission[] = [
-  'support.view', 'support.note', 'orders.view'
-];
-
-// Developer: read-only API Code / Developer area only.
-const DEVELOPER_PERMS: Permission[] = [
-  'api_code.read'
-];
-
-// Auditor: read-only audit + reports.
-const AUDITOR_PERMS: Permission[] = [
-  'system.audit.view', 'reports.view'
+// Viewer merges former developer + auditor roles (read-only)
+const VIEWER_PERMS: Permission[] = [
+  'api_code.read', 'system.audit.view', 'reports.view'
 ];
 
 // Owner: business-level permissions (not platform-control)
@@ -162,11 +144,8 @@ const PERMISSION_MATRIX: Record<StaffRole, ReadonlySet<Permission>> = {
   super_admin: new Set<Permission>(), // handled by isSuperAdmin short-circuit
   owner: new Set(OWNER_PERMS),
   manager: new Set(MANAGER_PERMS),
-  salesman: new Set(SALESMAN_PERMS),
-  packing: new Set(PACKING_PERMS),
-  support: new Set(SUPPORT_PERMS),
-  developer: new Set(DEVELOPER_PERMS),
-  auditor: new Set(AUDITOR_PERMS)
+  staff: new Set(STAFF_PERMS),
+  viewer: new Set(VIEWER_PERMS)
 };
 
 export class RbacError extends Error {
@@ -393,16 +372,9 @@ export function assertManagerOrOwner(user: StaffUser): void {
   requireRole(user, ['super_admin', 'owner', 'manager']);
 }
 
-export function assertSalesAccess(user: StaffUser): void {
-  requireRole(user, ['super_admin', 'owner', 'manager', 'salesman']);
-}
-
-export function assertPackingAccess(user: StaffUser): void {
-  requireRole(user, ['super_admin', 'owner', 'manager', 'packing']);
-}
-
-export function assertSupportAccess(user: StaffUser): void {
-  requireRole(user, ['super_admin', 'owner', 'manager', 'support']);
+/** Staff-level access: super_admin, owner, manager, and staff roles */
+export function assertStaffAccess(user: StaffUser): void {
+  requireRole(user, ['super_admin', 'owner', 'manager', 'staff']);
 }
 
 /**

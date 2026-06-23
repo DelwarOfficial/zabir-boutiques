@@ -466,11 +466,21 @@ Set via `wrangler secret put` (never commit):
 | `UDDOKTAPAY_BASE_URL` | e.g. `https://sandbox.uddoktapay.com` |
 | `FRAUDBD_API_KEY` | Fraud scoring |
 | `RESEND_API_KEY` | Transactional email |
+| `RESEND_FROM_EMAIL` | Optional sender override |
 | `TURNSTILE_SECRET_KEY` | Bot defense |
 | `AI_FALLBACK_KEY` | DeepSeek API key |
 | `AI_FALLBACK_URL` | DeepSeek endpoint |
 | `CF_API_TOKEN` | Cloudflare API token (cache purges) |
 | `CF_ZONE_ID` | Cloudflare zone (cache purges) |
+
+Resend setup:
+
+```bash
+wrangler secret put RESEND_API_KEY
+wrangler secret put RESEND_FROM_EMAIL
+```
+
+Use your real key, not `re_xxxxxxxxx`.
 
 ### Build & deploy
 

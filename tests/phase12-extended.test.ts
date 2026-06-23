@@ -1,14 +1,11 @@
 /**
- * Phase 12 Extended Tests [v6.8D]
+ * Phase 12 Extended Tests [Master Plan §17.2 — 5-role RBAC]
  *
- * Covers gaps from the Master Plan's Phase 12 required test list:
- * - RBAC blocking staff from coupon mutations
+ * Covers:
+ * - RBAC coupon mutation blocking
  * - Backup permission enforcement
- * - Developer/auditor role scoping (deep cases)
- * - CSRF missing/invalid/valid flow (logic path simulation)
- * - No raw API key or raw session token exposure in CSRF
- * - AI budget guard logic
- * - Prepayment rule boundary conditions
+ * - Staff/viewer role scoping (consolidated from 8 to 5 roles)
+ * - CSRF flow, API key scope, prepayment
  */
 import { describe, it, expect } from 'vitest';
 import { can, isSuperAdmin, isOwnerTier, canConfirmOrder, type StaffRole, type Permission } from '../src/lib/rbac';
@@ -22,7 +19,7 @@ const SECRET = 'test-secret-for-phase12-at-least-32-bytes-long';
 // ─── RBAC: Coupon mutations blocked for non-owner ───────────────────
 describe('RBAC coupon mutation blocking', () => {
   const couponPerms: Permission[] = ['owner.full_access'];
-  const nonOwnerRoles: StaffRole[] = ['manager', 'salesman', 'packing', 'support', 'developer', 'auditor'];
+  const nonOwnerRoles: StaffRole[] = ['manager', 'staff', 'viewer'];
 
   it('no non-owner role has implicit coupon access', () => {
     // Coupon endpoints use assertOwnerOnly() which checks isOwnerTier().
@@ -65,7 +62,7 @@ describe('Backup permission (super_admin only for platform control)', () => {
   });
 
   it('every non-owner role is denied backup access', () => {
-    const blocked: StaffRole[] = ['manager', 'salesman', 'packing', 'support', 'developer', 'auditor'];
+    const blocked: StaffRole[] = ['manager', 'staff', 'viewer'];
     for (const role of blocked) {
       expect(can(role, 'backups.read')).toBe(false);
       expect(can(role, 'backups.restore')).toBe(false);
@@ -73,31 +70,36 @@ describe('Backup permission (super_admin only for platform control)', () => {
   });
 });
 
-// ─── Developer/auditor deep scoping ─────────────────────────────────
-describe('Developer and Auditor role deep scoping', () => {
-  it('developer has exactly one permission: api_code.read', () => {
-    expect(can('developer', 'api_code.read')).toBe(true);
-    const dangerous: Permission[] = [
-      'orders.create', 'orders.confirm', 'payments.verify', 'payments.refund',
-      'fraud.override', 'staff.manage', 'backups.restore', 'settings.platform.update',
-      'api_keys.create', 'api_code.update', 'integrations.test'
-    ];
-    for (const p of dangerous) expect(can('developer', p)).toBe(false);
+// ─── Staff/viewer deep scoping (5-role consolidation) ──────────────
+describe('Staff and Viewer role deep scoping', () => {
+  it('staff has sales + packing + support permissions combined', () => {
+    expect(can('staff', 'orders.create')).toBe(true);
+    expect(can('staff', 'orders.pack')).toBe(true);
+    expect(can('staff', 'orders.ship')).toBe(true);
+    expect(can('staff', 'orders.view')).toBe(true);
+    expect(can('staff', 'support.view')).toBe(true);
+    expect(can('staff', 'support.note')).toBe(true);
+    // No business-level permissions
+    expect(can('staff', 'products.manage')).toBe(false);
+    expect(can('staff', 'payments.refund')).toBe(false);
+    expect(can('staff', 'fraud.override')).toBe(false);
   });
 
-  it('auditor has exactly audit.view + reports.view', () => {
-    expect(can('auditor', 'system.audit.view')).toBe(true);
-    expect(can('auditor', 'reports.view')).toBe(true);
+  it('viewer has read-only: api_code.read + audit + reports', () => {
+    expect(can('viewer', 'api_code.read')).toBe(true);
+    expect(can('viewer', 'system.audit.view')).toBe(true);
+    expect(can('viewer', 'reports.view')).toBe(true);
+    // No mutations
     const mutations: Permission[] = [
       'orders.create', 'orders.confirm', 'orders.cancel', 'inventory.adjust',
       'media.upload', 'fraud.override', 'staff.manage', 'api_keys.create'
     ];
-    for (const p of mutations) expect(can('auditor', p)).toBe(false);
+    for (const p of mutations) expect(can('viewer', p)).toBe(false);
   });
 
-  it('neither developer nor auditor can confirm fraud-blocked orders', () => {
-    expect(canConfirmOrder('developer', 'blocked')).toBe(false);
-    expect(canConfirmOrder('auditor', 'blocked')).toBe(false);
+  it('neither staff nor viewer can confirm fraud-blocked orders', () => {
+    expect(canConfirmOrder('staff', 'blocked')).toBe(false);
+    expect(canConfirmOrder('viewer', 'blocked')).toBe(false);
   });
 });
 

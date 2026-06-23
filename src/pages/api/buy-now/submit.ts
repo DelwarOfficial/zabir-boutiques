@@ -209,10 +209,9 @@ export async function POST(context: APIContext): Promise<Response> {
   const vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
   const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa), 'total_paisa');
 
-  // COD quantity rule [Master Plan §11.1 step 10]
-  // Buy Now is always a single-variant order; distinct item count = items.length
-  const distinctItemCount = items.length;
-  const prepayDecision = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
+  // COD quantity rule [Master Plan §12.1 step 9]: uses SUM(quantity)
+  const totalQuantity = items.reduce((sum, i) => sum + i.qty, 0);
+  const prepayDecision = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
   const resolvedPaymentMethod = prepayDecision.required && paymentMethod === 'cod' ? 'partial_prepay' : paymentMethod;
 
   let advancePaisa = 0;
@@ -221,7 +220,7 @@ export async function POST(context: APIContext): Promise<Response> {
     advancePaisa = totalPaisa;
     balancePaisa = 0;
   } else if (resolvedPaymentMethod === 'partial_prepay') {
-    const split = calculatePrepayment(distinctItemCount, totalPaisa, resolvedPaymentMethod);
+    const split = calculatePrepayment(totalQuantity, totalPaisa, resolvedPaymentMethod);
     advancePaisa = split.advancePaisa;
     balancePaisa = split.balancePaisa;
   }

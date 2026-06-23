@@ -552,7 +552,42 @@ WHERE excluded.last_d1_write_at >= COALESCE(cart_activity.last_d1_write_at, '');
 
 This prevents delayed queue writes from overwriting fresher alarm writes.
 
-### 7.4 Payment Events Conflict Schema
+### 7.4 Direct Checkout Activity Schema (P0-11)
+
+`direct_checkout_activity` is a D1 searchable index for direct checkout (Buy Now) abandoned session detection. `DirectCheckoutSessionDO` publishes activity messages; the queue consumer batches and upserts into this table. It is NOT the active session source of truth — `DirectCheckoutSessionDO` is.
+
+Required columns:
+
+```sql
+CREATE TABLE IF NOT EXISTS direct_checkout_activity (
+  session_id TEXT PRIMARY KEY,
+  product_id TEXT NOT NULL,
+  variant_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL DEFAULT 0,
+  customer_phone TEXT,
+  customer_email TEXT,
+  customer_name TEXT,
+  source_page TEXT,
+  landing_version INTEGER NOT NULL DEFAULT 0,
+  last_activity_at TEXT NOT NULL,
+  converted_order_id TEXT,
+  abandoned_email_sent_at TEXT,
+  consent_status TEXT CHECK(consent_status IN ('unknown', 'allowed', 'denied')) DEFAULT 'unknown',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_direct_checkout_activity_abandoned
+  ON direct_checkout_activity(last_activity_at)
+  WHERE converted_order_id IS NULL
+    AND abandoned_email_sent_at IS NULL;
+
+CREATE INDEX IF NOT EXISTS idx_direct_checkout_activity_email
+  ON direct_checkout_activity(customer_email)
+  WHERE customer_email IS NOT NULL;
+```
+
+### 7.5 Payment Events Conflict Schema
 
 ```sql
 ALTER TABLE orders ADD COLUMN payment_confirmed_at TEXT;
@@ -586,7 +621,7 @@ WHERE order_id = :order_id
 
 Reconciliation must never downgrade a paid order back to pending or cancelled. It may only move unknown/pending states forward after server-side provider verification.
 
-### 7.5 Staff Password Reset Tables
+### 7.6 Staff Password Reset Tables
 
 ```sql
 CREATE TABLE password_reset_tokens (
@@ -622,7 +657,7 @@ Rules:
 - All reset creation, use, failure, and revocation events go to `audit_log`.
 - Reset route has per-IP and per-staff rate limiting.
 
-### 7.6 Bangla Localization Tables
+### 7.7 Bangla Localization Tables
 
 ```sql
 ALTER TABLE products ADD COLUMN name_bn TEXT;
@@ -1117,7 +1152,7 @@ Rules:
 
 ```txt
 1. Receive webhook.
-2. Verify provider signature/HMAC.
+2. Verify provider signature/HMAC (algorithm per provider below).
 3. Insert event into payment_events idempotently.
 4. Return 200 quickly.
 5. Queue consumer verifies payment with provider.
@@ -1127,7 +1162,50 @@ Rules:
 9. Audit all transitions.
 ```
 
-### 12.6 Reconciliation Flow
+#### Provider-Specific Signature Verification
+
+| Provider | Algorithm | Header | Details |
+|---|---|---|---|
+| UddoktaPay | HMAC-SHA256 | `API-Key` header + request body HMAC | Verify HMAC-SHA256 of raw JSON body using shared secret from `UDDOKTAPAY_API_KEY`. Compare against `X-UddoktaPay-Signature` header. |
+| SSLCommerz | SHA256 on sorted params | `verify_sign` and `verify_key` in POST body | Sort params by `verify_key` list, concatenate `key=value` pairs without delimiter, compute SHA256, compare against `verify_sign`. Use `store_passwd` from `SSLCOMMERZ_STORE_PASSWORD` secret. |
+
+Both adapters live in `src/lib/integrations/payments/uddoktapay/` and `src/lib/integrations/payments/sslcommerz/` respectively. The adapter's `parseWebhook()` method performs provider-specific verification and returns a typed `VerifiedPaymentEvent`.
+
+### 12.6 Coupon System
+
+#### Discount Types
+
+| Type | Example | Calculation |
+|---|---|---|
+| `fixed_paisa` | ৳500 off | `discount = min(coupon.value_paisa, subtotal)` |
+| `percent` | 10% off | `discount = floor(subtotal * coupon.value_percent / 100)` |
+| `free_delivery` | Free shipping | `discount = delivery_paisa` |
+
+#### Rules
+
+- Single coupon per order. Stacking is not supported in v1.
+- Coupon references `coupon_code` (user-facing) and `coupon_id` (internal UUID) in `coupons` table.
+- One-time coupons (`max_uses = 1`) are marked `used_at` on first successful claim.
+- Rate-limited: max 5 apply attempts per session per minute.
+- Server-side validation: check `is_active`, `not expired`, `max_uses not reached`, `min_order_paisa` satisfied.
+- Fraud patterns: repeated rapid attempts trigger Turnstile challenge. Same IP hitting 10 different coupon codes in 1 minute is blocked for 1 hour.
+- Claim lifecycle: coupon usage is claimed atomically via `recordCouponClaim()` and released via `releaseCouponUsageAtomic()` on checkout failure.
+
+#### Coupon Redemption Table
+
+```sql
+CREATE TABLE coupon_redemptions (
+  id TEXT PRIMARY KEY,
+  coupon_id TEXT NOT NULL REFERENCES coupons(id),
+  order_id TEXT NOT NULL REFERENCES orders(id),
+  coupon_code TEXT NOT NULL,
+  discount_paisa INTEGER NOT NULL,
+  used_by_staff_id TEXT REFERENCES staff_users(id),
+  created_at TEXT NOT NULL
+);
+```
+
+### 12.7 Reconciliation Flow
 
 Cron every 15 minutes:
 
@@ -1144,9 +1222,56 @@ Cron every 15 minutes:
 
 ## 13. FraudBD Risk Architecture
 
-FraudBD is a synchronous checkout risk decision with strict timeout.
+FraudBD is a synchronous checkout risk decision with strict timeout. Adapter at `src/lib/integrations/fraudbd/`.
 
-### 13.1 Score Policy
+### 13.1 API Contract
+
+#### Request (sent to FraudBD API)
+
+```json
+{
+  "phone": "+8801712345678",
+  "ip": "203.0.113.42",
+  "user_agent": "Mozilla/5.0 ...",
+  "amount_paisa": 50000,
+  "payment_method": "cod",
+  "items_count": 3,
+  "total_quantity": 5,
+  "delivery_address": "Dhaka, Bangladesh",
+  "is_guest": true,
+  "session_age_minutes": 15
+}
+```
+
+Field details:
+- `phone`: Bangladeshi phone in +880 format (normalized by `normalizeBangladeshPhone`)
+- `ip`: Client IP from `x-forwarded-for` or `cf-connecting-ip`
+- `amount_paisa`: Total order amount in integer paisa
+- `items_count`: Number of distinct line items
+- `total_quantity`: Sum of quantities across items
+- `is_guest`: `true` if not logged in
+
+#### Response (from FraudBD API)
+
+```json
+{
+  "score": 25,
+  "decision": "approve" | "review" | "block",
+  "risk_factors": ["high_quantity", "new_phone"],
+  "provider_tx_id": "fbd_abc123",
+  "processed_at": "2026-06-23T12:00:00Z"
+}
+```
+
+Score mapping:
+| Score | decision | System action |
+|---|---:|---|---|
+| 0-40 | `approve` | Auto-approve, continue checkout |
+| 41-70 | `review` | Create order as `pending_review` |
+| 71-100 | `block` | Reject before reservation, return `FRAUD_BLOCKED` |
+| Timeout/circuit open | N/A | Fallback score 50, `pending_review` order |
+
+### 13.2 Score Policy
 
 | Score | Action |
 |---:|---|
@@ -1155,7 +1280,7 @@ FraudBD is a synchronous checkout risk decision with strict timeout.
 | 71-100 | Reject before reservation |
 | Timeout / circuit open | Create with score 50 and `pending_review` unless Owner enables hard-block |
 
-### 13.2 Circuit Breaker
+### 13.3 Circuit Breaker
 
 ```txt
 ProviderHealthDO key: provider:fraudbd
@@ -1243,7 +1368,9 @@ POS is separate from online checkout.
 7. If reversal fails, log P0 audit event and alert on-call.
 ```
 
-### 15.3 Mandatory POS Test Matrix
+### 15.3 Mandatory Test Matrix
+
+#### POS Tests
 
 ```txt
 POS-01 directSale success + invoice write success
@@ -1259,12 +1386,74 @@ POS-10 cleanup cron does not touch directSale state
 POS-11 CI gate checks output/static and prerender=false drift
 ```
 
-Coverage target:
+#### CartDO Tests
+
+```txt
+CART-01 addItem creates cart with version
+CART-02 addItem increments version
+CART-03 removeItem removes item, increments version
+CART-04 changeQuantity updates item, increments version
+CART-05 clearCart clears items, increments version
+CART-06 applyCoupon / removeCoupon version increment
+CART-07 getCart returns current state, no version increment
+CART-08 5-minute alarm fires and persists to D1
+CART-09 30-day cleanup alarm fires and deletes cart
+CART-10 alarm re-arm after eviction on getCart
+CART-11 guarded upsert rejects stale writes
+CART-12 mergeCart combines items correctly
+```
+
+#### Checkout Service Tests
+
+```txt
+CHK-01 normal checkout with COD
+CHK-02 checkout with coupon
+CHK-03 checkout triggers prepayment above threshold
+CHK-04 checkout blocked by fraud score >70
+CHK-05 checkout with pending_review for score 41-70
+CHK-06 checkout stock reservation failure
+CHK-07 D1 write failure -> reservation release
+CHK-08 duplicate idempotency key returns cached response
+CHK-09 Buy Now checkout through checkout service
+CHK-10 Guest checkout reads session from CartDO
+```
+
+#### Payment Service Tests
+
+```txt
+PAY-01 UddoktaPay createPayment success
+PAY-02 UddoktaPay createPayment timeout (1.5s) -> circuit open
+PAY-03 SSLCommerz createPayment success
+PAY-04 Webhook signature verification (UddoktaPay HMAC-SHA256)
+PAY-05 Webhook signature verification (SSLCommerz SHA256 sorted params)
+PAY-06 Malformed webhook rejected
+PAY-07 Payment reconciliation: pending order <30min -> verify with provider
+PAY-08 Never downgrade confirmed paid order
+PAY-09 Idempotent payment event insert
+```
+
+#### RBAC Tests
+
+```txt
+RBAC-01 super_admin has all permissions (platform + business)
+RBAC-02 owner has business perms, denied platform perms
+RBAC-03 manager has daily ops perms, denied owner/super_admin perms
+RBAC-04 staff has combined sales+packing+support perms
+RBAC-05 viewer is read-only
+RBAC-06 fraud-blocked order requires fraud.override to confirm
+RBAC-07 Route-permission mapping in staff-route-rbac.ts
+```
+
+#### Coverage Targets
 
 ```txt
 100% line coverage for directSale and reverseDirectSale
-100% branch coverage for compensation paths
+100% branch coverage for POS compensation paths
 >=95% line coverage for VariantInventoryDO contract
+>=90% line coverage for CartDO contract (all 8 mutations + alarm lifecycle)
+>=90% line coverage for checkout service (all payment methods + failure paths)
+>=90% line coverage for payment adapter contracts (create + verify + parseWebhook)
+100% branch coverage for RBAC permission checks and helper assertions
 ```
 
 ---
@@ -1285,6 +1474,79 @@ Coverage target:
 
 Invalid transitions are rejected and logged as security or bug events.
 
+### 16.1 Return & Refund Flow
+
+#### API Endpoints
+
+| Route | Method | Purpose |
+|---|---|---|
+| `/api/staff/returns/[id]/approve` | POST | Approve return, decide restock |
+| `/api/staff/returns/[id]/reject` | POST | Reject return request |
+| `/api/staff/returns` | GET | List return requests |
+
+#### Return-to-Inventory Decision Logic
+
+When a return is approved:
+
+1. Staff inspects returned items and sets condition: `restockable` or `discard`.
+2. If `restockable`: call `VariantInventoryDO.adjustStock(variant_id, +quantity, reason='return_approved')`.
+3. If `discard`: log the disposal reason in `return_items.disposal_note`; do not adjust stock.
+4. Order status moves to `returned` if all items are returned, or stays in current state for partial returns.
+
+#### Refund Initiation Rules
+
+| Original payment method | Refund action |
+|---|---|
+| `cod` (no advance taken) | No financial refund needed. Order marked returned. |
+| `partial_prepay` (advance paid) | Initiate refund to original payment method if possible, else store credit. |
+| `uddoktapay` | Initiate refund through UddoktaPay API (`refund()` on adapter). |
+| `sslcommerz` | Initiate refund through SSLCommerz API (`refund()` on adapter). |
+| `in_store` | Cash refund processed at counter; logged in `refunds` table. |
+
+Refund adapter method follows the `PaymentProvider.refund()` contract. All refunds are logged in the `refunds` table and an `audit_log` event is created.
+
+#### Return/Restock Tables
+
+```sql
+CREATE TABLE returns (
+  id TEXT PRIMARY KEY,
+  order_id TEXT NOT NULL REFERENCES orders(id),
+  return_reason TEXT NOT NULL,
+  staff_notes TEXT,
+  condition TEXT CHECK(condition IN ('restockable', 'discard', 'pending_inspection')),
+  approved_by TEXT REFERENCES staff_users(id),
+  approved_at TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+
+CREATE TABLE return_items (
+  id TEXT PRIMARY KEY,
+  return_id TEXT NOT NULL REFERENCES returns(id),
+  variant_id TEXT NOT NULL,
+  quantity INTEGER NOT NULL,
+  condition TEXT CHECK(condition IN ('restockable', 'discard', 'pending_inspection')),
+  disposal_note TEXT,
+  restocked_at TEXT,
+  created_at TEXT NOT NULL
+);
+
+CREATE TABLE refunds (
+  id TEXT PRIMARY KEY,
+  return_id TEXT REFERENCES returns(id),
+  order_id TEXT NOT NULL REFERENCES orders(id),
+  amount_paisa INTEGER NOT NULL,
+  refund_method TEXT NOT NULL,
+  provider_reference TEXT,
+  status TEXT NOT NULL DEFAULT 'pending'
+    CHECK (status IN ('pending', 'initiated', 'completed', 'failed')),
+  initiated_by TEXT REFERENCES staff_users(id),
+  initiated_at TEXT,
+  completed_at TEXT,
+  created_at TEXT NOT NULL
+);
+```
+
 ---
 
 ## 17. Staff, RBAC, and Zero Trust
@@ -1300,25 +1562,99 @@ Invalid transitions are rejected and logged as security or bug events.
 - Absolute timeout: 8 hours.
 - Max concurrent sessions: 2 per staff user.
 
-### 17.2 Roles
+### 17.2 Roles (5-Role Model)
 
-| Permission | Owner | Manager | Staff | Viewer |
-|---|---|---|---|---|
-| orders.view | Yes | Yes | Yes | Yes |
-| orders.create | Yes | Yes | Yes | No |
-| orders.confirm | Yes | Yes | Yes | No |
-| orders.cancel | Yes | Yes | Own orders | No |
-| orders.refund | Yes | Yes | No | No |
-| returns.approve | Yes | Yes | No | No |
-| products.create | Yes | Yes | Yes | No |
-| products.update | Yes | Yes | Yes | No |
-| products.delete | Yes | No | No | No |
-| coupons.create | Yes | No | No | No |
-| invoices.create | Yes | Yes | Yes | No |
-| invoices.void | Yes | Yes | No | No |
-| staff.manage | Yes | No | No | No |
-| reports.view | Yes | Yes | No | Yes |
-| guardrails.view | Yes | Yes | No | Yes |
+The system uses exactly 5 roles. The role is stored in `staff_users.role` with a CHECK constraint enforcing valid values. The roles table (migration 0039) seeds these 5 roles with corresponding `role_permissions`.
+
+| Role | Code value | Description |
+|---|---|---|
+| Super Admin | `super_admin` | Full platform + business access. System config, API keys, integrations, backups, all operations. |
+| Owner | `owner` | Full business-level access. Staff, products, orders, payments, fraud, reports. No platform-level controls. |
+| Manager | `manager` | Daily operations: products, categories, inventory, orders, fraud review, media, support, reports. |
+| Staff | `staff` | Combined sales + packing + support. Create orders, pack, ship, support notes. Cannot manage products. |
+| Viewer | `viewer` | Read-only: audit logs, reports, API code view. No mutations. |
+
+#### Permission Matrix
+
+| Permission | Super Admin | Owner | Manager | Staff | Viewer |
+|---|---|---|---|---|---|
+| `staff.manage` | Yes | Yes | No | No | No |
+| `roles.manage` | Yes | No | No | No | No |
+| `settings.manage` | Yes | Yes | No | No | No |
+| `system.audit.view` | Yes | Yes | No | No | Yes |
+| `system.backup.manage` | Yes | Yes | No | No | No |
+| `products.manage` | Yes | Yes | Yes | No | No |
+| `categories.manage` | Yes | Yes | Yes | No | No |
+| `inventory.manage` | Yes | Yes | Yes | No | No |
+| `inventory.adjust` | Yes | Yes | Yes | No | No |
+| `orders.view` | Yes | Yes | Yes | Yes | No |
+| `orders.create` | Yes | Yes | Yes | Yes | No |
+| `orders.update` | Yes | Yes | Yes | Yes | No |
+| `orders.confirm` | Yes | Yes | Yes | No | No |
+| `orders.cancel` | Yes | Yes | Yes | No | No |
+| `orders.pack` | Yes | Yes | Yes | Yes | No |
+| `orders.ship` | Yes | Yes | Yes | Yes | No |
+| `payments.view` | Yes | Yes | Yes | No | No |
+| `payments.verify` | Yes | Yes | No | No | No |
+| `payments.refund` | Yes | Yes | No | No | No |
+| `fraud.view` | Yes | Yes | Yes | No | No |
+| `fraud.override` | Yes | Yes | No | No | No |
+| `media.upload` | Yes | Yes | Yes | No | No |
+| `support.view` | Yes | Yes | Yes | Yes | No |
+| `support.note` | Yes | Yes | Yes | Yes | No |
+| `reports.view` | Yes | Yes | Yes | No | Yes |
+| `api_code.read` | Yes | Yes | No | No | Yes |
+| `api_code.update` | Yes | No | No | No | No |
+| `platform.full_access` | Yes | No | No | No | No |
+| `integrations.read` | Yes | Yes | No | No | No |
+| `integrations.test` | Yes | No | No | No | No |
+| `integrations.logs.read` | Yes | No | No | No | No |
+| `api_keys.read` | Yes | No | No | No | No |
+| `api_keys.create` | Yes | No | No | No | No |
+| `api_keys.delete` | Yes | No | No | No | No |
+| `backups.read` | Yes | No | No | No | No |
+| `backups.download` | Yes | Yes | No | No | No |
+| `backups.restore` | Yes | No | No | No | No |
+| `webhooks.read` | Yes | No | No | No | No |
+| `webhooks.update` | Yes | No | No | No | No |
+| `settings.platform.read` | Yes | No | No | No | No |
+| `settings.platform.update` | Yes | No | No | No | No |
+
+#### Staff Route -> Permission Map
+
+Every `/staff/*` and `/api/staff/*` route is protected by a permission lookup in `src/lib/staff-route-rbac.ts`. The mapping is:
+
+| Route pattern | Required permission | Mutation check? |
+|---|---|---|
+| `/logout`, `/step-up`, `/totp/` | `null` (authentication only) | No |
+| `/refund` | `payments.refund` | Yes |
+| `/orders/create` | `orders.create` | Yes |
+| `/orders/*/confirm` | `orders.confirm` | Yes |
+| `/orders/*/label`, `/orders/*/pack` | `orders.pack` | Yes |
+| `/orders/*/ship`, `/orders/*/courier` | `orders.ship` | Yes |
+| `/returns/*/approve`, `/returns/*/reject` | `orders.update` | Yes |
+| `/returns` | `orders.update` (mut) / `orders.view` (read) | Yes |
+| `/fraud/override` | `fraud.override` | Yes |
+| `/invoices/*/void` | `orders.cancel` | Yes |
+| `/invoices` | `orders.create` (mut) / `orders.view` (read) | Yes |
+| `/coupons` | `staff.manage` | Yes |
+| `/cache/` | `settings.platform.update` | Yes |
+| `/api-keys` | `api_keys.create` (mut) / `api_keys.read` (read) | Yes |
+| `/api-code` | `api_code.update` (mut) / `api_code.read` (read) | Yes |
+| `/uploads` | `media.upload` | Yes |
+| `/ai/` | `products.manage` | Yes |
+| `/roles` | `roles.manage` | Yes |
+| `/users` | `staff.manage` | Yes |
+| `/settings` | `settings.manage` | Yes |
+| `/backups` | `null` (handler calls `assertSuperAdminOnly`) | Yes |
+| `/audit` | `system.audit.view` | No |
+| `/products/categories` | `products.manage` | Yes |
+| `/products` | `products.manage` | Yes |
+| `/inventory/adjust` | `inventory.adjust` | Yes |
+| `/inventory/movements`, `/inventory/variants` | `inventory.manage` | Yes |
+| `/orders` (default) | `orders.update` (mut) / `orders.view` (read) | Yes |
+
+Logic: `getRequiredStaffPermission()` in `src/lib/staff-route-rbac.ts`. For mutation methods (POST, PUT, PATCH, DELETE), the permission must match; for read methods (GET, HEAD, OPTIONS), a read-level permission suffices.
 
 ### 17.3 Staff-Assisted Orders
 
@@ -1515,8 +1851,10 @@ Rules:
 
 ## 21. Performance Budgets
 
+### 21.1 Desktop / Fast Connection
+
 | Metric | Target | CI Fail |
-|---|---:|---:|
+|---|---|---:|---:|
 | LCP | <2.5s | >3.0s |
 | INP | <200ms | >300ms |
 | CLS | <0.1 | >0.15 |
@@ -1527,6 +1865,20 @@ Rules:
 | Public hydrated islands/page | <=5 | >7 |
 | Checkout Worker CPU | <30ms | >50ms |
 | Search p95 | <200ms | >500ms |
+
+### 21.2 Mobile / Slow 3G (Bangladesh Primary)
+
+Bangladesh is overwhelmingly mobile-first with significant 3G/4G usage. These budgets apply to Lighthouse mobile emulation with throttled 3G:
+
+| Metric | Target | CI Fail |
+|---|---|---:|---:|
+| LCP (3G) | <4.0s | >6.0s |
+| FCP (3G) | <2.0s | >3.5s |
+| TTFB (3G) | <1.5s | >3.0s |
+| First Input Delay | <100ms | >200ms |
+| Total page weight (3G) | <300KB | >500KB |
+| Image budget per page | <200KB | >350KB |
+| Time to Interactive (3G) | <5.0s | >8.0s |
 
 Rules:
 

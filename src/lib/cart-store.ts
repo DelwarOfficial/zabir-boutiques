@@ -21,6 +21,14 @@ let syncInProgress = false;
 let pendingSyncCount = 0;
 let cachedVersion = -1;
 
+export const SID_COOKIE = 'zb_cart_sid';
+
+export function readCartSessionId(): string | null {
+  if (typeof document === "undefined") return null;
+  const match = document.cookie.match(new RegExp(`(?:^|;\\s*)${SID_COOKIE}=([^;]*)`));
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
 function loadCart(): LocalCartItem[] {
   if (typeof window === "undefined") return EMPTY_CART;
   try {
@@ -51,7 +59,7 @@ function writeVersion(version: number) {
   if (typeof window !== "undefined") {
     try {
       window.localStorage.setItem(CART_VERSION_KEY, String(version));
-    } catch { /* no-op */ }
+    } catch { }
   }
 }
 
@@ -83,7 +91,6 @@ export function applyOutOfStockUpdate(variantId: string, availableQuantity = 0) 
     .map((item) => (item.variantId === variantId ? { ...item, quantity: Math.min(item.quantity, Math.max(0, availableQuantity)), availableQuantity } : item))
     .filter((item) => item.quantity > 0);
   writeCart(next);
-  syncCartToServer("replace_all", { items: next }).catch(() => {});
 }
 
 export function invalidateCartCache() {
@@ -99,14 +106,13 @@ export async function fetchCartFromServer(): Promise<void> {
     const resp = await fetch("/api/cart", { credentials: "include" });
     if (!resp.ok) return;
     const data = await resp.json() as { ok?: boolean; items?: LocalCartItem[]; currentVersion?: number };
-    if (data.ok && Array.isArray(data.items) && data.items.length > 0) {
+    if (data.ok && Array.isArray(data.items)) {
       writeCart(data.items as LocalCartItem[]);
       if (typeof data.currentVersion === "number") {
         writeVersion(data.currentVersion);
       }
     }
   } catch {
-    // network error — keep localStorage cache
   } finally {
     syncInProgress = false;
   }
@@ -124,13 +130,15 @@ export async function syncCartToServer(action: string, body: Record<string, unkn
       body: JSON.stringify({ action, clientVersion, ...body }),
     });
     if (resp.ok) {
-      const data = await resp.json().catch(() => ({} as Record<string, unknown>)) as { currentVersion?: number };
+      const data = await resp.json().catch(() => ({} as Record<string, unknown>)) as { items?: LocalCartItem[]; currentVersion?: number };
+      if (Array.isArray(data.items)) {
+        writeCart(data.items as LocalCartItem[]);
+      }
       if (typeof data.currentVersion === "number") {
         writeVersion(data.currentVersion);
       }
     }
   } catch {
-    // silent — localStorage has the data; next readCart will retry sync
   } finally {
     pendingSyncCount--;
   }

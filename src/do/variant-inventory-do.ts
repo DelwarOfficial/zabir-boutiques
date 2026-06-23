@@ -118,6 +118,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       staffId?: string;
       channel?: string;
       reason?: string;
+      notes?: string;
       env?: { DB?: D1Database };
     };
     const env = body.env ?? {};
@@ -262,6 +263,39 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       return Response.json({ ok: true, reversed: true, auditEventId });
     }
 
+    // Stock adjustment for staff operations [Master Plan §14.3]
+    // Delta may be positive (restock) or negative (write-off).
+    // This path serializes through the DO to prevent concurrent D1-only mutations.
+    if (action === "adjustStock") {
+      const delta = Number(body.stock ?? 0);
+      if (!Number.isSafeInteger(delta) || delta === 0) {
+        return Response.json({ ok: false, error: "INVALID_DELTA" }, { status: 400 });
+      }
+      const adjustmentId = body.reservationId ?? crypto.randomUUID();
+      const previousStock = this.stock;
+      const newStock = this.stock + delta;
+      if (newStock < 0) {
+        return Response.json({ ok: false, error: "INSUFFICIENT_STOCK", current_stock: this.stock }, { status: 409 });
+      }
+      if (env.DB) {
+        const batchResult = await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2`
+          ).bind(delta, variantId),
+          env.DB.prepare(
+            `INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))`
+          ).bind(adjustmentId, variantId, delta, body.reason ?? 'adjustment', previousStock, newStock, body.notes ?? null, body.staffId ?? null),
+        ], { atomic: true });
+        if (batchResult[0].meta.changes !== 1) {
+          return Response.json({ ok: false, error: "STOCK_UPDATE_FAILED", current_stock: this.stock }, { status: 500 });
+        }
+      }
+      this.stock = newStock;
+      await this.persistState();
+      return Response.json({ ok: true, previous_stock: previousStock, new_stock: newStock, adjustment_id: adjustmentId });
+    }
+
     return Response.json({ ok: false, error: "UNKNOWN_ACTION" }, { status: 400 });
   }
 
@@ -297,6 +331,13 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
     const res = await this.fetch(new Request('https://do/reverseDirectSale', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, qty: input.quantity, invoiceId: input.invoice_id, reason: input.reason }) }));
     const data = await res.json() as { reversed?: boolean; auditEventId?: string; message?: string };
     return data.reversed ? { reversed: true, audit_event_id: data.auditEventId ?? '' } : { reversed: false, audit_event_id: data.auditEventId ?? '', message: 'already_reversed' };
+  }
+
+  async adjustStock(input: { variant_id: string; delta: number; reason: string; staff_id: string; notes?: string }): Promise<{ ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number }> {
+    const res = await this.fetch(new Request('https://do/adjustStock', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, stock: input.delta, reason: input.reason, staffId: input.staff_id, notes: input.notes, reservationId: crypto.randomUUID() }) }));
+    const data = await res.json() as { ok?: boolean; error?: string; previous_stock?: number; new_stock?: number; adjustment_id?: string; current_stock?: number };
+    if (data.ok) return { ok: true, previous_stock: data.previous_stock ?? 0, new_stock: data.new_stock ?? 0, adjustment_id: data.adjustment_id ?? '' };
+    return { ok: false, error: data.error ?? 'UNKNOWN', current_stock: data.current_stock };
   }
 
   async getAvailability(input: { variant_id: string }): Promise<{ stock: number; reserved: number; sold: number; available: number }> {

@@ -136,6 +136,39 @@ export async function doGetAvailability(
   return (await res.json()) as AvailabilityResult;
 }
 
+/** Staff stock adjustment through VariantInventoryDO (serialized). */
+export async function doAdjustStock(
+  env: DoEnv & { DB: D1Database },
+  variantId: VariantId,
+  delta: number,
+  reason: string,
+  staffId: string,
+  notes?: string,
+): Promise<{ ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number }> {
+  if (!env.VARIANT_INVENTORY_DO) {
+    const row = await env.DB
+      .prepare(`SELECT quantity FROM inventory_items WHERE variant_id = ?1`)
+      .bind(variantId)
+      .first<{ quantity: number }>();
+    const currentStock = row?.quantity ?? 0;
+    const newStock = currentStock + delta;
+    if (newStock < 0) return { ok: false, error: 'INSUFFICIENT_STOCK', current_stock: currentStock };
+    const adjustmentId = crypto.randomUUID();
+    await env.DB.batch([
+      env.DB.prepare(`UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2`).bind(delta, variantId),
+      env.DB.prepare(`INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))`).bind(adjustmentId, variantId, delta, reason, currentStock, newStock, notes ?? null, staffId),
+    ], { atomic: true });
+    return { ok: true, previous_stock: currentStock, new_stock: newStock, adjustment_id: adjustmentId };
+  }
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const stub = env.VARIANT_INVENTORY_DO.get(id);
+  const res = await stub.fetch("https://do/adjustStock", {
+    method: "POST",
+    body: JSON.stringify({ variantId, stock: delta, reason, staffId, notes, env: { DB: env.DB } }),
+  });
+  return (await res.json()) as { ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number };
+}
+
 /** Sync the DO with the canonical D1 state (called after every D1 commit). */
 export async function doSyncFromD1(
   env: DoEnv & { DB: D1Database },
@@ -234,20 +267,10 @@ async function d1OnlyReserve(
 
 // ─── CartDO helpers ─────────────────────────────────────────────────────
 
-export interface CartDOItem {
-  variantId: string;
-  quantity: number;
-  addedAt: string;
-  updatedAt: string;
-}
+import type { CartCustomerContact, CartItem, CartDOState as CartDOStateInternal } from '../do/cart-do';
 
-export interface CartDOState {
-  items: CartDOItem[];
-  lastUpdatedAt: string;
-  cartVersion: number;
-  couponCode: string | null;
-  customerContact: string | null;
-}
+export type { CartCustomerContact, CartItem };
+export type CartDOState = CartDOStateInternal;
 
 /** Get cart from CartDO. Returns null if DO not bound or cart empty. */
 export async function doGetCart(
@@ -263,6 +286,142 @@ export async function doGetCart(
   });
   const data = (await res.json().catch(() => null)) as { ok?: boolean; cart?: CartDOState } | null;
   return data?.ok ? data.cart ?? null : null;
+}
+
+/** Add item to CartDO. */
+export async function doAddToCart(
+  env: DoEnv,
+  sessionId: string,
+  variantId: string,
+  quantity: number,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number; error?: string }> {
+  if (!env.CART_DO) return { ok: false, error: 'DO_NOT_BOUND' };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/add", {
+    method: "POST",
+    body: JSON.stringify({ variantId, quantity, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number; error?: string }>;
+}
+
+/** Remove item from CartDO. */
+export async function doRemoveFromCart(
+  env: DoEnv,
+  sessionId: string,
+  variantId: string,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+  if (!env.CART_DO) return { ok: false };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/remove", {
+    method: "POST",
+    body: JSON.stringify({ variantId, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
+}
+
+/** Change item quantity in CartDO. */
+export async function doChangeCartQuantity(
+  env: DoEnv,
+  sessionId: string,
+  variantId: string,
+  quantity: number,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number; error?: string; code?: string }> {
+  if (!env.CART_DO) return { ok: false, error: 'DO_NOT_BOUND' };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/quantity", {
+    method: "POST",
+    body: JSON.stringify({ variantId, quantity, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number; error?: string; code?: string }>;
+}
+
+/** Clear CartDO. */
+export async function doClearCart(
+  env: DoEnv,
+  sessionId: string,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+  if (!env.CART_DO) return { ok: false };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/clear", {
+    method: "POST",
+    body: JSON.stringify({ clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
+}
+
+/** Apply coupon to CartDO. */
+export async function doApplyCoupon(
+  env: DoEnv,
+  sessionId: string,
+  couponCode: string,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+  if (!env.CART_DO) return { ok: false };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/coupon", {
+    method: "POST",
+    body: JSON.stringify({ couponCode, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
+}
+
+/** Remove coupon from CartDO. */
+export async function doRemoveCoupon(
+  env: DoEnv,
+  sessionId: string,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+  if (!env.CART_DO) return { ok: false };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/coupon", {
+    method: "POST",
+    body: JSON.stringify({ couponCode: null, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
+}
+
+/** Update customer contact on CartDO. */
+export async function doUpdateCustomerContact(
+  env: DoEnv,
+  sessionId: string,
+  customerContact: CartCustomerContact,
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+  if (!env.CART_DO) return { ok: false };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/contact", {
+    method: "POST",
+    body: JSON.stringify({ customerContact, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
+}
+
+/** Merge items into CartDO (for guest login recovery). */
+export async function doMergeCart(
+  env: DoEnv,
+  sessionId: string,
+  items: CartItem[],
+  clientVersion?: number,
+): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+  if (!env.CART_DO) return { ok: false };
+  const id = env.CART_DO.idFromName(sessionId);
+  const stub = env.CART_DO.get(id);
+  const res = await stub.fetch("https://do/merge", {
+    method: "POST",
+    body: JSON.stringify({ items, clientVersion }),
+  });
+  return res.json() as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
 }
 
 // ─── DirectCheckoutSessionDO helpers ────────────────────────────────────

@@ -2,15 +2,12 @@ import { describe, it, expect } from 'vitest';
 import { menuForRole } from '../src/lib/staff-menu';
 import type { StaffRole } from '../src/lib/rbac';
 
-// Platform-control items visible only to super_admin
 const SUPER_ADMIN_ONLY_HREFS = ['/staff/api-code', '/staff/backups', '/staff/roles'];
-
-// Business owner items visible to both super_admin + owner
 const OWNER_TIER_HREFS = [
   '/staff/users', '/staff/settings', '/staff/audit', '/staff/guardrails', '/staff/coupons', '/staff/media-admin'
 ];
 
-describe('Role-aware staff menu — platform security hardening', () => {
+describe('5-role staff menu — Master Plan §17.2', () => {
   it('super_admin sees ALL items including platform-control', () => {
     const hrefs = menuForRole('super_admin').map(m => m.href);
     for (const h of SUPER_ADMIN_ONLY_HREFS) expect(hrefs).toContain(h);
@@ -20,7 +17,6 @@ describe('Role-aware staff menu — platform security hardening', () => {
   it('owner sees business items but NOT platform-control items', () => {
     const hrefs = menuForRole('owner').map(m => m.href);
     for (const h of OWNER_TIER_HREFS) expect(hrefs).toContain(h);
-    // Owner must NOT see platform-control
     for (const h of SUPER_ADMIN_ONLY_HREFS) expect(hrefs).not.toContain(h);
   });
 
@@ -31,27 +27,26 @@ describe('Role-aware staff menu — platform security hardening', () => {
   });
 
   it('every role sees the base Dashboard link', () => {
-    for (const role of ['super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'] as StaffRole[]) {
+    for (const role of ['super_admin', 'owner', 'manager', 'staff', 'viewer'] as StaffRole[]) {
       expect(menuForRole(role).map(m => m.href)).toContain('/staff');
     }
   });
 
-  it('developer sees Dashboard + API Code only', () => {
-    const hrefs = menuForRole('developer').map(m => m.href);
-    expect(hrefs).toContain('/staff');
-    expect(hrefs).toContain('/staff/api-code');
-    expect(hrefs).not.toContain('/staff/backups');
-    expect(hrefs).not.toContain('/staff/users');
-  });
-
-  it('auditor sees Dashboard, Reports, and Audit Logs only', () => {
-    const hrefs = menuForRole('auditor').map(m => m.href).sort();
-    expect(hrefs).toEqual(['/staff', '/staff/audit', '/staff/guardrails', '/staff/reports']);
-  });
-
-  it('packing sees packing queue, not product management', () => {
-    const hrefs = menuForRole('packing').map(m => m.href);
+  it('staff sees sales, packing, support menu items', () => {
+    const hrefs = menuForRole('staff').map(m => m.href);
+    expect(hrefs).toContain('/staff/sales');
     expect(hrefs).toContain('/staff/packing');
+    expect(hrefs).toContain('/staff/support');
     expect(hrefs).not.toContain('/staff/products');
+  });
+
+  it('viewer sees Dashboard + reports + audit + API code, not mutations', () => {
+    const hrefs = menuForRole('viewer').map(m => m.href);
+    expect(hrefs).toContain('/staff');
+    expect(hrefs).toContain('/staff/reports');
+    expect(hrefs).toContain('/staff/audit');
+    expect(hrefs).toContain('/staff/api-code');
+    expect(hrefs).not.toContain('/staff/products');
+    expect(hrefs).not.toContain('/staff/sales');
   });
 });

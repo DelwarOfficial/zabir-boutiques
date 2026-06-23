@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculatePrepayment, PREPAYMENT_ITEM_THRESHOLD, PREPAYMENT_MESSAGE } from '../src/lib/prepayment';
+import { calculatePrepayment, PREPAYMENT_QUANTITY_THRESHOLD, PREPAYMENT_MESSAGE } from '../src/lib/prepayment';
 
 describe('calculatePrepayment', () => {
   it('no prepayment for 1-2 item COD orders', () => {
@@ -57,6 +57,6 @@ describe('calculatePrepayment', () => {
   });
 
   it('threshold is exactly 2', () => {
-    expect(PREPAYMENT_ITEM_THRESHOLD).toBe(2);
+    expect(PREPAYMENT_QUANTITY_THRESHOLD).toBe(2);
   });
 });

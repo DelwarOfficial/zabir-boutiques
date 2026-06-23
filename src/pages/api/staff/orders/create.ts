@@ -5,12 +5,12 @@
  * - In-store orders (walk-in customers, auto-confirmed, no fraud/payment)
  * - Phone/messenger/whatsapp orders (same checkout pipeline as guest)
  *
- * RBAC: Sales_Tier (super_admin, owner, manager, salesman)
+ * RBAC: Staff_Tier (super_admin, owner, manager, staff)
  * CSRF: Required (non-GET staff mutation)
  */
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, assertSalesAccess, isOwnerTier, RbacError } from '../../../../lib/rbac';
+import { requireAuth, assertStaffAccess, isOwnerTier, RbacError } from '../../../../lib/rbac';
 import { normalizeBangladeshPhone } from '../../../../lib/phone';
 import { reserveVariants, releaseReservedVariants, syncConfirmedReservationsDoState } from '../../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../../lib/orders';
@@ -37,7 +37,7 @@ export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    assertSalesAccess(user);
+    assertStaffAccess(user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
@@ -139,8 +139,7 @@ export async function POST(context: APIContext): Promise<Response> {
   // Determine payment method and prepayment
   let paymentMethod: string = isInStore ? 'in_store' : (body.payment_method ?? 'cod');
   const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
-  const distinctItemCount = new Set(items.map((i) => i.variantId)).size;
-  const prepayment = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
+  const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
   // If prepayment is required but caller sent 'cod', upgrade to 'partial_prepay'
   if (prepayment.required && paymentMethod === 'cod') {
     paymentMethod = 'partial_prepay';

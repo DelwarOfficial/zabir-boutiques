@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronRight, Loader2, MapPin, Minus, Package, Plus, ShieldCheck, Sparkles, Trash2, Truck, User } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useLocalCart } from "../hooks/useLocalCart";
-import { applyOutOfStockUpdate } from "../lib/cart-store";
+import { applyOutOfStockUpdate, readCartSessionId } from "../lib/cart-store";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
 
@@ -118,8 +118,8 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
   const shippingPaisa = SHIPPING_COST[zone];
   const totalPaisa = Math.max(0, addPaisa([cart.subtotalPaisa, shippingPaisa]) - couponDiscount);
-  const distinctItemCount = cart.items.length;
-  const prepaymentRequired = distinctItemCount > 2 && paymentMethod === "cod";
+  const totalQuantity = cart.items.reduce((sum, i) => sum + i.quantity, 0);
+  const prepaymentRequired = totalQuantity > 2 && paymentMethod === "cod";
   const advancePaisa = prepaymentRequired ? ((totalPaisa + 1) >> 1) : 0;
 
   const contactValid = name.trim().length >= 2 && normalizedPhone.ok;
@@ -140,6 +140,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
 
         async function postCheckout(method: PaymentMethod | "partial_prepay") {
           const turnstile = turnstileWidgetId.current ? (window as any).turnstile?.getResponse(turnstileWidgetId.current) ?? "" : "";
+          const sessionId = readCartSessionId();
           return fetch("/api/checkout", {
             method: "POST",
             headers: {
@@ -147,10 +148,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
               "Idempotency-Key": idempotencyKey,
             },
             body: JSON.stringify({
-              cart: cart.items.map((item) => ({
-                variant_id: item.variantId,
-                quantity: item.quantity,
-              })),
+              session_id: sessionId,
               customer: {
                 name: name.trim(),
                 phone: phoneE164,
@@ -355,7 +353,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
                       type="button"
                       onClick={() => setZone(value as DeliveryZone)}
                       className={`press tap-44 rounded-lg px-3 py-3 text-left text-sm font-bold transition ${
-                        zone === value ? "bg-[var(--surface)] text-[var(--brand)] shadow-sm" : "text-[var(--muted)]"
+                        zone === value ? "bg-[var(--surface)] text-[var(--brand)] shadow-sm" : "bg-[var(--surface-soft)] text-[var(--muted)]"
                       }`}
                     >
                       {label}

@@ -270,6 +270,66 @@ const checks: Check[] = [
     const rollbackMatches = readdirSync(resolve('db/migrations/rollback')).some((name) => name.startsWith(`${base}_`) || name.startsWith(`${base}_rollback_`));
     return rollbackMatches ? [] : [makeFinding('D-35', 'P0', `db/migrations/${base}_*.sql`, 'Migration is missing a matching rollback file.', 'Add rollback files for every migration. See Section 38.2 D-35.')];
   }) },
+  // ── Guardrail 6: CartDO two-stage alarm lifecycle ─────────────────
+  { code: 'D-36', severity: 'P0', fix: 'Implement soft_alarm_active, five_min_alarm_at, thirty_day_alarm_at. See Master Plan Guardrail #6.', run: () => {
+    const content = read('src/do/cart-do.ts');
+    const hasSoftAlarm = content.includes('soft_alarm_active');
+    const hasFiveMin = content.includes('five_min_alarm_at');
+    const hasThirtyDay = content.includes('thirty_day_alarm_at');
+    const hasReArm = content.includes('reArmIfNeeded');
+    return hasSoftAlarm && hasFiveMin && hasThirtyDay && hasReArm ? [] : [makeFinding('D-36', 'P0', 'src/do/cart-do.ts', 'CartDO missing two-stage alarm lifecycle (soft_alarm_active, five_min/thirty_day_alarm_at, re-arm).', 'Implement two-stage alarm lifecycle per Guardrail #6.')];
+  } },
+  // ── Guardrail 7: CartDO guarded D1 upsert with last_d1_write_seq ──
+  { code: 'D-37', severity: 'P0', fix: 'Add last_d1_write_seq + monotonic guarded upsert. See Master Plan Guardrail #7.', run: () => {
+    const content = read('src/do/cart-do.ts');
+    return content.includes('last_d1_write_seq') && content.includes('>= COALESCE(cart_activity.last_d1_write_at') ? [] : [makeFinding('D-37', 'P0', 'src/do/cart-do.ts', 'CartDO D1 upsert missing last_d1_write_seq guard.', 'Add monotonic guarded upsert with last_d1_write_seq per Guardrail #7.')];
+  } },
+  // ── Guardrail 9: Buy Now must not mutate CartDO ──────────────────
+  { code: 'D-38', severity: 'P1', fix: 'Buy Now must not reference CART_DO. See Master Plan Guardrail #9.', run: () => {
+    const content = read('src/pages/api/buy-now/submit.ts');
+    return content.includes('CART_DO') ? [makeFinding('D-38', 'P1', 'src/pages/api/buy-now/submit.ts', 'Buy Now submit references CART_DO.', 'Buy Now must not mutate CartDO. Use DirectCheckoutSessionDO only.')] : [];
+  } },
+  // ── Guardrail 18: Payment redirect does not mark paid ────────────
+  { code: 'D-39', severity: 'P0', fix: 'Payment redirect success must not set order to paid. See Master Plan Guardrail #18.', run: () => {
+    const paymentRoutes = listFiles('src/pages/api/payments', (file) => ['.ts', '.tsx'].includes(extname(file)) && file.includes('redirect'));
+    return paymentRoutes.flatMap((file) => {
+      const content = read(file);
+      return content.includes("status: 'paid'") || content.includes("payment_status: 'paid'") ? [makeFinding('D-39', 'P0', rel(file), 'Redirect handler appears to mark payment as paid.', 'Payment redirect must not set paid status. Only webhook + reconciliation may.')] : [];
+    });
+  } },
+  // ── Guardrail 28: Turnstile server-side verification ──────────────
+  { code: 'D-40', severity: 'P1', fix: 'Add server-side Turnstile verification. See Master Plan Guardrail #28.', run: () => {
+    const checkoutContent = read('src/pages/api/checkout.ts');
+    return checkoutContent.includes('verifyTurnstile') ? [] : [makeFinding('D-40', 'P1', 'src/pages/api/checkout.ts', 'Checkout missing Turnstile server-side verification.', 'Add Turnstile server-side verification per Guardrail #28.')];
+  } },
+  // ── Guardrail 36: No direct D1 stock mutation via Drizzle ────────
+  { code: 'D-41', severity: 'P1', fix: 'Route all stock changes through VariantInventoryDO. See Master Plan Guardrail #36.', run: () => {
+    const routeFiles = listFiles('src/pages/api', (file) => ['.ts', '.tsx'].includes(extname(file)) && !file.includes('/staff/inventory/adjust'));
+    return routeFiles.flatMap((file) => {
+      const content = read(file);
+      if (content.includes('db.update(inventoryItems)') || content.includes("UPDATE inventory_items")) {
+        if (content.includes('VARIANT_INVENTORY_DO') || content.includes('doAdjustStock') || content.includes('doDirectSale')) return [];
+        return [makeFinding('D-41', 'P1', rel(file), 'Route handler directly mutates inventory_items without DO serialization.', 'Route stock mutations through VariantInventoryDO per Guardrail #36.')];
+      }
+      return [];
+    });
+  } },
+  // ── Guardrail 29: Public CSP does not block payment domains ─────
+  { code: 'D-42', severity: 'P0', fix: 'Add all payment/courier/fraud domains to public CSP. See Master Plan Guardrail #29.', run: () => {
+    const cspContent = read('src/lib/security/csp.ts');
+    const requiredDomains = ['api.uddoktapay.com', 'securepay.sslcommerz.com', 'api.fraudbd.com', 'api.pathao.com'];
+    return requiredDomains.every((d) => cspContent.includes(d)) ? [] : [makeFinding('D-42', 'P0', 'src/lib/security/csp.ts', 'Public CSP is missing required payment/courier/fraud domains.', 'Add all required domains to public CSP per Guardrail #29.')];
+  } },
+  // ── Guardrail 12: No order before stock reservation ──────────────
+  { code: 'D-43', severity: 'P0', fix: 'Stock reservation must succeed before D1 order write. See Master Plan Guardrail #12.', run: () => {
+    const checkoutContent = read('src/pages/api/checkout.ts');
+    return checkoutContent.includes('reserveVariants') && checkoutContent.indexOf('reserveVariants') < checkoutContent.indexOf('insertReservedOrderWithRetry') ? [] : [makeFinding('D-43', 'P0', 'src/pages/api/checkout.ts', 'Order write may happen before stock reservation.', 'Reserve stock before writing D1 order per Guardrail #12.')];
+  } },
+  // ── Guardrail 8: Cart version rules pass contract tests ──────────
+  { code: 'D-44', severity: 'P1', fix: 'Cart version must increment per mutation type. See Master Plan Guardrail #8.', run: () => {
+    const content = read('src/do/cart-do.ts');
+    return content.includes('cart_version++') ? [] : [makeFinding('D-44', 'P1', 'src/do/cart-do.ts', 'CartDO missing cart_version increment logic.', 'Increment cart_version on every mutation per Guardrail #8.')];
+  } },
 ];
 
 function parseArgs(): { scope: string; output: string } {
@@ -323,9 +383,9 @@ ${section('P3')}
 
 function main() {
   const { scope, output } = parseArgs();
-  if (checks.length !== 35) {
-    console.error(`audit-drift.ts: expected 35 checks, found ${checks.length}.`);
-    console.error('Implement all checks from Section 38.2 before running this script.');
+  if (checks.length !== 44) {
+    console.error(`audit-drift.ts: expected 44 checks (one per guardrail), found ${checks.length}.`);
+    console.error('Implement all checks from Master Plan Guardrails before running this script.');
     process.exit(2);
   }
   const findings = checks.flatMap((check) => check.run());

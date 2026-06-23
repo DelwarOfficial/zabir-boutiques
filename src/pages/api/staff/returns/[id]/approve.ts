@@ -1,17 +1,13 @@
-/**
- * POST /api/staff/returns/{id}/approve [Master_Prompt v7.0 §7.2]
- * Approve a return. Restock items and trigger UddoktaPay refund for
- * prepaid amounts. RBAC: payments.refund.
- */
 import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { nowSql } from "../../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";
 import { prepareAuditLogInsert, clientIp, userAgent } from "../../../../../lib/audit";
 import { canTransition } from "../../../../../lib/order-state-machine";
-import { doSyncFromD1 } from "../../../../../lib/do-client";
+import { doAdjustStock } from "../../../../../lib/do-client";
 import { verifyUddoktaPayment } from "../../../../../lib/payments";
 import { UddoktaPayClient } from "../../../../../lib/integrations/uddoktapay";
+import { safeLog } from "../../../../../lib/pii-scrubber";
 
 interface ReturnItem {
   variant_id: string;
@@ -59,30 +55,11 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   if (items.length > 0) {
-    const restockStatements = items.flatMap((item) => [
-      env.DB.prepare(
-        `UPDATE inventory_items
-         SET quantity = quantity + ?1, updated_at = ?2
-         WHERE variant_id = ?3`,
-      ).bind(item.quantity, now, item.variant_id),
-      env.DB.prepare(
-        `INSERT INTO stock_adjustments (id, variant_id, delta, reason, adjusted_by, created_at)
-         VALUES (?1, ?2, ?3, 'return_approved', ?4, ?5)`,
-      ).bind(crypto.randomUUID(), item.variant_id, item.quantity, user.id, now),
-    ]);
-    const restockResults = await env.DB.batch(restockStatements, { atomic: true });
-    const failedRestock = restockResults.find((result, index) => index % 2 === 0 && result.meta.changes !== 1);
-    if (failedRestock) {
-      return Response.json({ ok: false, code: "RESTOCK_FAILED" }, { status: 409 });
-    }
-
-    if (env.VARIANT_INVENTORY_DO) {
-      for (const item of items) {
-        const row = await env.DB
-          .prepare("SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1")
-          .bind(item.variant_id)
-          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
-        if (row) await doSyncFromD1(env, item.variant_id, row.quantity, row.reserved_quantity, row.sold_quantity);
+    for (const item of items) {
+      const result = await doAdjustStock(env, item.variant_id, item.quantity, 'return_approved', user.id);
+      if (!result.ok) {
+        safeLog.error('[returns/approve] Restock failed via DO', { variantId: item.variant_id, error: result.error });
+        return Response.json({ ok: false, code: "RESTOCK_FAILED", error: result.error }, { status: 409 });
       }
     }
   }
