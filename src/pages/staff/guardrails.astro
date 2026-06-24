@@ -6,7 +6,7 @@ import { getEnv } from "@/lib/env";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
-if (!isOwnerTier(user.role) && user.role !== 'auditor') return new Response("Forbidden", { status: 403 });
+if (!isOwnerTier(user.role)) return new Response("Forbidden", { status: 403 });
 
 const env = getEnv(Astro);
 
@@ -95,8 +95,6 @@ const recentApiEvents = await env.DB.prepare(
             <th class="px-2 py-1.5 font-semibold">Last Call</th>
           </tr></thead>
           <tbody>{providerHealth.results.map(p => {
-            const healthPct = p.total > 0 ? (p.ok / p.total * 100).toFixed(1) : '—';
-            const healthClass = p.total > 0 && healthPct < 90 ? 'text-red-500' : healthPct < 99 ? 'text-yellow-600' : '';
             return (
               <tr class="border-b border-line-soft">
                 <td class="px-2 py-1.5 font-mono">{p.provider}</td>

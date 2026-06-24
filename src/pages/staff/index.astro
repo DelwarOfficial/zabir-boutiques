@@ -17,8 +17,8 @@ const today = nowSql().slice(0, 10);
 
 const roleLabel: Record<string, string> = {
   super_admin: "Super Admin", owner: "Owner", manager: "Manager",
-  salesman: "Sales Staff", packing: "Packing Staff", support: "Support",
-  developer: "Developer", auditor: "Auditor",
+  staff: "Staff",
+  viewer: "Viewer",
 };
 
 const hour = new Date().getHours();
@@ -52,8 +52,8 @@ const perms = {
   orders: can(user.role, "orders.view"),
   products: can(user.role, "products.manage"),
   fraud: can(user.role, "fraud.view"),
-  sales: ["salesman", "manager", "owner", "super_admin"].includes(user.role),
-  packing: user.role === "packing" || can(user.role, "orders.pack"),
+  sales: ["staff", "manager", "owner", "super_admin"].includes(user.role),
+  packing: can(user.role, "orders.pack"),
   security: ["owner", "super_admin"].includes(user.role),
 };
 ---

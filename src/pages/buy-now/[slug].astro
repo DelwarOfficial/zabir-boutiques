@@ -161,7 +161,10 @@ const images = await env.DB.prepare(
    FROM product_images WHERE product_id = ?1 ORDER BY sort_order ASC`
 ).bind(product.id).all<{ id: string; r2_key: string; alt_text: string | null; width: number | null; height: number | null; sort_order: number }>();
 
-const imageList = images.results ?? [];
+type ProductImage = { id: string; r2_key: string; alt_text: string | null; width: number | null; height: number | null; sort_order: number };
+type ProductVariant = { id: string; size: string | null; color: string | null; sku: string; price_paisa: number };
+
+const imageList: ProductImage[] = images.results ?? [];
 const primaryImage = imageList[0]?.r2_key ?? "/assets/product-zb-stitch.svg";
 const primaryAlt = imageList[0]?.alt_text ?? product.name;
 
@@ -172,11 +175,9 @@ const variants = await env.DB.prepare(
    JOIN products p ON p.id = v.product_id
    WHERE v.product_id = ?1 AND v.is_deleted = 0
    ORDER BY v.size, v.color`
-).bind(product.id).all<{
-  id: string; size: string | null; color: string | null; sku: string; price_paisa: number;
-}>();
+).bind(product.id).all<ProductVariant>();
 
-const variantList = variants.results ?? [];
+const variantList: ProductVariant[] = variants.results ?? [];
 const selectedVariant = variantList.find(v => v.id === session.variantId) ?? variantList[0];
 
 // Delivery pricing
@@ -243,10 +244,10 @@ const faqJsonLd = JSON.stringify({
 });
 
 // Parse product description into feature list
-const features = (product.description ?? "")
+const features: string[] = (product.description ?? "")
   .split("\n")
-  .map(l => l.replace(/^[•\-\*]\s*/, "").trim())
-  .filter(l => l.length > 0);
+  .map((l: string) => l.replace(/^[•\-\*]\s*/, "").trim())
+  .filter((l: string) => l.length > 0);
 ---
 
 <RootLayout title={`${product.name} | Zabir Boutiques`} description={product.description ?? product.name} ogImage={ogImage}>
@@ -391,7 +392,7 @@ const features = (product.description ?? "")
               <h2 class="text-xl font-extrabold mb-4">প্রোডাক্ট গ্যালারি</h2>
               <div class="flex gap-3 overflow-x-auto snap-x snap-mandatory rounded-2xl bg-[var(--surface-soft)] p-2 scrollbar-hide">
                 {imageList.map((img, i) => (
-                  <div class="snap-center shrink-0 w-[82%] sm:w-[46%] aspect-[4/5] overflow-hidden rounded-2xl bg-[var(--surface)]" key={img.id}>
+                  <div class="snap-center shrink-0 w-[82%] sm:w-[46%] aspect-[4/5] overflow-hidden rounded-2xl bg-[var(--surface)]">
                     <img
                       src={img.r2_key}
                       alt={img.alt_text ?? product.name}

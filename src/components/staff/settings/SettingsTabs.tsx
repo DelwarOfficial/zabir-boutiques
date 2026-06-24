@@ -36,7 +36,7 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
   const [settings, setSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [error, setError] = useState('');
+  const [, setError] = useState('');
 
   useEffect(() => {
     fetch('/api/staff/settings')
