@@ -8,22 +8,8 @@ export function generatePublicCSP(nonce: string, localDev: boolean, scriptHashes
     `script-src ${scriptSrc}`,
     "style-src 'self' 'unsafe-inline'",
     "img-src 'self' https://cdn.zabirboutiques.com https://*.r2.dev data: blob:",
-    `connect-src 'self'
-      https://api.uddoktapay.com
-      https://uddoktapay.com
-      https://securepay.sslcommerz.com
-      https://api.fraudbd.com
-      https://api.resend.com
-      https://api.deepseek.com
-      https://*.imagify.com
-      https://api.pathao.com
-      https://portal.packzy.com
-      https://api.redx.com.bd
-      https://*.r2.cloudflarestorage.com`,
-    `frame-src 'self'
-      https://challenges.cloudflare.com
-      https://securepay.sslcommerz.com
-      https://uddoktapay.com`,
+    "connect-src 'self' https://api.uddoktapay.com https://uddoktapay.com https://securepay.sslcommerz.com https://api.fraudbd.com https://api.resend.com https://api.deepseek.com https://*.imagify.com https://api.pathao.com https://portal.packzy.com https://api.redx.com.bd https://*.r2.cloudflarestorage.com",
+    "frame-src 'self' https://challenges.cloudflare.com https://securepay.sslcommerz.com https://uddoktapay.com",
     "font-src 'self'",
     "object-src 'none'",
     "base-uri 'self'",
