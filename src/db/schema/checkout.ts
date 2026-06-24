@@ -1,5 +1,4 @@
 import { sqliteTable, text, integer, primaryKey } from 'drizzle-orm/sqlite-core';
-import { products, productVariants } from './catalog';
 
 export const coupons = sqliteTable('coupons', {
   id: text('id').primaryKey(),

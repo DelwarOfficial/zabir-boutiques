@@ -12,8 +12,6 @@ import { nowSql } from "../dates";
 import { hmacSha256Hex } from "../security";
 import { recordMediaObject } from "../media-access";
 
-const BACKUP_ENCRYPTION_KEY_ENV = "BACKUP_ENCRYPTION_KEY";
-
 async function deriveArchiveKey(secret: string): Promise<CryptoKey> {
   const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(secret));
   return crypto.subtle.importKey("raw", digest, { name: "AES-GCM" }, false, ["encrypt", "decrypt"]);

@@ -134,7 +134,6 @@ function DetailModal({ entry, onClose }: { entry: AuditEntryWithActor; onClose: 
                     {Object.entries(metadata).map(([key, val]) => {
                       const isPriorKey = key.startsWith('previous_') || key.startsWith('old_') || key === 'previous';
                       const isNewKey = key.startsWith('new_') || key.startsWith('current_') || key === 'new';
-                      const displayKey = key.replace(/^(previous_|old_|new_|current_)/, '');
                       const valStr = val === null ? '—' : typeof val === 'object' ? JSON.stringify(val, null, 2) : String(val);
                       const isDiff = isPriorKey || isNewKey;
                       return (

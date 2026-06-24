@@ -69,7 +69,6 @@ export function categorizeAction(action: string): string {
 export function actionLabel(action: string): string {
   const parts = action.split('.');
   const verb = parts.pop() || '';
-  const subject = parts.join(' ');
   const labelMap: Record<string, string> = {
     'create': 'Created',
     'update': 'Updated',

@@ -140,7 +140,6 @@ export class CartDO implements DurableObject, CartDOContract {
     const cart = await this.ensureLoaded();
     const wasEmpty = cart.items.length === 0;
     const now = new Date().toISOString();
-    const nowTs = Date.now();
 
     if (action !== 'get' && typeof body.clientVersion === 'number') {
       if ((body.clientVersion as number) < cart.cart_version) {

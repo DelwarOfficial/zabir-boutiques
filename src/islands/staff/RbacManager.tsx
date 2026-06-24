@@ -96,7 +96,6 @@ export function RbacManager({ initialRoles, csrfToken: _csrf }: Props) {
     }
   }
 
-  const ownerTier = (r: RoleWithPermissions) => ['super_admin', 'owner'].includes(r.name);
   const roleColor = (r: RoleWithPermissions) => {
     if (r.name === 'super_admin') return 'chip-danger';
     if (r.name === 'owner') return 'chip-brand';

@@ -17,7 +17,6 @@ import { getEnv } from "../../../../lib/env";
 import { nowSql } from "../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../lib/rbac";
 import { createInvoice, type InvoicePaymentMethod } from "../../../../lib/invoices";
-import type { Env } from "../../../../env";
 import { writeAuditLog, clientIp, userAgent } from "../../../../lib/audit";
 import { safeLog } from "../../../../lib/pii-scrubber";
 import { normalizeBangladeshPhone } from "../../../../lib/phone";

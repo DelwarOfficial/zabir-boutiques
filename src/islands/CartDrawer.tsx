@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef } from 'react';
 import { useLocalCart } from '../hooks/useLocalCart';
-import { formatPaisa, type Paisa } from '../lib/money';
+import { formatPaisa } from '../lib/money';
 
 type CouponState = {
   code: string;

@@ -1,12 +1,9 @@
 ---
-import { formatPaisa } from "@/lib/money";
-
 interface Props {
   description: string;
-  pricePaisa: number;
 }
 
-const { description, pricePaisa } = Astro.props;
+const { description } = Astro.props;
 
 const tabs = [
   { id: "description", label: "Description" },

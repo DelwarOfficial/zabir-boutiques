@@ -15,7 +15,7 @@
  * and no audit log on the prune path.
  */
 import { nowSql } from "../dates";
-import { hmacSha256Hex, generateRandomHex } from "../security";
+import { hmacSha256Hex } from "../security";
 import { recordMediaObject } from "../media-access";
 
 /** Fallback secret for HMAC-signing backups when SESSION_SECRET is unset.

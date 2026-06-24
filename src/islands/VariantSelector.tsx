@@ -58,7 +58,7 @@ export function VariantSelector(props: Props) {
 
     // Mock an alternative color
     const altColor = baseColor === 'Maroon' ? 'Emerald' : 'Black';
-    ['S', 'M', 'L', 'XL'].forEach((s, idx) => {
+    ['S', 'M', 'L', 'XL'].forEach((s) => {
       variants.push({
         id: `${props.baseVariantId}-color-${s.toLowerCase()}`,
         size: s,

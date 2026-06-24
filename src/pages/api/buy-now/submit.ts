@@ -20,7 +20,7 @@ import {
   resolveShippingZone,
 } from '../../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../../lib/fraud';
-import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../../lib/prepayment';
+import { calculatePrepayment } from '../../../lib/prepayment';
 import { createPaymentCheckout } from '../../../lib/integrations/payments';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { clientIp } from '../../../lib/audit';

@@ -213,11 +213,9 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const now = nowSql();
 
   // Extract from KV when available (Task 5). D1 is still used for authoritative revocation/idle checks.
-  let kvCachedRole: string | null = null;
   if (sessionKV) {
     try {
-      const cached = await sessionKV.get(`staff-session:${tokenHash}`, 'json') as any;
-      if (cached && cached.role && isValidStaffRole(cached.role)) kvCachedRole = cached.role;
+      sessionKV.get(`staff-session:${tokenHash}`, 'json') as any;
     } catch {}
   }
 

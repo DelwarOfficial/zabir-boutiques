@@ -312,7 +312,8 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
           });
           inp.addEventListener('paste', function(e) {
             e.preventDefault();
-            const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+            const cbData = e.clipboardData || window.clipboardData;
+            const paste = cbData ? cbData.getData('text').replace(/[^0-9]/g, '').slice(0, 6) : '';
             paste.split('').forEach((ch, i) => {
               if (i < 6) {
                 digitInputs[i].value = ch;

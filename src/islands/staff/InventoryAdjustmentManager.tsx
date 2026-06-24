@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import type { InventoryVariant, InventoryMovement, AdjustStockResult, AdjustmentReason } from '../../types/inventory';
+import type { InventoryVariant, InventoryMovement, AdjustStockResult } from '../../types/inventory';
 import { ADJUSTMENT_REASONS } from '../../types/inventory';
 
 function getCsrf(): string {
@@ -50,16 +50,6 @@ type AdjustResponse = AdjustStockResult & { ok?: boolean; error?: string; messag
 
 function reasonLabel(reason: string): string {
   return ADJUSTMENT_REASONS.find(r => r.value === reason)?.label || reason;
-}
-
-function getDeltaBadgeClass(delta: number): string {
-  return delta > 0
-    ? 'text-emerald-600 bg-emerald-50'
-    : 'text-red-600 bg-red-50';
-}
-
-function cn(...classes: (string | false | undefined | null)[]): string {
-  return classes.filter(Boolean).join(' ');
 }
 
 function SearchIcon() { return <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>; }
