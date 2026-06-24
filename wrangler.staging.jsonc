@@ -29,7 +29,7 @@
     { "binding": "EMAIL_TEMPLATES", "bucket_name": "zabir-email-templates-staging" },
     { "binding": "REPORTS", "bucket_name": "zabir-reports-staging" }
   ],
-  "ai": { "binding": "AI" },
+  "ai": { "binding": "AI", "remote": true },
   "analytics_engine_datasets": [
     { "binding": "ANALYTICS", "dataset": "zabir_metrics_staging" }
   ],
