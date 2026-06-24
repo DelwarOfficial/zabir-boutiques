@@ -145,7 +145,6 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
       })();
     </script>
 
-    <!-- Add to Cart helper for non-island cards -->
     <script is:inline>
       (function() {
         window.addItemToLocalCart = function(item) {
@@ -160,20 +159,38 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
               cart.push(item);
             }
             localStorage.setItem('zb_cart_v68a', JSON.stringify(cart));
-            
-            // Sync with server if session exists
-            fetch('/api/cart', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ action: 'add', variantId: item.variantId, quantity: item.quantity })
-            }).catch(function() {});
-            
+
             window.dispatchEvent(new CustomEvent('zb-cart-updated'));
             window.dispatchEvent(new CustomEvent('zb-cart-open'));
-            
+
             if (typeof window.showToast === 'function') {
               window.showToast("Added " + item.title + " to cart!", 'success');
             }
+
+            var clientVersion = parseInt(localStorage.getItem('zb_cart_version') || '-1', 10);
+            var postBody = JSON.stringify({
+              action: 'add',
+              variantId: item.variantId,
+              quantity: item.quantity,
+              clientVersion: clientVersion >= 0 ? clientVersion : undefined
+            });
+            fetch('/api/cart', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: postBody
+            }).then(function(resp) {
+              if (resp.ok) {
+                return resp.json().then(function(data) {
+                  if (data.items && Array.isArray(data.items)) {
+                    localStorage.setItem('zb_cart_v68a', JSON.stringify(data.items));
+                    if (typeof data.currentVersion === 'number') {
+                      localStorage.setItem('zb_cart_version', String(data.currentVersion));
+                    }
+                    window.dispatchEvent(new CustomEvent('zb-cart-updated'));
+                  }
+                });
+              }
+            }).catch(function() {});
           } catch (err) {
             console.error(err);
           }

@@ -146,6 +146,7 @@ export async function doAdjustStock(
   notes?: string,
 ): Promise<{ ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number }> {
   if (!env.VARIANT_INVENTORY_DO) {
+    console.warn('[do-client] VARIANT_INVENTORY_DO not bound, falling back to direct D1 mutation. Production should always bind DO.');
     const row = await env.DB
       .prepare(`SELECT quantity FROM inventory_items WHERE variant_id = ?1`)
       .bind(variantId)

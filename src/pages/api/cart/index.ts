@@ -106,6 +106,7 @@ export async function POST(context: APIContext): Promise<Response> {
     action?: string;
     variantId?: string;
     quantity?: number;
+    clientVersion?: number;
     couponCode?: string;
     customerContact?: string;
     items?: Array<{ variantId: string; quantity: number }>;
@@ -130,43 +131,36 @@ export async function POST(context: APIContext): Promise<Response> {
       case 'add': {
         cartResponse = await stub.fetch('https://do/add', {
           method: 'POST',
-          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity ?? 1 }),
+          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity ?? 1, clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'remove': {
         cartResponse = await stub.fetch('https://do/remove', {
           method: 'POST',
-          body: JSON.stringify({ variantId: body.variantId }),
+          body: JSON.stringify({ variantId: body.variantId, clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'quantity': {
         cartResponse = await stub.fetch('https://do/quantity', {
           method: 'POST',
-          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity }),
+          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity, clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'clear': {
         cartResponse = await stub.fetch('https://do/clear', {
           method: 'POST',
-          body: JSON.stringify({}),
+          body: JSON.stringify({ clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'replace_all': {
-        // Clear existing, then add each
-        await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({}) });
-        if (Array.isArray(body.items)) {
-          for (const item of body.items) {
-            await stub.fetch('https://do/add', {
-              method: 'POST',
-              body: JSON.stringify({ variantId: item.variantId, quantity: item.quantity }),
-            });
-          }
-        }
-        cartResponse = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify({}) });
+        cartResponse = await stub.fetch('https://do/replaceAll', {
+          method: 'POST',
+          body: JSON.stringify({ items: body.items ?? [], clientVersion: body.clientVersion }),
+        });
         break;
       }
       default: {

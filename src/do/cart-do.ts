@@ -132,6 +132,10 @@ export class CartDO implements DurableObject, CartDOContract {
     return this.fetch(new Request('https://do/merge', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json()) as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
   }
 
+  async replaceAll(input: { items: CartItem[]; clientVersion?: number }): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
+    return this.fetch(new Request('https://do/replaceAll', { method: 'POST', body: JSON.stringify(input) })).then((r) => r.json()) as Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }>;
+  }
+
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const action = url.pathname.slice(1) || 'get';
@@ -262,6 +266,20 @@ export class CartDO implements DurableObject, CartDOContract {
             cart.items.push({ ...mergeItem, updatedAt: now });
           }
         }
+        cart.last_mutation_at = now;
+        cart.cart_version++;
+        await this.persistMutation(cart, wasEmpty);
+        return Response.json({ ok: true, cart, currentVersion: cart.cart_version });
+      }
+
+      case 'replaceAll': {
+        const replaceItems = body.items as CartItem[] | undefined;
+        cart.items = (replaceItems ?? []).map((item) => ({
+          variantId: item.variantId,
+          quantity: Math.max(1, item.quantity),
+          addedAt: now,
+          updatedAt: now,
+        }));
         cart.last_mutation_at = now;
         cart.cart_version++;
         await this.persistMutation(cart, wasEmpty);

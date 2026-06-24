@@ -168,7 +168,7 @@ import { Search } from "@/islands/Search";
       const badge = document.getElementById('header-cart-badge');
       if (!badge) return;
       try {
-        const raw = localStorage.getItem('zb-cart');
+        const raw = localStorage.getItem('zb_cart_v68a');
         const cart = raw ? JSON.parse(raw) : [];
         const count = cart.reduce((sum, item) => sum + item.quantity, 0);
         if (count > 0) {
