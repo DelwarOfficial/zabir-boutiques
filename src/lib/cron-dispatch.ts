@@ -37,53 +37,64 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
     await reconcilePendingPayments(env);
     await scanAbandonedCarts(env as unknown as { DB: D1Database; ORDER_EMAILS?: Queue });
   },
-  // Hourly — reservation cleanup + session sweep.
+  // Hourly — runs hourly, daily, 6-hourly, weekly, and monthly jobs dynamically based on UTC time.
   "0 * * * *": async (env) => {
     const { cleanExpiredReservations } = await import('./inventory');
     const { cleanExpiredSessions } = await import('./sessions');
     await cleanExpiredReservations(env, 200);
     await cleanExpiredSessions(env.DB);
-  },
-  // Daily 00:00 UTC — AI daily budget reset (the counter is daily-bucketed).
-  "0 0 * * *": async (env) => {
-    const cache = (env as unknown as { CACHE?: KVNamespace }).CACHE;
-    if (cache) await cache.delete("AI_DAILY_USAGE_COUNT");
-  },
-  // Daily 02:00 UTC — sitemap generation.
-  "0 2 * * *": async (env) => {
-    const { generateSitemap } = await import('./maintenance/sitemap');
-    await generateSitemap(env.DB, (env as unknown as { MEDIA?: R2Bucket }).MEDIA);
-  },
-  // Daily 03:00 UTC — daily maintenance (sessions + idempotency + inventory reconcile + audit).
-  "0 3 * * *": async (env) => {
-    const { cleanExpiredSessions } = await import('./sessions');
-    const { retryUncompressedImages } = await import('./tinify');
-    const { cleanExpiredIdempotencyKeys } = await import('./maintenance/idempotency');
-    const { recordAuditIntegrityCheck, writeAuditCheckpoint } = await import('./audit');
-    const { reconcileInventory } = await import('./maintenance/inventory-reconcile');
-    await cleanExpiredSessions(env.DB);
-    await retryUncompressedImages(env.DB, (env as unknown as { MEDIA: R2Bucket; TINIFY_API_KEY: string }).MEDIA, (env as unknown as { MEDIA: R2Bucket; TINIFY_API_KEY: string }).TINIFY_API_KEY);
-    await cleanExpiredIdempotencyKeys(env.DB);
-    await recordAuditIntegrityCheck(env.DB);
-    await writeAuditCheckpoint(env.DB);
-    await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
-  },
-  // Every 6 hours — D1 backup via queue.
-  "0 */6 * * *": async (env) => {
-    const { enqueueD1Backup } = await import('./queue-publisher');
-    await enqueueD1Backup(env as unknown as { D1_BACKUP?: Queue }, nowSql());
-  },
-  // Weekly Sun 09:00 UTC — backup verification + restore drill.
-  "0 9 * * 0": async (env) => {
-    const { verifyBackup } = await import('./maintenance/backup');
-    const e = env as unknown as { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; SESSION_SECRET?: string };
-    await verifyBackup(env.DB, e.BACKUPS, e);
-  },
-  // Monthly 1st 05:00 UTC — archive old events to R2.
-  "0 5 1 * *": async (env) => {
-    const { archiveOldEvents } = await import('./maintenance/archive');
-    const e = env as unknown as { BACKUPS: R2Bucket; AUDIT_LEDGER_SECRET?: string; BACKUP_ENCRYPTION_KEY?: string };
-    await archiveOldEvents(env.DB, e.BACKUPS, e.AUDIT_LEDGER_SECRET, e.BACKUP_ENCRYPTION_KEY);
+
+    const now = new Date();
+    const utcHour = now.getUTCHours();
+    const utcDayOfWeek = now.getUTCDay(); // 0 = Sunday
+    const utcDayOfMonth = now.getUTCDate();
+
+    // Daily 00:00 UTC — AI daily budget reset.
+    if (utcHour === 0) {
+      const cache = (env as unknown as { CACHE?: KVNamespace }).CACHE;
+      if (cache) await cache.delete("AI_DAILY_USAGE_COUNT");
+    }
+
+    // Daily 02:00 UTC — sitemap generation.
+    if (utcHour === 2) {
+      const { generateSitemap } = await import('./maintenance/sitemap');
+      await generateSitemap(env.DB, (env as unknown as { MEDIA?: R2Bucket }).MEDIA);
+    }
+
+    // Daily 03:00 UTC — daily maintenance (sessions + idempotency + inventory reconcile + audit).
+    if (utcHour === 3) {
+      const { cleanExpiredSessions: cleanSessionsDaily } = await import('./sessions');
+      const { retryUncompressedImages } = await import('./tinify');
+      const { cleanExpiredIdempotencyKeys } = await import('./maintenance/idempotency');
+      const { recordAuditIntegrityCheck, writeAuditCheckpoint } = await import('./audit');
+      const { reconcileInventory } = await import('./maintenance/inventory-reconcile');
+      await cleanSessionsDaily(env.DB);
+      await retryUncompressedImages(env.DB, (env as unknown as { MEDIA: R2Bucket; TINIFY_API_KEY: string }).MEDIA, (env as unknown as { MEDIA: R2Bucket; TINIFY_API_KEY: string }).TINIFY_API_KEY);
+      await cleanExpiredIdempotencyKeys(env.DB);
+      await recordAuditIntegrityCheck(env.DB);
+      await writeAuditCheckpoint(env.DB);
+      await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
+    }
+
+    // Every 6 hours — D1 backup via queue.
+    if (utcHour % 6 === 0) {
+      const { enqueueD1Backup } = await import('./queue-publisher');
+      await enqueueD1Backup(env as unknown as { D1_BACKUP?: Queue }, nowSql());
+    }
+
+    // Weekly Sun 09:00 UTC — backup verification + restore drill.
+    if (utcHour === 9 && utcDayOfWeek === 0) {
+      const { verifyBackup } = await import('./maintenance/backup');
+      const e = env as unknown as { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; SESSION_SECRET?: string };
+      await verifyBackup(env.DB, e.BACKUPS, e);
+    }
+
+    // Monthly 1st 05:00 UTC — archive old events to R2.
+    if (utcHour === 5 && utcDayOfMonth === 1) {
+      const { archiveOldEvents } = await import('./maintenance/archive');
+      const e = env as unknown as { BACKUPS: R2Bucket; AUDIT_LEDGER_SECRET?: string; BACKUP_ENCRYPTION_KEY?: string };
+      await archiveOldEvents(env.DB, e.BACKUPS, e.AUDIT_LEDGER_SECRET, e.BACKUP_ENCRYPTION_KEY);
+    }
   },
 };
 
