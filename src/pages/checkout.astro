@@ -5,10 +5,19 @@ import { GuestCheckout } from "@/islands/GuestCheckout";
 import { env } from "cloudflare:workers";
 
 const turnstileSiteKey: string | undefined = env.TURNSTILE_SITE_KEY;
+
+let insideDhakaPaisa: number | undefined;
+let outsideDhakaPaisa: number | undefined;
+try {
+  const inside = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_inside_dhaka_paisa'`).first<{ value: string }>();
+  const outside = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_outside_dhaka_paisa'`).first<{ value: string }>();
+  if (inside) { const v = Number(inside.value); if (Number.isSafeInteger(v) && v >= 0) insideDhakaPaisa = v; }
+  if (outside) { const v = Number(outside.value); if (Number.isSafeInteger(v) && v >= 0) outsideDhakaPaisa = v; }
+} catch {}
 ---
 
 <RootLayout title="Guest Checkout | Zabir Boutiques">
-  <GuestCheckout client:load turnstileSiteKey={turnstileSiteKey}>
+  <GuestCheckout client:load turnstileSiteKey={turnstileSiteKey} insideDhakaPaisa={insideDhakaPaisa} outsideDhakaPaisa={outsideDhakaPaisa}>
     <CheckoutSkeleton slot="fallback" />
   </GuestCheckout>
 </RootLayout>

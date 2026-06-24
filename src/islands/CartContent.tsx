@@ -3,12 +3,12 @@ import { useEffect, useState } from "react";
 import { useLocalCart } from "../hooks/useLocalCart";
 import { formatPaisa } from "../lib/money";
 
-const SHIPPING_COST = 7000;
 const FREE_SHIPPING_THRESHOLD = 500000;
 
-export function CartContent() {
+export function CartContent({ shippingCost: propShippingCost }: { shippingCost?: number }) {
   const cart = useLocalCart();
   const [mounted, setMounted] = useState(false);
+  const shippingCost = (Number.isSafeInteger(propShippingCost) && propShippingCost! >= 0 ? propShippingCost! : 7000);
 
   useEffect(() => { setMounted(true); }, []);
 
@@ -40,7 +40,7 @@ export function CartContent() {
 
   const subtotal = cart.subtotalPaisa;
   const freeShipping = subtotal >= FREE_SHIPPING_THRESHOLD;
-  const total = freeShipping ? subtotal : subtotal + SHIPPING_COST;
+  const total = freeShipping ? subtotal : subtotal + shippingCost;
 
   return (
     <section className="max-w-2xl mx-auto space-y-6">
@@ -99,7 +99,7 @@ export function CartContent() {
         </div>
         <div className="flex justify-between gap-3 text-sm tabular">
           <span className="text-[var(--muted)]">Shipping</span>
-          <strong>{freeShipping ? <span className="text-[var(--success)]">FREE</span> : formatPaisa(SHIPPING_COST)}</strong>
+          <strong>{freeShipping ? <span className="text-[var(--success)]">FREE</span> : formatPaisa(shippingCost)}</strong>
         </div>
         {!freeShipping && (
           <p className="text-xs text-[var(--muted)]">

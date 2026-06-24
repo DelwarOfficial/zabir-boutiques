@@ -23,8 +23,8 @@ import { Search } from "@/islands/Search";
           <span class="absolute inset-0 rounded-full ring-1 ring-[var(--brand)]/40" aria-hidden="true"></span>
         </span>
         <span class="min-w-0 hidden sm:block">
-          <strong class="block truncate text-[14px] font-extrabold tracking-tight text-[var(--ink)]">Zabir Boutiques</strong>
-          <span class="block truncate text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Wari · Dhaka</span>
+          <strong id="header-store-name" class="block truncate text-[14px] font-extrabold tracking-tight text-[var(--ink)]">Zabir Boutiques</strong>
+          <span id="header-tagline" class="block truncate text-[9px] font-semibold uppercase tracking-[0.18em] text-[var(--muted)]">Wari · Dhaka</span>
         </span>
       </a>
     </div>
@@ -49,7 +49,7 @@ import { Search } from "@/islands/Search";
       </a>
 
       <!-- Call button -->
-      <a href="tel:+8801985516000" aria-label="Call us" class="press tap-44 inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--ink)] text-[var(--bg)] h-9 px-3 sm:px-4 text-xs font-bold transition hover:opacity-90">
+      <a id="header-phone-link" href="tel:+8801712345678" aria-label="Call us" class="press tap-44 inline-flex items-center justify-center gap-1.5 rounded-full bg-[var(--ink)] text-[var(--bg)] h-9 px-3 sm:px-4 text-xs font-bold transition hover:opacity-90">
         <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
           <path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72 12.84 12.84 0 00.7 2.81 2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45 12.84 12.84 0 002.81.7A2 2 0 0122 16.92z" />
         </svg>
@@ -136,6 +136,33 @@ import { Search } from "@/islands/Search";
 </header>
 
 <script is:inline>
+  (function () {
+    var x = new XMLHttpRequest();
+    x.open('GET', '/api/public/settings');
+    x.onload = function () {
+      try {
+        var d = JSON.parse(x.responseText);
+        if (!d.ok || !d.settings) return;
+        var s = d.settings, el;
+        if (s['store.name']) {
+          el = document.getElementById('header-store-name');
+          if (el) el.textContent = s['store.name'];
+        }
+        if (s['store.tagline']) {
+          el = document.getElementById('header-tagline');
+          if (el) el.textContent = s['store.tagline'];
+        }
+        if (s['store.phone']) {
+          el = document.getElementById('header-phone-link');
+          if (el) {
+            el.setAttribute('href', 'tel:' + s['store.phone']);
+            el.textContent = s['store.phone'];
+          }
+        }
+      } catch (e) {}
+    };
+    x.send();
+  })();
   (function() {
     function updateBadge() {
       const badge = document.getElementById('header-cart-badge');

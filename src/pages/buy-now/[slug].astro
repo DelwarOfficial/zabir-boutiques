@@ -180,9 +180,15 @@ const variants = await env.DB.prepare(
 const variantList: ProductVariant[] = variants.results ?? [];
 const selectedVariant = variantList.find(v => v.id === session.variantId) ?? variantList[0];
 
-// Delivery pricing
-const INSIDE_DHAKA = 7000;
-const OUTSIDE_DHAKA = 13000;
+// Delivery pricing from DB
+let INSIDE_DHAKA = 7000;
+let OUTSIDE_DHAKA = 13000;
+try {
+  const inside = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_inside_dhaka_paisa'`).first<{ value: string }>();
+  const outside = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_outside_dhaka_paisa'`).first<{ value: string }>();
+  if (inside) { const v = Number(inside.value); if (Number.isSafeInteger(v) && v >= 0) INSIDE_DHAKA = v; }
+  if (outside) { const v = Number(outside.value); if (Number.isSafeInteger(v) && v >= 0) OUTSIDE_DHAKA = v; }
+} catch {}
 
 const variantLabel = [selectedVariant?.size, selectedVariant?.color].filter(Boolean).join(" / ") || "Standard";
 const unitPrice = selectedVariant?.price_paisa ?? product.price_paisa;

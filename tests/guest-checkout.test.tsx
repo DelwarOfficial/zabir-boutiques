@@ -64,7 +64,7 @@ beforeEach(() => {
   mockApplyOutOfStockUpdate.mockClear();
   mockAddItem.mockClear();
   mockClear.mockClear();
-  vi.stubGlobal('fetch', vi.fn());
+  vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, settings: { delivery_inside_dhaka_paisa: '7000', delivery_outside_dhaka_paisa: '13000' } }) })));
   vi.stubGlobal('crypto', { randomUUID: () => 'uuid-xxx' });
   localStorage.clear();
 });

@@ -27,6 +27,9 @@ INSERT OR IGNORE INTO site_settings (key, value, type, label, description, group
 VALUES ('store.social_instagram', 'https://instagram.com/zabirboutiques', 'url', 'Instagram URL', 'Instagram page link', 'Store', 8, '2026-06-22 00:00:00', '2026-06-22 00:00:00');
 
 INSERT OR IGNORE INTO site_settings (key, value, type, label, description, group_name, sort_order, created_at, updated_at)
+VALUES ('store.social_whatsapp', 'https://wa.me/8801712345678', 'url', 'WhatsApp URL', 'WhatsApp contact link', 'Store', 9, '2026-06-22 00:00:00', '2026-06-22 00:00:00');
+
+INSERT OR IGNORE INTO site_settings (key, value, type, label, description, group_name, sort_order, created_at, updated_at)
 VALUES ('delivery_inside_dhaka_paisa', '70', 'number', 'Delivery Inside Dhaka (paisa)', 'Flat delivery fee for Dhaka addresses in paisa', 'Shipping', 1, '2026-06-22 00:00:00', '2026-06-22 00:00:00');
 
 INSERT OR IGNORE INTO site_settings (key, value, type, label, description, group_name, sort_order, created_at, updated_at)

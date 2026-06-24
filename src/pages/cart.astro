@@ -1,8 +1,15 @@
 ---
 import RootLayout from "@/layouts/RootLayout.astro";
 import { CartContent } from "@/islands/CartContent";
+import { env } from "cloudflare:workers";
+
+let shippingCost: number | undefined;
+try {
+  const row = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_inside_dhaka_paisa'`).first<{ value: string }>();
+  if (row) { const v = Number(row.value); if (Number.isSafeInteger(v) && v >= 0) shippingCost = v; }
+} catch {}
 ---
 
 <RootLayout title="Shopping Cart | Zabir Boutiques">
-  <CartContent client:load />
+  <CartContent client:load shippingCost={shippingCost} />
 </RootLayout>

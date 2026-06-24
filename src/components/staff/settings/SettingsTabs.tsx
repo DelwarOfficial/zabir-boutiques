@@ -167,6 +167,42 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
               </div>
 
               <div className="space-y-1">
+                <label className="text-sm font-medium">Facebook URL</label>
+                <input
+                  type="url"
+                  value={settings['store.social_facebook'] || ''}
+                  onChange={(e) => setSettings({ ...settings, 'store.social_facebook': e.target.value })}
+                  onBlur={(e) => handleUpdate('store.social_facebook', e.target.value)}
+                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                />
+                {saving === 'store.social_facebook' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium">Instagram URL</label>
+                <input
+                  type="url"
+                  value={settings['store.social_instagram'] || ''}
+                  onChange={(e) => setSettings({ ...settings, 'store.social_instagram': e.target.value })}
+                  onBlur={(e) => handleUpdate('store.social_instagram', e.target.value)}
+                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                />
+                {saving === 'store.social_instagram' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+              </div>
+
+              <div className="space-y-1">
+                <label className="text-sm font-medium">WhatsApp URL</label>
+                <input
+                  type="url"
+                  value={settings['store.social_whatsapp'] || ''}
+                  onChange={(e) => setSettings({ ...settings, 'store.social_whatsapp': e.target.value })}
+                  onBlur={(e) => handleUpdate('store.social_whatsapp', e.target.value)}
+                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                />
+                {saving === 'store.social_whatsapp' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+              </div>
+
+              <div className="space-y-1">
                 <label className="text-sm font-medium">Store Email</label>
                 <input
                   type="email"
