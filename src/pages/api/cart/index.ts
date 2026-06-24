@@ -89,14 +89,14 @@ export async function GET(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const sessionId = readCartSessionId(context.request);
   if (!sessionId) {
-    return Response.json({ ok: true, items: [] });
+    return Response.json({ ok: true, hasSession: false, items: [] });
   }
   const cartState = await doGetCart(env, sessionId);
   if (!cartState || cartState.items.length === 0) {
-    return Response.json({ ok: true, items: [] });
+    return Response.json({ ok: true, hasSession: true, items: [] });
   }
   const items = await enrichItems(env, cartState.items);
-  return Response.json({ ok: true, items });
+  return Response.json({ ok: true, hasSession: true, items });
 }
 
 export async function POST(context: APIContext): Promise<Response> {

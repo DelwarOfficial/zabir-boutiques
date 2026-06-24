@@ -107,11 +107,12 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (env.TURNSTILE_SECRET_KEY) {
     const token = typeof body.turnstile === 'string' ? body.turnstile : context.request.headers.get('CF-Turnstile-Token');
-    if (token) {
-      const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
-      if (!r.ok) {
-        return Response.json({ ok: false, code: 'TURNSTILE_FAILED', message: 'Bot check failed.' }, { status: 403 });
-      }
+    if (!token) {
+      return Response.json({ ok: false, code: 'TURNSTILE_REQUIRED', message: 'Bot check required.' }, { status: 403 });
+    }
+    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+    if (!r.ok) {
+      return Response.json({ ok: false, code: 'TURNSTILE_FAILED', message: 'Bot check failed.' }, { status: 403 });
     }
   }
 

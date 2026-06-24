@@ -105,8 +105,8 @@ export async function fetchCartFromServer(): Promise<void> {
   try {
     const resp = await fetch("/api/cart", { credentials: "include" });
     if (!resp.ok) return;
-    const data = await resp.json() as { ok?: boolean; items?: LocalCartItem[]; currentVersion?: number };
-    if (data.ok && Array.isArray(data.items)) {
+    const data = await resp.json() as { ok?: boolean; hasSession?: boolean; items?: LocalCartItem[]; currentVersion?: number };
+    if (data.ok && data.hasSession && Array.isArray(data.items)) {
       writeCart(data.items as LocalCartItem[]);
       if (typeof data.currentVersion === "number") {
         writeVersion(data.currentVersion);
