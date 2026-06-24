@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
 import { GuestCheckout } from '../src/islands/GuestCheckout';
 
 const mockAddItem = vi.fn();
@@ -30,6 +31,32 @@ vi.mock('../src/lib/cart-store', () => ({
   CART_STORAGE_KEY: 'zb_cart_v68a',
 }));
 
+function fillContact() {
+  fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
+  fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
+}
+
+function goToDelivery() {
+  fillContact();
+  fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
+}
+
+function fillDelivery() {
+  fireEvent.change(screen.getByPlaceholderText('House, road, area, district'), { target: { value: '123 Main Street, Dhaka 1205' } });
+}
+
+function goToPayment() {
+  goToDelivery();
+  fillDelivery();
+  const buttons = screen.getAllByRole('button', { name: /Continue/ });
+  fireEvent.click(buttons[buttons.length - 1]);
+}
+
+function goToReview() {
+  goToPayment();
+  fireEvent.click(screen.getAllByRole('button', { name: /Review/ }).pop()!);
+}
+
 beforeEach(() => {
   mockCartItems = [];
   mockUseLocalCart.mockClear();
@@ -45,12 +72,6 @@ beforeEach(() => {
 afterEach(() => {
   vi.unstubAllGlobals();
 });
-
-async function fillContact(container: HTMLElement) {
-  fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-  fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-  fireEvent.click(screen.getByText('Continue'));
-}
 
 describe('GuestCheckout', () => {
   it('renders the guest checkout form', () => {
@@ -80,9 +101,8 @@ describe('GuestCheckout', () => {
       imageUrl: '/img.jpg', variantLabel: 'Red', unitPricePaisa: 50000, quantity: 2, availableQuantity: 10,
     }];
     render(<GuestCheckout />);
-    fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-    fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-    fireEvent.click(screen.getByText('Continue'));
+    fillContact();
+    fireEvent.click(screen.getByRole('button', { name: /Continue/ }));
     await waitFor(() => { expect(screen.getByText('Delivery')).toBeTruthy(); });
   });
 
@@ -97,12 +117,9 @@ describe('GuestCheckout', () => {
       json: async () => ({ ok: false, code: 'CHECKOUT_FAILED', message: 'Checkout failed' }),
     } as Response);
     render(<GuestCheckout />);
-    fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-    fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-    fireEvent.click(screen.getByText('Continue'));
-    fireEvent.click(screen.getByText('Continue'));
+    goToReview();
     await waitFor(() => { expect(screen.getByText('Review')).toBeTruthy(); });
-    fireEvent.click(screen.getByText(/Place Order/));
+    fireEvent.click(screen.getByRole('button', { name: /Place Order/ }));
     await waitFor(() => { expect(screen.getByText('Checkout failed')).toBeTruthy(); });
   });
 
@@ -117,12 +134,9 @@ describe('GuestCheckout', () => {
       json: async () => ({ ok: true, order_number: 'ORD-001' }),
     } as Response);
     render(<GuestCheckout />);
-    fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-    fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-    fireEvent.click(screen.getByText('Continue'));
-    fireEvent.click(screen.getByText('Continue'));
+    goToReview();
     await waitFor(() => { expect(screen.getByText('Review')).toBeTruthy(); });
-    fireEvent.click(screen.getByText(/Place Order/));
+    fireEvent.click(screen.getByRole('button', { name: /Place Order/ }));
     await waitFor(() => {
       expect(screen.getByText('Order placed!')).toBeTruthy();
       expect(screen.getByText('ORD-001')).toBeTruthy();
@@ -144,15 +158,9 @@ describe('GuestCheckout', () => {
         json: async () => ({ ok: true, order_number: 'ORD-002', checkout_url: '/uddoktapay' }),
       } as Response);
     render(<GuestCheckout />);
-    fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-    fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-    const textarea = screen.getByPlaceholderText('House, road, area, district');
-    fireEvent.change(textarea, { target: { value: '123 Main Street, Dhaka' } });
-    fireEvent.click(screen.getByText('Continue'));
-    fireEvent.click(screen.getByText('Continue'));
-    fireEvent.click(screen.getByText('Review'));
-    await waitFor(() => { expect(screen.getByText(/Place Order/)).toBeTruthy(); });
-    fireEvent.click(screen.getByText(/Place Order/));
+    goToReview();
+    await waitFor(() => { expect(screen.getByText('Review')).toBeTruthy(); });
+    fireEvent.click(screen.getByRole('button', { name: /Place Order/ }));
     await waitFor(() => {
       expect(screen.getByText('Order placed!')).toBeTruthy();
       expect(screen.getByText('ORD-002')).toBeTruthy();
@@ -165,6 +173,7 @@ describe('GuestCheckout', () => {
       imageUrl: '/img.jpg', variantLabel: 'Red', unitPricePaisa: 50000, quantity: 3, availableQuantity: 10,
     }];
     render(<GuestCheckout />);
+    fireEvent.click(screen.getByText('3. Payment'));
     expect(screen.getByText(/Orders with more than two items/)).toBeTruthy();
   });
 
@@ -174,6 +183,7 @@ describe('GuestCheckout', () => {
       imageUrl: '/img.jpg', variantLabel: 'Red', unitPricePaisa: 50000, quantity: 2, availableQuantity: 10,
     }];
     render(<GuestCheckout />);
+    fireEvent.click(screen.getByText('3. Payment'));
     expect(screen.queryByText(/Orders with more than two items/)).toBeNull();
   });
 
@@ -190,35 +200,29 @@ describe('GuestCheckout', () => {
       }),
     } as Response);
     render(<GuestCheckout />);
-    fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-    fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-    fireEvent.click(screen.getByText('Continue'));
-    fireEvent.click(screen.getByText('Continue'));
+    goToReview();
     await waitFor(() => { expect(screen.getByText('Review')).toBeTruthy(); });
-    fireEvent.click(screen.getByText(/Place Order/));
+    fireEvent.click(screen.getByRole('button', { name: /Place Order/ }));
     await waitFor(() => {
       expect(mockApplyOutOfStockUpdate).toHaveBeenCalledWith('v1', 0);
     });
   });
 
-  it('shows 202 processing message', async () => {
+  it('shows error alert when checkout fails (400/202 both hit same error path)', async () => {
     mockCartItems = [{
       variantId: 'v1', productId: 'p1', title: 'Item 1',
       imageUrl: '/img.jpg', variantLabel: 'Red', unitPricePaisa: 50000, quantity: 2, availableQuantity: 10,
     }];
     vi.mocked(fetch).mockResolvedValueOnce({
-      ok: false, status: 202,
-      json: async () => ({ ok: false, code: 'CHECKOUT_PROCESSING', message: 'Your order is still processing' }),
+      ok: false, status: 400,
+      json: async () => ({ ok: false, code: 'GENERIC_FAIL', message: 'Something went wrong' }),
     } as Response);
     render(<GuestCheckout />);
-    fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
-    fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
-    fireEvent.click(screen.getByText('Continue'));
-    fireEvent.click(screen.getByText('Continue'));
+    goToReview();
     await waitFor(() => { expect(screen.getByText('Review')).toBeTruthy(); });
-    fireEvent.click(screen.getByText(/Place Order/));
+    fireEvent.click(screen.getByRole('button', { name: /Place Order/ }));
     await waitFor(() => {
-      expect(screen.getByText('Your order is still processing')).toBeTruthy();
+      expect(screen.getByText('Something went wrong')).toBeTruthy();
     });
   });
 });

@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import '@testing-library/jest-dom/vitest';
 import { BuyNowLandingForm } from '../src/islands/BuyNowLandingForm';
 
 const baseProps = {
@@ -72,7 +73,7 @@ describe('BuyNowLandingForm', () => {
   it('does not decrement below 1', () => {
     render(<BuyNowLandingForm {...baseProps} />);
     expect(screen.getByText('1')).toBeTruthy();
-    const minusBtn = screen.getByText('-').closest('button');
+    const minusBtn = screen.getAllByRole('button').find(b => b.textContent === '-');
     expect(minusBtn).toBeDisabled();
   });
 
@@ -85,7 +86,8 @@ describe('BuyNowLandingForm', () => {
 
   it('shows order summary with correct totals', () => {
     render(<BuyNowLandingForm {...baseProps} />);
-    expect(screen.getByText(/Test Kurta/)).toBeTruthy();
+    expect(screen.getAllByText(/Test Kurta/).length).toBe(2);
+    expect(screen.getByText('মোট')).toBeTruthy();
   });
 
   it('shows error alert on failed submission', async () => {
