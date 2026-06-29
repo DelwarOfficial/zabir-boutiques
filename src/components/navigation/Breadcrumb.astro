@@ -1,0 +1,49 @@
+---
+interface Breadcrumb {
+  label: string;
+  href?: string;
+}
+
+interface Props {
+  items: Breadcrumb[];
+  class?: string;
+}
+
+const { items, class: className = '' } = Astro.props;
+---
+
+<nav class={`text-xs text-[var(--muted)] ${className}`} aria-label="Breadcrumb">
+  <ol class="flex items-center gap-1.5 flex-wrap">
+    {items.map((item, idx) => (
+      <li key={idx} class="flex items-center gap-1.5">
+        {item.href ? (
+          <a href={item.href} class="hover:text-[var(--ink-storefront)] transition-colors">
+            {item.label}
+          </a>
+        ) : (
+          <span aria-current="page">{item.label}</span>
+        )}
+        {idx < items.length - 1 && (
+          <svg class="h-3 w-3 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path d="M9 5l7 7-7 7" stroke-width="2" />
+          </svg>
+        )}
+      </li>
+    ))}
+  </ol>
+</nav>
+
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "BreadcrumbList",
+  "itemListElement": [
+    {
+      "@type": "ListItem",
+      "position": 1,
+      "name": "Home",
+      "item": "/"
+    }
+  ]
+}
+</script>

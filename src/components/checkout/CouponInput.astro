@@ -1,0 +1,75 @@
+---
+interface Props {
+  class?: string;
+}
+
+const { class: className = '' } = Astro.props;
+---
+
+<div class={`space-y-2 ${className}`}>
+  <label for="coupon" class="block text-xs font-semibold text-[var(--ink-storefront-secondary)] uppercase tracking-wider">
+    Promo/Coupon Code
+  </label>
+  <div class="flex gap-2">
+    <input
+      id="coupon"
+      name="coupon_code"
+      type="text"
+      placeholder="Enter code (optional)"
+      maxlength="30"
+      pattern="[A-Za-z0-9]+"
+      class="flex-1 px-4 h-11 text-sm border rounded-xl bg-[var(--surface-storefront)] text-[var(--ink-storefront)] outline-none transition-all border-[var(--border-storefront)] focus:border-[var(--brand-storefront)] focus:ring-3 focus:ring-[var(--brand-storefront-glow)]"
+    />
+    <button
+      type="button"
+      data-action="apply-coupon"
+      class="press tap-44 px-4 h-11 rounded-xl bg-[var(--brand-storefront)] text-white font-semibold text-sm hover:bg-[var(--brand-storefront-hover)] transition-all"
+    >
+      Apply
+    </button>
+  </div>
+  <div id="coupon-message" class="text-xs text-[var(--muted)]"></div>
+</div>
+
+<script>
+  document.addEventListener('DOMContentLoaded', () => {
+    const applyBtn = document.querySelector('[data-action="apply-coupon"]');
+    const couponInput = document.getElementById('coupon') as HTMLInputElement;
+    const message = document.getElementById('coupon-message');
+
+    if (!applyBtn) return;
+
+    applyBtn.addEventListener('click', async () => {
+      const code = couponInput.value.trim();
+      if (!code) {
+        message!.textContent = 'Enter coupon code';
+        return;
+      }
+
+      // Validate client-side: 3-30 alphanumeric
+      if (!/^[A-Za-z0-9]{3,30}$/.test(code)) {
+        message!.textContent = 'Invalid format (3-30 alphanumeric)';
+        return;
+      }
+
+      try {
+        const res = await fetch('/api/checkout/validate-coupon', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ code }),
+        });
+
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.message || 'Invalid coupon');
+
+        message!.textContent = `✓ ${data.message || 'Coupon applied!'}`;
+        message!.classList.add('text-[var(--success-storefront)]');
+        applyBtn.textContent = 'Applied';
+        applyBtn.disabled = true;
+      } catch (err) {
+        message!.textContent = err instanceof Error ? err.message : 'Error applying coupon';
+        message!.classList.add('text-[var(--danger-storefront)]');
+      }
+    });
+  });
+</script>
