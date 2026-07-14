@@ -216,19 +216,19 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 - **Zero Trust Access** for `/staff/*` (configurable via Cloudflare Access)
 
 ### Cron & Maintenance
-Nine cron schedules, routed by `src/lib/cron-dispatch.ts` and listed in `wrangler.jsonc`:
+Three deployed cron triggers are listed in `wrangler.jsonc` and routed by `src/lib/cron-dispatch.ts`. The hourly trigger multiplexes lower-frequency jobs by UTC time:
 
 | Cron | Frequency | Job |
 |------|-----------|-----|
-| `*/5 * * * *` | Every 5 min | Expired reservation cleanup |
-| `*/15 * * * *` | Every 15 min | Payment reconciliation (UddoktaPay status check) |
-| `0 * * * *` | Hourly | FraudBD poll sweep |
-| `0 0 * * *` | Daily 00:00 UTC | Inventory reconciliation |
-| `0 2 * * *` | Daily 02:00 UTC | Session cleanup, idempotency expiry, image optimization retry |
-| `0 3 * * *` | Daily 03:00 UTC | Archive old events/logs to R2 |
-| `0 */6 * * *` | Every 6 hours | D1 backup to R2 |
-| `0 9 * * 0` | Weekly Sun 09:00 | Backup verification + autocomplete index rebuild |
-| `0 5 1 * *` | Monthly 1st 05:00 | Long-term archive rotation |
+| `*/5 * * * *` | Every 5 min | Stale partial-prepay sweeper |
+| `*/15 * * * *` | Every 15 min | Payment reconciliation + abandoned-cart scan |
+| `0 * * * *` | Hourly | Expired stock reservations + session cleanup |
+| `0 * * * *` at 00:00 UTC | Daily | AI daily usage reset |
+| `0 * * * *` at 02:00 UTC | Daily | Sitemap generation to R2 |
+| `0 * * * *` at 03:00 UTC | Daily | Sessions, idempotency, image retry, audit, inventory reconciliation |
+| `0 * * * *` every 6 hours | 6-hourly | D1 backup to R2 via queue |
+| `0 * * * *` Sunday 09:00 UTC | Weekly | Backup verification + restore drill |
+| `0 * * * *` 1st day 05:00 UTC | Monthly | Archive old events to R2 |
 
 ---
 
@@ -238,12 +238,11 @@ Server-side enforcement only — route splitting and menu hiding are **not** aut
 
 | Role | Tier | Access |
 |------|------|--------|
-| `owner` | Owner | Full system access — every permission implicitly |
-| `super_admin` | Owner | Alias of `owner` for legacy compatibility |
+| `super_admin` | Owner | Full platform control |
+| `owner` | Owner | Business owner operations |
 | `manager` | Business | Daily operations: products, inventory, orders, fraud view, media, reports |
-| `salesman` | Business | Sales dashboard + COD order creation/updates |
-| `packing` | Business | Packing queue + courier handoff |
-| `support` | Business | Order search + support notes |
+| `staff` | Business | Assigned operational workflows |
+| `viewer` | Read-only | Read-only dashboards and reports |
 
 Owner-only areas (developer API keys, secrets, backups) are gated by `assertOwnerOnly()` plus a specific permission such as `system.api_code.manage`.
 
@@ -252,7 +251,7 @@ Owner-only areas (developer API keys, secrets, backups) are gated by `assertOwne
 ## Quick Start
 
 ### Prerequisites
-- Node.js 20+
+- Node.js 24.12+
 - A Cloudflare account
 - Wrangler CLI (`npm i -g wrangler`)
 

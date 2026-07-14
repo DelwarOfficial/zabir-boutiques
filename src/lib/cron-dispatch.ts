@@ -2,7 +2,7 @@
  * Scheduled Jobs and Cron Dispatch [v6.8D + Master_Prompt v7.0 §2.4, §2.5]
  *
  * Job                                          | Frequency              | Purpose
- * Stock cleanup (10 min TTL)                   | Every 5 min            | Release expired reservations (was every 10 min in v6.8D)
+ * Stock cleanup (10 min TTL)                   | Hourly                 | Release expired reservations
  * Partial-prepay sweeper                        | Every 5 min            | Cancel partially_paid orders > 24h
  * Payment reconciliation                        | Every 15 min           | Fix or auto-cancel stale pending payments
  * Session cleanup                                | Hourly                 | Revoke sessions past absolute expiry
@@ -10,7 +10,7 @@
  * Inventory reconciliation                      | Daily 03:00 UTC       | Detect drift > 2 units; alert
  * Session / Idempotency cleanup                 | Daily 03:00 UTC        | Mirror to cron entrypoint
  * Audit integrity check + checkpoint            | Daily 03:00 UTC        | Hash-chain verification
- * Tinify retry                                   | Daily 03:30 UTC        | Re-compress any uncompressed images
+ * Tinify retry                                   | Daily 03:00 UTC        | Re-compress any uncompressed images
  * D1 backup to R2 (d1-backup queue)             | Every 6 hours          | DR backup via queue consumer
  * Sitemap generation                            | Daily 02:00 UTC        | sitemap.xml to R2
  * Backup verification on staging                | Weekly Sun 09:00 UTC   | Restore test

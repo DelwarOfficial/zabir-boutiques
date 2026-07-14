@@ -15,7 +15,7 @@ const { items, class: className = '' } = Astro.props;
 <nav class={`text-xs text-[var(--muted)] ${className}`} aria-label="Breadcrumb">
   <ol class="flex items-center gap-1.5 flex-wrap">
     {items.map((item, idx) => (
-      <li key={idx} class="flex items-center gap-1.5">
+      <li class="flex items-center gap-1.5">
         {item.href ? (
           <a href={item.href} class="hover:text-[var(--ink-storefront)] transition-colors">
             {item.label}

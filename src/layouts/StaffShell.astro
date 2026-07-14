@@ -1,15 +1,13 @@
 ---
-import { getSession } from "@/lib/auth/session";
-
 interface Props {
   title?: string;
   sidebar?: boolean;
 }
 
 const { title, sidebar = true } = Astro.props;
-const session = await getSession(Astro.request);
+const staffUser = Astro.locals.staffUser;
 
-if (!session?.user?.id) {
+if (!staffUser?.id) {
   return Astro.redirect("/staff/login");
 }
 ---
@@ -56,7 +54,7 @@ if (!session?.user?.id) {
         <header class="sticky top-0 z-30 border-b border-[var(--border-storefront)] bg-[var(--surface-storefront)] px-4 sm:px-6 py-3 flex items-center justify-between">
           <h1 class="text-lg sm:text-xl font-bold">{title || "Staff Dashboard"}</h1>
           <div class="flex items-center gap-3">
-            <span class="text-sm text-[var(--muted)]">{session.user.email}</span>
+            <span class="text-sm text-[var(--muted)]">{staffUser.fullName}</span>
             <button onclick="fetch('/staff/logout', {method: 'POST'}).then(() => window.location.href='/')" class="text-xs px-3 py-1.5 rounded-lg border border-[var(--border-storefront)] hover:bg-[var(--surface-soft)] transition-colors">
               Logout
             </button>

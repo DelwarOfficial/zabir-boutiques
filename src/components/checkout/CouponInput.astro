@@ -32,8 +32,10 @@ const { class: className = '' } = Astro.props;
 </div>
 
 <script>
+  type CouponResponse = { message?: string };
+
   document.addEventListener('DOMContentLoaded', () => {
-    const applyBtn = document.querySelector('[data-action="apply-coupon"]');
+    const applyBtn = document.querySelector<HTMLButtonElement>('[data-action="apply-coupon"]');
     const couponInput = document.getElementById('coupon') as HTMLInputElement;
     const message = document.getElementById('coupon-message');
 
@@ -59,7 +61,7 @@ const { class: className = '' } = Astro.props;
           body: JSON.stringify({ code }),
         });
 
-        const data = await res.json();
+        const data = await res.json() as CouponResponse;
         if (!res.ok) throw new Error(data.message || 'Invalid coupon');
 
         message!.textContent = `✓ ${data.message || 'Coupon applied!'}`;
