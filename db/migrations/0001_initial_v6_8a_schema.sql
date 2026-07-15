@@ -220,7 +220,7 @@ CREATE TABLE IF NOT EXISTS payments (
   provider TEXT NOT NULL DEFAULT 'uddoktapay',
   amount_paisa INTEGER NOT NULL CHECK (amount_paisa >= 0),
   status TEXT NOT NULL DEFAULT 'created'
-    CHECK (status IN ('created','pending','processing','paid','failed','cancelled','expired','refunded')),
+    CHECK (status IN ('created','pending','processing','paid','partially_paid','partially_refunded','failed','cancelled','expired','refunded')),
   checkout_url TEXT,
   verified_at TEXT,
   created_at TEXT NOT NULL,

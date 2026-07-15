@@ -1,3 +1,5 @@
+import { RESERVATION_TTL_MINUTES } from "./reservation-ttl";
+
 /**
  * Order Number Format [v6.8A]
  * Format: ZB-YYYYMMDD-XXXXXX (6 hex chars from 3 random bytes)
@@ -55,7 +57,9 @@ function reservationExpiresAt(now: string): string {
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) throw new Error('Invalid SQL timestamp for reservation expiry');
   // Master_Prompt v7.0 §6.3: 10-minute reservation TTL (was 30 min in v6.8D).
-  date.setMinutes(date.getMinutes() + 10);
+  // Derived from the shared constant so the D1 row, the DO sweep, and the
+  // expiry cron all agree (INV-3).
+  date.setMinutes(date.getMinutes() + RESERVATION_TTL_MINUTES);
   return date.toISOString().replace('T', ' ').slice(0, 19);
 }
 

@@ -241,22 +241,35 @@ export async function applyPaymentVerified(
 
   // Full-payment path: claim + payments.status + deduct + confirm +
   // order.status, all atomic.
-  const deductStmts = reservationRows.map((r) =>
-    db
-      .prepare(
-        `UPDATE inventory_items
-         SET reserved_quantity = reserved_quantity - ?1,
-             quantity = quantity - ?1,
-             updated_at = ?3
-         WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`,
+  //
+  // INV-1 fix: the inventory deduct is gated on the reservations still
+  // being 'active'. If staff already manually confirmed this order (the
+  // delayed webhook arrived after a manual confirm), the reservations are
+  // already 'confirmed' and the stock already deducted — so we skip the
+  // deduct and only mark the payment verified, closing the
+  // "manual confirm + delayed webhook" double-deduct race. The
+  // payment_events claim still guards true webhook replays.
+  const hasActiveReservations = reservationRows.length > 0;
+  const deductStmts = hasActiveReservations
+    ? reservationRows.map((r) =>
+        db
+          .prepare(
+            `UPDATE inventory_items
+             SET reserved_quantity = reserved_quantity - ?1,
+                 quantity = quantity - ?1,
+                 updated_at = ?3
+             WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`,
+          )
+          .bind(r.quantity, r.variant_id, now),
       )
-      .bind(r.quantity, r.variant_id, now),
-  );
-  const confirmStmts = reservationRows.map((r) =>
-    db
-      .prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`)
-      .bind(r.id, now),
-  );
+    : [];
+  const confirmStmts = hasActiveReservations
+    ? reservationRows.map((r) =>
+        db
+          .prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1`)
+          .bind(r.id, now),
+      )
+    : [];
   const paymentStatusStmt = db
     .prepare(
       `UPDATE payments SET status = 'paid', verified_at = ?1, updated_at = ?1
@@ -286,6 +299,18 @@ export async function applyPaymentVerified(
       status: 'paid',
       isPartialPrepay: false,
       alreadyProcessed: true,
+    };
+  }
+
+  // INV-1: stock already consumed by a manual confirmation (the
+  // reservations were confirmed by staff before this webhook landed).
+  // The payment is now marked 'paid' above; do not deduct again.
+  if (!hasActiveReservations) {
+    return {
+      ok: true,
+      status: 'paid',
+      isPartialPrepay: false,
+      alreadyProcessed: false,
     };
   }
 

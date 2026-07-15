@@ -53,26 +53,114 @@ export async function POST(context: APIContext): Promise<Response> {
   } catch {
     return Response.json({ ok: false, code: "INVALID_RETURN_ITEMS" }, { status: 500 });
   }
+  if (!Array.isArray(items) || items.length === 0) {
+    return Response.json({ ok: false, code: "EMPTY_RETURN_ITEMS" }, { status: 400 });
+  }
 
-  if (items.length > 0) {
-    for (const item of items) {
-      const result = await doAdjustStock(env, item.variant_id, item.quantity, 'return_approved', user.id);
-      if (!result.ok) {
-        safeLog.error('[returns/approve] Restock failed via DO', { variantId: item.variant_id, error: result.error });
-        return Response.json({ ok: false, code: "RESTOCK_FAILED", error: result.error }, { status: 409 });
+  // ── RET-1: reconcile returned items against canonical order_items ──────
+  // Never trust the stored items_json for quantity authority. Recalculate
+  // from order_items and enforce (a) variant belongs to the order,
+  // (b) qty is a positive integer, (c) cumulative approved qty ≤ purchased.
+  const orderItems = await env.DB
+    .prepare("SELECT variant_id, quantity, unit_price_paisa FROM order_items WHERE order_id = ?1")
+    .bind(rr.order_id)
+    .all<{ variant_id: string; quantity: number; unit_price_paisa: number }>();
+  const purchased = new Map<string, { qty: number; unit: number }>();
+  for (const oi of orderItems.results ?? []) {
+    purchased.set(oi.variant_id, { qty: oi.quantity, unit: oi.unit_price_paisa });
+  }
+
+  const priorReturns = await env.DB
+    .prepare(
+      "SELECT items_json, status FROM return_requests WHERE order_id = ?1 AND id != ?2 AND status IN ('approved','completed')",
+    )
+    .bind(rr.order_id, id)
+    .all<{ items_json: string; status: string }>();
+  const alreadyReturned = new Map<string, number>();
+  for (const pr of priorReturns.results ?? []) {
+    try {
+      const pri = JSON.parse(pr.items_json) as ReturnItem[];
+      for (const it of pri) {
+        if (it && typeof it.variant_id === "string" && Number.isSafeInteger(it.quantity) && it.quantity > 0) {
+          alreadyReturned.set(it.variant_id, (alreadyReturned.get(it.variant_id) ?? 0) + it.quantity);
+        }
       }
+    } catch {
+      // Malformed prior return is ignored for the cap calc; audited separately.
     }
   }
+
+  // ── RET-1 + RET-2: validate items and compute the item-based refund ────
+  const priorRefundSum = await env.DB
+    .prepare(
+      "SELECT COALESCE(SUM(refund_amount_paisa), 0) AS total FROM return_requests WHERE order_id = ?1 AND id != ?2 AND status IN ('approved','completed')",
+    )
+    .bind(rr.order_id, id)
+    .first<{ total: number }>();
+  const alreadyRefunded = priorRefundSum?.total ?? 0;
 
   const payment = await env.DB
     .prepare("SELECT id, invoice_id, amount_paisa, status FROM payments WHERE order_id = ?1 ORDER BY created_at DESC LIMIT 1")
     .bind(rr.order_id)
     .first<{ id: string; invoice_id: string; amount_paisa: number; status: string }>();
-  let refundAmount = 0;
+  const paymentAmount = payment?.amount_paisa ?? 0;
 
-  if (payment && payment.status === "paid") {
+  const evaluation = evaluateReturnRequest({
+    items,
+    purchased,
+    alreadyReturned,
+    paymentAmount,
+    alreadyRefunded,
+  });
+  if (!evaluation.ok) {
+    const status = evaluation.code === "INVALID_RETURN_QUANTITY" ? 400 : 409;
+    return Response.json({ ok: false, code: evaluation.code }, { status });
+  }
+  const refundAmount = evaluation.refundAmount;
+
+  // ── RET-3: commit the approval FIRST (single winner) so concurrent / ────
+  // replayed approvals cannot double-restock. Restock below is also made
+  // idempotent via a deterministic stock_adjustments id.
+  const transition = await env.DB
+    .prepare(
+      "UPDATE return_requests SET status = 'approved', refund_amount_paisa = ?2, reviewed_by = ?3, updated_at = ?4 WHERE id = ?1 AND status = 'pending'",
+    )
+    .bind(id, refundAmount, user.id, now)
+    .run();
+  if (transition.meta.changes !== 1) {
+    return Response.json({ ok: true, code: "ALREADY_PROCESSED", refund_paisa: refundAmount, status: "approved" }, { status: 200 });
+  }
+
+  // Restock (idempotent per variant via stable adjustment id).
+  for (const item of items) {
+    const result = await doAdjustStock(
+      env,
+      item.variant_id,
+      item.quantity,
+      "return_approved",
+      user.id,
+      undefined,
+      `return:${id}:${item.variant_id}`,
+    );
+    if (!result.ok) {
+      safeLog.error("[returns/approve] Restock failed via DO", { variantId: item.variant_id, error: result.error });
+      await env.DB
+        .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+        .bind(id)
+        .run();
+      return Response.json({ ok: false, code: "RESTOCK_FAILED", error: result.error }, { status: 409 });
+    }
+  }
+
+  // Refund via payment provider when a paid payment exists and amount > 0.
+  let refundPaid = 0;
+  if (payment && payment.status === "paid" && refundAmount > 0) {
     const verified = await verifyUddoktaPayment(payment.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
     if (verified.status !== "paid") {
+      await env.DB
+        .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+        .bind(id)
+        .run();
       return Response.json({ ok: false, code: "REFUND_FAILED_PAYMENT_UNVERIFIED" }, { status: 409 });
     }
 
@@ -85,12 +173,6 @@ export async function POST(context: APIContext): Promise<Response> {
       .run();
 
     if (refundClaim.meta.changes === 1) {
-      const requestedRefund = payment.amount_paisa;
-      if (!Number.isSafeInteger(requestedRefund) || requestedRefund < 0) {
-        return Response.json({ ok: false, code: "REFUND_AMOUNT_INVALID" }, { status: 500 });
-      }
-      refundAmount = Math.min(requestedRefund, payment.amount_paisa);
-
       try {
         const refund = await new UddoktaPayClient(env).refundPayment({
           invoiceId: payment.invoice_id,
@@ -99,18 +181,25 @@ export async function POST(context: APIContext): Promise<Response> {
         });
         if (!refund.ok) {
           await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
+          await env.DB
+            .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+            .bind(id)
+            .run();
           return Response.json({ ok: false, code: "REFUND_API_FAILED", status: refund.errorCode ?? "REFUND_FAILED" }, { status: 502 });
         }
         await env.DB
           .prepare("UPDATE payments SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'paid'")
           .bind(payment.id, now)
           .run();
+        refundPaid = refundAmount;
       } catch (err) {
         await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
+        await env.DB
+          .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+          .bind(id)
+          .run();
         return Response.json({ ok: false, code: "REFUND_API_ERROR", error: err instanceof Error ? err.message : "unknown" }, { status: 502 });
       }
-    } else {
-      refundAmount = payment.amount_paisa;
     }
   }
 
@@ -121,15 +210,12 @@ export async function POST(context: APIContext): Promise<Response> {
     action: "return.approve",
     entityType: "return_request",
     entityId: id,
-    metadata: { order_id: rr.order_id, restock_count: items.length, refund_paisa: refundAmount, payment_id: payment?.id ?? null },
+    metadata: { order_id: rr.order_id, restock_count: items.length, refund_paisa: refundPaid, payment_id: payment?.id ?? null },
     ipAddress: clientIp(context.request),
     userAgent: userAgent(context.request),
   }, now);
 
   const stateResults = await env.DB.batch([
-    env.DB.prepare(
-      "UPDATE return_requests SET status = 'approved', refund_amount_paisa = ?2, reviewed_by = ?3, updated_at = ?4 WHERE id = ?1 AND status = 'pending'",
-    ).bind(id, refundAmount, user.id, now),
     env.DB.prepare(
       "UPDATE orders SET status = 'returned', updated_at = ?2 WHERE id = ?1 AND status = ?3",
     ).bind(rr.order_id, now, fromStatus),
@@ -147,11 +233,11 @@ export async function POST(context: APIContext): Promise<Response> {
     auditStmt,
   ], { atomic: true });
 
-  if (stateResults[0].meta.changes !== 1 || stateResults[1].meta.changes !== 1 || stateResults[3].meta.changes !== 1) {
+  if (stateResults[0].meta.changes !== 1 || stateResults[2].meta.changes !== 1) {
     return Response.json({ ok: false, code: "STATE_MACHINE_COMMIT_FAILED" }, { status: 500 });
   }
 
-  return Response.json({ ok: true, refund_paisa: refundAmount, order_status: "refunded" });
+  return Response.json({ ok: true, refund_paisa: refundPaid, order_status: "refunded" });
 }
 
 async function deleteRefundClaim(db: D1Database, paymentId: string, invoiceId: string, createdAt: string): Promise<void> {
@@ -160,3 +246,57 @@ async function deleteRefundClaim(db: D1Database, paymentId: string, invoiceId: s
     .bind(paymentId, invoiceId, createdAt)
     .run();
 }
+
+export interface ReturnEvaluation {
+  ok: boolean;
+  code?: string;
+  refundAmount: number;
+  returnedValue: number;
+}
+
+/**
+ * Pure, server-side reconciliation for a return approval (RET-1 / RET-2).
+ *
+ * - Every returned item must belong to the order (variant present in `purchased`).
+ * - Every returned quantity must be a positive integer.
+ * - Cumulative approved quantity (this return + prior approved/completed returns)
+ *   must not exceed the purchased quantity for that variant.
+ * - The refund is the sum of returned line values, capped at the amount actually
+ *   paid minus prior refunds — never the full payment for a partial return.
+ *
+ * All inputs are canonical records supplied by the caller; nothing here trusts
+ * the caller-provided items_json for authority.
+ */
+export function evaluateReturnRequest(params: {
+  items: ReturnItem[];
+  purchased: Map<string, { qty: number; unit: number }>;
+  alreadyReturned: Map<string, number>;
+  paymentAmount: number;
+  alreadyRefunded: number;
+}): ReturnEvaluation {
+  const { items, purchased, alreadyReturned, paymentAmount, alreadyRefunded } = params;
+  if (!Array.isArray(items) || items.length === 0) {
+    return { ok: false, code: "EMPTY_RETURN_ITEMS", refundAmount: 0, returnedValue: 0 };
+  }
+
+  let returnedValue = 0;
+  for (const item of items) {
+    if (typeof item.variant_id !== "string" || !Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+      return { ok: false, code: "INVALID_RETURN_QUANTITY", refundAmount: 0, returnedValue: 0 };
+    }
+    const p = purchased.get(item.variant_id);
+    if (!p) {
+      return { ok: false, code: "RETURN_VARIANT_NOT_IN_ORDER", refundAmount: 0, returnedValue: 0 };
+    }
+    const cumulative = (alreadyReturned.get(item.variant_id) ?? 0) + item.quantity;
+    if (cumulative > p.qty) {
+      return { ok: false, code: "RETURN_QTY_EXCEEDS_PURCHASED", refundAmount: 0, returnedValue: 0 };
+    }
+    returnedValue += item.quantity * p.unit;
+  }
+
+  const remainingRefundable = Math.max(0, paymentAmount - alreadyRefunded);
+  const refundAmount = Math.max(0, Math.min(returnedValue, remainingRefundable));
+  return { ok: true, refundAmount, returnedValue };
+}
+

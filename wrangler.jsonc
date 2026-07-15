@@ -112,6 +112,8 @@
   //   npx wrangler queues create d1-backup
   //   npx wrangler queues create cart-activity
   //   npx wrangler queues create payment-webhooks-dlq
+  //   npx wrangler queues create fraud-audit-dlq
+  //   npx wrangler queues create d1-backup-dlq
   // Staging: append "-staging". Dev: append "-dev".
   "queues": {
     "producers": [
@@ -126,8 +128,8 @@
       { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq" },
       { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
       { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
-      { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2 },
-      { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2 },
+      { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq" },
+      { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq" },
       { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
     ]
   },
@@ -188,8 +190,8 @@
           { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-staging" },
           { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
-          { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2 },
-          { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 },
+          { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq-staging" },
+          { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq-staging" },
           { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
         ]
       },
@@ -247,8 +249,8 @@
           { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-dev" },
           { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3 },
           { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3 },
-          { "queue": "fraud-audit-dev", "max_batch_size": 10, "max_retries": 2 },
-          { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2 },
+          { "queue": "fraud-audit-dev", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq-dev" },
+          { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq-dev" },
           { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3 }
         ]
       },

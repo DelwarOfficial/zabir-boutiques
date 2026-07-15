@@ -16,7 +16,7 @@
  * If a budget returns allowed=false, the call is rejected and
  * the caller is told.
  */
-import { chargeBudget, configureScope } from "../do/budget-counter-do";
+import { chargeBudget, configureScope, reconcileBudget } from "../do/budget-counter-do";
 import { moderate } from "./content-moderation";
 import { DeepSeekClient } from "./integrations/deepseek";
 import { WorkersAIClient } from "./integrations/workers_ai";
@@ -58,8 +58,11 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
     return { text: "", provider: "rejected", costUsdCents: 0, moderation: m.decision };
   }
 
-  // 2) Budget check.
-  const budget = await chargeBudget(env, scope, estimateCostCents(256), `estimate:${task}`);
+  // 2) Budget check. Reserve an estimate hold up front; the real cost is
+  //    reconciled after the call so the scope ledger nets to the actual cost
+  //    (not estimate + actual).
+  const estimatedCents = estimateCostCents(256);
+  const budget = await chargeBudget(env, scope, estimatedCents, `estimate:${task}`);
   if (!budget.allowed) {
     return { text: "", provider: "rejected", costUsdCents: 0, moderation: "block" };
   }
@@ -67,7 +70,7 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
   // 3) Primary: Workers AI.
   try {
     const out = await runWorkersAi(env, task, prompt);
-    await chargeBudget(env, scope, out.costUsdCents, `actual:${task}:workers-ai`);
+    await reconcileBudget(env, scope, out.costUsdCents - estimatedCents, `actual:${task}:workers-ai`);
     return out;
   } catch (err) {
     void (async () => {
@@ -82,7 +85,7 @@ export async function aiCall(env: Env, task: AiTask, prompt: string, scope = "ai
   if (env.AI_FALLBACK_URL && env.AI_FALLBACK_KEY) {
     try {
       const out = await runDeepSeek(env, task, prompt);
-      await chargeBudget(env, scope, out.costUsdCents, `actual:${task}:deepseek`);
+      await reconcileBudget(env, scope, out.costUsdCents - estimatedCents, `actual:${task}:deepseek`);
       return out;
     } catch (err) {
       void (async () => {

@@ -12,6 +12,7 @@ import { verifyTotpCode } from '../../../lib/totp';
 import { isStaffTotpEnabled, loadStaffTotpSecret } from '../../../lib/otp-secrets';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
+import { checkLoginRateLimit, resetLoginRateLimit, sha256Hex, LOGIN_RATE_LIMIT } from '../../../lib/login-rate-limit';
 import type { StaffUser } from '../../../lib/rbac';
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -35,6 +36,27 @@ export async function POST(context: APIContext): Promise<Response> {
   const password = body.password ?? '';
   if (!identifier || !password) {
     return Response.json({ error: 'Email/phone and password required' }, { status: 400 });
+  }
+
+  // AUTH-3: rate-limit login attempts per IP and per identifier to blunt
+  // brute force / credential stuffing. Identifiers are hashed before use
+  // as a KV key so we never persist raw emails/phones. Fail open if no KV.
+  const loginKv = sessionKv;
+  const clientIpAddr = clientIp(context.request) ?? 'unknown';
+  const idKey = await sha256Hex(identifier.trim().toLowerCase());
+  const ipLimit = await checkLoginRateLimit(loginKv, 'ip', clientIpAddr);
+  if (!ipLimit.ok) {
+    return Response.json(
+      { error: 'Too many attempts. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(LOGIN_RATE_LIMIT.perIp.windowSeconds) } },
+    );
+  }
+  const idLimit = await checkLoginRateLimit(loginKv, 'identifier', idKey);
+  if (!idLimit.ok) {
+    return Response.json(
+      { error: 'Too many attempts. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(LOGIN_RATE_LIMIT.perIdentifier.windowSeconds) } },
+    );
   }
 
   // Turnstile bot protection on staff login (Master_Prompt v7.0 §18.5)
@@ -79,7 +101,15 @@ export async function POST(context: APIContext): Promise<Response> {
      LIMIT 1`
   ).bind(...candidates, ...candidates).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number; totp_secret: string | null; totp_required: number }>();
 
-  if (!staff) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+  if (!staff) {
+    // Equalize timing with the password-verification path below so an
+    // unauthenticated attacker cannot distinguish existing vs non-existing
+    // accounts via response latency (AUTH-3 enumeration defense). The
+    // generic 'Invalid credentials' message is identical to the wrong-password
+    // path, so no account-existence signal leaks through the body either.
+    await hashPassword(password, generateRandomHex(16), env.PASSWORD_PEPPER);
+    return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+  }
 
   // PBKDF2 verification with transparent upgrade from legacy HMAC-SHA256.
   // If the stored hash uses the old format (no password_salt), verify with
@@ -221,6 +251,11 @@ export async function POST(context: APIContext): Promise<Response> {
   });
 
   const csrfToken = await createCsrfToken(env.SESSION_SECRET);
+
+  // Successful login: clear the rate-limit counters so a legitimate user
+  // who mistyped isn't penalized on their next attempt.
+  await resetLoginRateLimit(loginKv, 'ip', clientIpAddr);
+  await resetLoginRateLimit(loginKv, 'identifier', idKey);
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const maxAge = 24 * 60 * 60;

@@ -214,9 +214,13 @@ const checks: Check[] = [
     const content = read('src/lib/cron-dispatch.ts');
     return content.includes("0 * * * *") ? [] : [makeFinding('D-21', 'P1', 'src/lib/cron-dispatch.ts', 'Reservation cleanup cron is not scheduled hourly.', 'Keep reservation cleanup on hourly schedule. See Section 38.2 D-21.')];
   } },
-  { code: 'D-22', severity: 'P0', fix: 'Use the 15-minute release window with release_requested_at filter. See Section 38.2 D-22.', run: () => {
+  { code: 'D-22', severity: 'P0', fix: 'Gate cleanup on per-reservation expires_at with release_requested_at filter. See Section 38.2 D-22.', run: () => {
     const content = read('src/lib/inventory.ts');
-    return content.includes("created_at < datetime('now', '-15 minutes')") && content.includes('release_requested_at IS NULL') ? [] : [makeFinding('D-22', 'P0', 'src/lib/inventory.ts', 'Reservation cleanup query does not match the 15-minute release window contract.', 'Use the 15-minute release window with release_requested_at filter. See Section 38.2 D-22.')];
+    // The release window is the per-reservation TTL (RESERVATION_TTL_MINUTES in
+    // src/lib/reservation-ttl.ts), stamped onto stock_reservations.expires_at by
+    // orders.ts and matched by variant-inventory-do.ts. The cron must gate on
+    // expires_at (not a fixed created_at age) so it agrees with the DO's clock.
+    return content.includes('expires_at <') && content.includes('release_requested_at IS NULL') ? [] : [makeFinding('D-22', 'P0', 'src/lib/inventory.ts', 'Reservation cleanup query must gate on per-reservation expires_at and release_requested_at IS NULL.', 'Gate cleanup on expires_at < ?2 with release_requested_at IS NULL. See Section 38.2 D-22.')];
   } },
   { code: 'D-23', severity: 'P0', fix: 'Ensure idx_stock_reservations_order_active exists. See Section 38.2 D-23.', run: () => {
     const files = ['db/migrations/0024_stock_reservations_unique_constraint.sql', 'db/migrations/0027_stock_reservations_status_rebuild.sql'];

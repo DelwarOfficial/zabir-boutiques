@@ -10,6 +10,11 @@ const staffUser = Astro.locals.staffUser;
 if (!staffUser?.id) {
   return Astro.redirect("/staff/login");
 }
+
+// CSRF token (double-submit): read server-side from the HttpOnly cookie and
+// expose to the inline logout handler. Mirrors StaffLayout/Navbar.
+import { readCsrfCookie } from "../lib/csrf";
+const csrfToken = readCsrfCookie(Astro.request) ?? "";
 ---
 
 <!doctype html>
@@ -41,7 +46,7 @@ if (!staffUser?.id) {
               Products
             </a>
             <hr class="my-4 border-[var(--border-storefront)]" />
-            <button onclick="fetch('/staff/logout', {method: 'POST'}).then(() => window.location.href='/')" class="w-full text-left px-4 py-2 rounded-lg hover:bg-[var(--danger-storefront)]/10 transition-colors text-sm font-medium text-[var(--danger-storefront)]">
+            <button data-staff-logout type="button" class="w-full text-left px-4 py-2 rounded-lg hover:bg-[var(--danger-storefront)]/10 transition-colors text-sm font-medium text-[var(--danger-storefront)]">
               Logout
             </button>
           </nav>
@@ -55,7 +60,7 @@ if (!staffUser?.id) {
           <h1 class="text-lg sm:text-xl font-bold">{title || "Staff Dashboard"}</h1>
           <div class="flex items-center gap-3">
             <span class="text-sm text-[var(--muted)]">{staffUser.fullName}</span>
-            <button onclick="fetch('/staff/logout', {method: 'POST'}).then(() => window.location.href='/')" class="text-xs px-3 py-1.5 rounded-lg border border-[var(--border-storefront)] hover:bg-[var(--surface-soft)] transition-colors">
+            <button data-staff-logout type="button" class="text-xs px-3 py-1.5 rounded-lg border border-[var(--border-storefront)] hover:bg-[var(--surface-soft)] transition-colors">
               Logout
             </button>
           </div>
@@ -67,5 +72,19 @@ if (!staffUser?.id) {
         </div>
       </main>
     </div>
+
+    <script is:inline define:vars={{ csrfToken }} nonce={Astro.locals.cspNonce}>
+      document.querySelectorAll('[data-staff-logout]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          try {
+            await fetch('/api/staff/logout', {
+              method: 'POST',
+              headers: { 'X-CSRF-Token': csrfToken },
+            });
+          } catch (_) { /* network error: still clear client session view below */ }
+          window.location.href = '/staff/login';
+        });
+      });
+    </script>
   </body>
 </html>

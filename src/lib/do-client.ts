@@ -40,7 +40,7 @@ export async function doReserve(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/reserve", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId }),
   });
   return (await res.json()) as ReserveResult;
 }
@@ -56,7 +56,7 @@ export async function doRelease(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/release", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, reservationId, env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId, reservationId }),
   });
 }
 
@@ -72,7 +72,7 @@ export async function doConfirm(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/confirm", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, reservationId, env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId, reservationId }),
   });
   return (await res.json()) as { ok: boolean; error?: string };
 }
@@ -90,7 +90,7 @@ export async function doDirectSale(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/directSale", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, invoiceId, staffId, channel: 'pos', env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId, invoiceId, staffId, channel: 'pos' }),
   });
   return (await res.json()) as DirectSaleResult;
 }
@@ -107,7 +107,7 @@ export async function doReverseDirectSale(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/reverseDirectSale", {
     method: "POST",
-    body: JSON.stringify({ qty, variantId, invoiceId, reason, env: { DB: env.DB } }),
+    body: JSON.stringify({ qty, variantId, invoiceId, reason }),
   });
   return (await res.json()) as ReverseDirectSaleResult;
 }
@@ -131,7 +131,7 @@ export async function doGetAvailability(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/availability", {
     method: "POST",
-    body: JSON.stringify({ variantId, env: { DB: env.DB } }),
+    body: JSON.stringify({ variantId }),
   });
   return (await res.json()) as AvailabilityResult;
 }
@@ -144,7 +144,12 @@ export async function doAdjustStock(
   reason: string,
   staffId: string,
   notes?: string,
+  idempotencyKey?: string,
 ): Promise<{ ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number }> {
+  // A stable idempotencyKey makes the underlying stock_adjustments insert
+  // idempotent: a replay reuses the same PK, so the atomic batch rolls back
+  // the quantity update instead of double-restocking.
+  const adjustmentId = idempotencyKey ?? crypto.randomUUID();
   if (!env.VARIANT_INVENTORY_DO) {
     console.warn('[do-client] VARIANT_INVENTORY_DO not bound, falling back to direct D1 mutation. Production should always bind DO.');
     const row = await env.DB
@@ -154,7 +159,6 @@ export async function doAdjustStock(
     const currentStock = row?.quantity ?? 0;
     const newStock = currentStock + delta;
     if (newStock < 0) return { ok: false, error: 'INSUFFICIENT_STOCK', current_stock: currentStock };
-    const adjustmentId = crypto.randomUUID();
     await env.DB.batch([
       env.DB.prepare(`UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2`).bind(delta, variantId),
       env.DB.prepare(`INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))`).bind(adjustmentId, variantId, delta, reason, currentStock, newStock, notes ?? null, staffId),
@@ -165,7 +169,7 @@ export async function doAdjustStock(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/adjustStock", {
     method: "POST",
-    body: JSON.stringify({ variantId, stock: delta, reason, staffId, notes, env: { DB: env.DB } }),
+    body: JSON.stringify({ variantId, stock: delta, reason, staffId, notes, reservationId: adjustmentId }),
   });
   return (await res.json()) as { ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number };
 }
@@ -183,7 +187,7 @@ export async function doSyncFromD1(
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/sync", {
     method: "POST",
-    body: JSON.stringify({ stock, reserved, sold, variantId, env: { DB: env.DB } }),
+    body: JSON.stringify({ stock, reserved, sold, variantId }),
   });
 }
 

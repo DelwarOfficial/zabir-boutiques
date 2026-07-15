@@ -1,4 +1,5 @@
 import type { VariantInventoryDOContract } from '../lib/contracts/variant-inventory-do';
+import { RESERVATION_TTL_MS } from '../lib/reservation-ttl';
 
 /**
  * VariantInventoryDO [Master_Prompt v7.0 §6.6, §12.2]
@@ -119,9 +120,11 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       channel?: string;
       reason?: string;
       notes?: string;
-      env?: { DB?: D1Database };
     };
-    const env = body.env ?? {};
+    // Use the real Cloudflare binding injected via the constructor, never a
+    // serialized value from the request body (bindings cannot cross the
+    // network and would be undefined / attacker-controlled).
+    const env = this.env;
     const variantId = (body.variantId ?? url.searchParams.get("variantId") ?? "").toString();
     await this.ensureInitialized(env, variantId);
 
@@ -145,7 +148,10 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
     }
 
     const qty = Number(body.qty ?? 0);
-    if (!Number.isSafeInteger(qty) || qty <= 0) {
+    // Only reserve/release/confirm/directSale consume `qty`. adjustStock uses
+    // `stock` (delta) and must not be rejected by this check.
+    const consumesQty = action === "reserve" || action === "release" || action === "confirm" || action === "directSale";
+    if (consumesQty && (!Number.isSafeInteger(qty) || qty <= 0)) {
       return Response.json({ ok: false, error: "INVALID_QTY" }, { status: 400 });
     }
 
@@ -157,7 +163,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       }
       const reservationId = crypto.randomUUID();
       this.reserved += qty;
-      this.reservations.set(reservationId, { qty, expiresAt: Date.now() + 10 * 60 * 1000 });
+      this.reservations.set(reservationId, { qty, expiresAt: Date.now() + RESERVATION_TTL_MS });
       await this.persistState();
       return Response.json({ ok: true, reservationId, available: this.available() });
     }
@@ -205,8 +211,9 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       const d1Result = await env.DB.batch([
         env.DB.prepare(
           `UPDATE inventory_items
-           SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
-           WHERE variant_id = ?2`,
+            SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
+            WHERE variant_id = ?2
+              AND (quantity - reserved_quantity - COALESCE(sold_quantity, 0)) >= ?1`,
         ).bind(qty, variantId),
         env.DB.prepare(
           `INSERT INTO stock_adjustments (id, variant_id, delta, reason, adjusted_by, created_at)
@@ -280,7 +287,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       if (env.DB) {
         const batchResult = await env.DB.batch([
           env.DB.prepare(
-            `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2`
+            `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2 AND quantity + ?1 >= 0`
           ).bind(delta, variantId),
           env.DB.prepare(
             `INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at)

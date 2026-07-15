@@ -32,14 +32,14 @@ export function appendStaffAuthCookies(
   );
   headers.append(
     'Set-Cookie',
-    `${staffCsrfCookieName(request)}=${opts.csrfToken}; ${base}`,
+    `${staffCsrfCookieName(request)}=${opts.csrfToken}; HttpOnly; ${base}`,
   );
 }
 
 export function clearStaffAuthCookies(headers: Headers, request: Request): void {
   const base = cookieBaseAttrs(request, 0);
   headers.append('Set-Cookie', `${staffSessionCookieName(request)}=; HttpOnly; ${base}`);
-  headers.append('Set-Cookie', `${staffCsrfCookieName(request)}=; ${base}`);
+  headers.append('Set-Cookie', `${staffCsrfCookieName(request)}=; HttpOnly; ${base}`);
 }
 
 function readNamedCookie(request: Request, name: string): string | null {
