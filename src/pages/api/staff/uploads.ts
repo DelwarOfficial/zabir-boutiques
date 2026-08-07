@@ -17,6 +17,23 @@ import {
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif', 'image/avif']);
 const MAX_SIZE = 20 * 1024 * 1024;
 
+function detectImageMime(buffer: ArrayBuffer): string | null {
+  const bytes = new Uint8Array(buffer.slice(0, 32));
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg';
+  if (bytes.length >= 8 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47 && bytes[4] === 0x0d && bytes[5] === 0x0a && bytes[6] === 0x1a && bytes[7] === 0x0a) return 'image/png';
+  if (bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 4) === 'WEBP') return 'image/webp';
+  if (bytes.length >= 6 && (ascii(bytes, 0, 6) === 'GIF87a' || ascii(bytes, 0, 6) === 'GIF89a')) return 'image/gif';
+  if (bytes.length >= 12 && ascii(bytes, 4, 4) === 'ftyp') {
+    const brand = ascii(bytes, 8, 4);
+    if (brand === 'avif' || brand === 'avis') return 'image/avif';
+  }
+  return null;
+}
+
+function ascii(bytes: Uint8Array, start: number, length: number): string {
+  return String.fromCharCode(...bytes.slice(start, start + length));
+}
+
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();
@@ -62,6 +79,10 @@ export async function POST(context: APIContext): Promise<Response> {
   const ext = file.name.split('.').pop() ?? 'jpg';
   const r2Key = productMediaR2Key(productId, ext);
   const buffer = await file.arrayBuffer();
+  const detectedType = detectImageMime(buffer);
+  if (!detectedType || detectedType !== file.type) {
+    return Response.json({ error: 'Invalid image content. File bytes do not match the declared image type.' }, { status: 400 });
+  }
   let storedBuffer = buffer;
   let storedContentType = file.type;
 

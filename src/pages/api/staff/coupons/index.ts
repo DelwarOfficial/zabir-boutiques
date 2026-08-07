@@ -48,8 +48,10 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertOwnerOnly(user);
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

@@ -86,13 +86,13 @@ describe('Master Plan V7 commerce guardrails', () => {
 
   it('checkout COD rule uses total unit quantity', () => {
     const checkout = read('src/pages/api/checkout.ts');
-    expect(checkout).toContain('items.reduce((sum, item) => sum + item.qty, 0)');
+    expect(checkout).toContain('totalQuantity');
     expect(checkout).not.toContain('calculatePrepayment(items.length');
   });
 
   it('CartDO arms the inactivity alarm and persists cart_activity in alarm', () => {
     const cartDo = read('src/do/cart-do.ts');
-    expect(cartDo).toContain('setAlarm(Date.now() + 5 * 60 * 1000)');
+    expect(cartDo).toContain('setAlarm(now + FIVE_MIN_MS)');
     expect(cartDo).toContain('INSERT INTO cart_activity');
   });
 
@@ -166,7 +166,7 @@ describe('PWA storefront guardrails', () => {
     expect(manifest.display).toBe('standalone');
     expect(existsSync('public/offline.html')).toBe(true);
     expect(read('src/layouts/RootLayout.astro')).toContain('rel="manifest"');
-    expect(read('src/middleware.ts')).toContain("worker-src 'self'");
+    expect(read('src/lib/security/csp.ts')).toContain("worker-src 'self'");
     expect(read('src/pwa/sw.template.js')).toContain('/checkout');
     expect(read('src/pwa/sw.template.js')).toContain('/api');
   });

@@ -35,7 +35,7 @@ export function BuyNowLandingForm({
   sessionId,
   productName,
   productImageUrl,
-  variantLabel,
+  variantLabel: initialVariantLabel,
   unitPricePaisa,
   quantity: initialQty,
   insideDhakaPaisa,
@@ -54,6 +54,8 @@ export function BuyNowLandingForm({
     initialDraft?.shippingZone === "outside_dhaka" ? "outside_dhaka" : "inside_dhaka"
   );
   const [status, setStatus] = useState<SubmitStatus>({ type: "idle" });
+  const [selectedVariantId, setSelectedVariantId] = useState(initialVariantId || (variants[0]?.id ?? ''));
+  const [qty, setQty] = useState(initialQty || 1);
   const idempotencyKeyRef = useRef<string | null>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetId = useRef<string | null>(null);
@@ -88,8 +90,7 @@ export function BuyNowLandingForm({
   }, [turnstileSiteKey]);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
-  const qty = initialQty;
-  const selectedVariant = variants.find(v => v.id === initialVariantId) ?? variants[0];
+  const selectedVariant = useMemo(() => variants.find(v => v.id === selectedVariantId) ?? variants[0], [variants, selectedVariantId]);
   const unitPrice = selectedVariant?.pricePaisa ?? unitPricePaisa;
   const shippingPaisa = zone === "inside_dhaka" ? insideDhakaPaisa : outsideDhakaPaisa;
   const subtotalPaisa = unitPrice * qty;
@@ -119,6 +120,8 @@ export function BuyNowLandingForm({
           },
           body: JSON.stringify({
             session_id: sessionId,
+            variant_id: selectedVariantId,
+            quantity: qty,
             name: name.trim(),
             phone: phoneE164,
             address: address.trim(),
@@ -201,22 +204,73 @@ export function BuyNowLandingForm({
       )}
 
       {/* ── Selected product card ── */}
-      <div className="flex gap-3 p-3 rounded-xl bg-[var(--surface-soft)]">
-        <div className="w-16 h-16 rounded-lg overflow-hidden bg-[var(--surface)] shrink-0">
+      <div className="flex gap-3.5 p-3.5 rounded-xl bg-[var(--surface-soft)] border border-[var(--line)]">
+        <div className="w-16 h-16 rounded-lg overflow-hidden bg-[var(--surface)] shrink-0 border border-[var(--line)]">
           <img src={productImageUrl} alt={productName} width="64" height="64" className="h-full w-full object-cover" />
         </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-bold line-clamp-2">{productName}</p>
-          <p className="text-xs text-[var(--muted)]">{selectedVariant?.size && selectedVariant?.color ? `${selectedVariant.size} / ${selectedVariant.color}` : variantLabel}</p>
+        <div className="min-w-0 flex-1 flex flex-col justify-between">
+          <div>
+            <p className="text-sm font-extrabold line-clamp-2 text-[var(--ink)] leading-snug">{productName}</p>
+            <p className="text-xs text-[var(--muted)] mt-0.5">
+              {selectedVariant ? [selectedVariant.size, selectedVariant.color].filter(Boolean).join(" / ") : initialVariantLabel}
+            </p>
+          </div>
           <p className="mt-1 text-base font-extrabold tabular text-[var(--brand)]">{formatPaisa(unitPrice)}</p>
-        </div>
-        <div className="flex flex-col items-center justify-center gap-1 rounded-lg border border-[var(--line)] bg-[var(--surface)] px-3 py-2">
-          <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--muted)]">Qty</span>
-          <span className="text-sm font-extrabold tabular w-8 text-center">{qty}</span>
         </div>
       </div>
 
-      {/* Buy Now stays locked to the signed direct-checkout session SKU. */}
+      {/* ── Size / Variant Selection (Clickable Buttons) ── */}
+      {variants && variants.length > 0 && (
+        <div className="space-y-2">
+          <span className="block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">📏 সাইজ নির্বাচন করুন</span>
+          <div className="flex flex-wrap gap-2">
+            {variants.map((v) => {
+              const label = [v.size, v.color].filter(Boolean).join(" - ") || "Standard";
+              const isSelected = v.id === selectedVariantId;
+              return (
+                <button
+                  key={v.id}
+                  type="button"
+                  onClick={() => setSelectedVariantId(v.id)}
+                  className={`press tap-44 px-4 py-2 rounded-xl text-xs font-bold border transition duration-200 cursor-pointer ${
+                    isSelected
+                      ? "border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)] ring-1 ring-[var(--brand)]"
+                      : "border-[var(--line)] bg-[var(--surface)] text-[var(--ink-secondary)] hover:border-[var(--brand)]"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* ── Quantity Stepper ── */}
+      <div className="flex items-center justify-between p-3.5 rounded-xl border border-[var(--line)] bg-[var(--surface)]">
+        <div>
+          <span className="block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Quantity (পরিমাণ)</span>
+          <span className="text-[11px] text-[var(--muted)]">কত পিস নিতে চান?</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => setQty(q => Math.max(1, q - 1))}
+            disabled={qty <= 1}
+            className="press tap-44 flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] text-sm font-extrabold hover:bg-[var(--line)] active:scale-95 disabled:opacity-50 cursor-pointer"
+          >
+            -
+          </button>
+          <span className="text-base font-extrabold tabular w-8 text-center">{qty}</span>
+          <button
+            type="button"
+            onClick={() => setQty(q => q + 1)}
+            className="press tap-44 flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--line)] bg-[var(--surface-soft)] text-sm font-extrabold hover:bg-[var(--line)] active:scale-95 cursor-pointer"
+          >
+            +
+          </button>
+        </div>
+      </div>
 
       {/* ── Billing fields ── */}
       <div className="space-y-3">
@@ -261,7 +315,7 @@ export function BuyNowLandingForm({
               key={value}
               type="button"
               onClick={() => setZone(value)}
-              className={`press tap-44 rounded-xl border p-3 text-left text-sm font-bold transition ${
+              className={`press tap-44 rounded-xl border p-3 text-left text-sm font-bold transition cursor-pointer ${
                 zone === value ? "border-[var(--brand)] bg-[var(--brand)]/10 text-[var(--brand)]" : "border-[var(--line)] bg-[var(--surface)] text-[var(--muted)]"
               }`}
             >
@@ -306,7 +360,9 @@ export function BuyNowLandingForm({
       <button
         type="submit"
         disabled={!canSubmit}
-        className="press tap-44 w-full inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand)] text-white px-5 h-14 text-base font-extrabold shadow-[0_8px_24px_rgba(161,98,7,0.25)] disabled:opacity-50"
+        className={`press tap-44 w-full inline-flex items-center justify-center gap-2 rounded-full bg-[var(--brand)] text-white px-5 h-14 text-base font-extrabold shadow-[0_8px_24px_rgba(161,98,7,0.25)] disabled:opacity-50 cursor-pointer ${
+          canSubmit ? "animate-pulse" : ""
+        }`}
       >
         {isPending ? <Loader2 className="h-5 w-5 animate-spin" /> : <CheckCircle2 className="h-5 w-5" />}
         {isPending ? "অর্ডার প্রসেস হচ্ছে…" : `অর্ডার কনফার্ম করুন · ${formatPaisa(totalPaisa)}`}

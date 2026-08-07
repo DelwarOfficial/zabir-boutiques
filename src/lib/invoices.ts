@@ -27,7 +27,6 @@
  * existing `returns` flow used for e-commerce.
  */
 
-import { nowSql } from "./dates";
 import { assertPaisa } from "./money";
 import { writeAuditLog } from "./audit";
 import { doSyncFromD1, doDirectSale, doReverseDirectSale } from "./do-client";

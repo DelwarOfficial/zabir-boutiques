@@ -1,20 +1,12 @@
-import { createHmac } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-
-const SESSION_SECRET = readFileSync('.env.local', 'utf-8')
-  .split('\n')
-  .find(l => l.startsWith('SESSION_SECRET='))
-  ?.split('=', 2)[1]
-  ?.trim() ?? 'dev-session-secret-at-least-32-chars-long-for-hmac';
-
 const STAFF = {
   email: 'admin@zabirboutiques.com',
   phone: '+8801712345678',
-  password: 'admin123',
-  passwordHash: createHmac('sha256', SESSION_SECRET).update('admin123').digest('hex'),
+  password: 'JOurNameList21',
+  passwordSalt: 'aa4027bb393ac1163d120a3dd2ad020d',
   full_name: 'Admin User',
   role: 'super_admin'
 };
+STAFF['passwordHash'] = 'f6cc44c20862b8d4febb6200ebbb72bd529cb3acbbe99d893da5770ae3ce4e4a';
 
 const CATEGORIES = [
   { id: 'a1000000-0000-4000-8000-000000000001', name: 'Pakistani Collection', slug: 'pakistani-collection', sort_order: 1 },
@@ -40,8 +32,8 @@ function generateSQL(): string {
   let sql = '-- Zabir Boutiques v6.8A Seed Data\n';
   // Use fixed UUIDs for all seed rows so re-seed is idempotent
   const STAFF_ID = '59cd9624-966b-4930-a6a0-db3707c904ab';
-  sql += `INSERT OR REPLACE INTO staff_users (id, email, phone, password_hash, full_name, role, is_active, created_at, updated_at)\n`;
-  sql += `  VALUES ('${STAFF_ID}', '${STAFF.email}', '${STAFF.phone}', '${STAFF.passwordHash}', '${STAFF.full_name}', '${STAFF.role}', 1, '${now}', '${now}');\n\n`;
+  sql += `INSERT OR REPLACE INTO staff_users (id, email, phone, password_hash, password_salt, full_name, role, is_active, created_at, updated_at)\n`;
+  sql += `  VALUES ('${STAFF_ID}', '${STAFF.email}', '${STAFF.phone}', '${STAFF.passwordHash}', '${STAFF.passwordSalt}', '${STAFF.full_name}', '${STAFF.role}', 1, '${now}', '${now}');\n\n`;
 
   for (const cat of CATEGORIES) {
     sql += `INSERT OR REPLACE INTO categories (id, name, slug, sort_order, is_active, created_at, updated_at)\n`;

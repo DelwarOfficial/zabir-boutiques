@@ -17,17 +17,19 @@ import { validateCsrfDoubleSubmit } from './lib/csrf';
 import { getRequiredStaffPermission } from './lib/staff-route-rbac';
 import { trackMetric } from './lib/analytics';
 import { env as cloudflareEnv } from 'cloudflare:workers';
+import { generatePublicCSP, generateStaffCSP } from './lib/security/csp';
 
 const STAFF_MUTATION_PATHS = new RegExp('^(?:/api/staff/|/staff/)');
 const SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
-const CSRF_EXEMPT_PATHS = new Set(['/api/staff/login']);
-const AUTH_EXEMPT_PATHS = new Set(['/staff/login', '/api/staff/login']);
+const CSRF_EXEMPT_PATHS = new Set(['/api/staff/login', '/api/staff/forgot-password', '/api/staff/reset-password']);
+const AUTH_EXEMPT_PATHS = new Set(['/staff/login', '/api/staff/login', '/staff/forgot-password', '/api/staff/forgot-password', '/staff/reset-password', '/api/staff/reset-password']);
 // Matches /staff, /staff/, /staff/*, and /api/staff/* for the auth guard.
 const STAFF_PROTECTED = /^(?:\/api\/staff\/|\/staff(?:\/|$))/;
 const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number; critical?: boolean }> = [
   { pattern: /^\/api\/checkout$/, limit: 20, windowSeconds: 60, critical: true },
   { pattern: /^\/api\/orders\/track$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/login$/, limit: 10, windowSeconds: 60, critical: true },
+  { pattern: /^\/api\/staff\/forgot-password$/, limit: 5, windowSeconds: 300, critical: false },
   { pattern: /^\/api\/payments\/create$/, limit: 20, windowSeconds: 60, critical: true },
   { pattern: /^\/api\/fraud\/check$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/fraud\/override$/, limit: 10, windowSeconds: 60 },
@@ -44,12 +46,18 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   const cspNonce = generateRandomHex(16);
   context.locals.cspNonce = cspNonce;
 
+  if (url.hostname === 'www.zabirboutiques.com') {
+    url.hostname = 'zabirboutiques.com';
+    url.protocol = 'https:';
+    return withSecurityHeaders(Response.redirect(url.toString(), 301), cspNonce, request, url.pathname);
+  }
+
   if (url.pathname === '/api/staff/login' && !SAFE_METHODS.has(request.method) && !originAllowed(request, runtimeEnv?.PUBLIC_SITE_URL)) {
-    return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }), cspNonce, request);
+    return withSecurityHeaders(Response.json({ error: 'Invalid origin' }, { status: 403 }), cspNonce, request, url.pathname);
   }
 
   const limited = await rateLimit(context, url.pathname);
-  if (limited) return withSecurityHeaders(limited, cspNonce, request);
+  if (limited) return withSecurityHeaders(limited, cspNonce, request, url.pathname);
 
   // Central authentication guard. Resolves the staff session exactly once and
   // caches it on locals so getCurrentStaffUser does not re-query D1.
@@ -59,16 +67,16 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     context.locals.staffUserResolved = true;
     if (!user) {
       if (url.pathname.startsWith('/api/')) {
-        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }), cspNonce, request);
+        return withSecurityHeaders(Response.json({ ok: false, code: 'UNAUTHENTICATED', error: 'Authentication required' }, { status: 401 }), cspNonce, request, url.pathname);
       }
-      return withSecurityHeaders(context.redirect('/staff/login'), cspNonce, request);
+      return withSecurityHeaders(context.redirect('/staff/login'), cspNonce, request, url.pathname);
     }
 
     // RBAC enforcement for /api/staff/*.
     if (url.pathname.startsWith('/api/staff/')) {
       const required = getRequiredStaffPermission(url.pathname, request.method);
       if (required && !can(user.role, required)) {
-        return withSecurityHeaders(Response.json({ ok: false, code: 'FORBIDDEN_PERMISSION', error: `Missing permission: ${required}` }, { status: 403 }), cspNonce, request);
+        return withSecurityHeaders(Response.json({ ok: false, code: 'FORBIDDEN_PERMISSION', error: `Missing permission: ${required}` }, { status: 403 }), cspNonce, request, url.pathname);
       }
     }
   }
@@ -77,11 +85,11 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
     const csrf = await validateCsrfDoubleSubmit(request, runtimeEnv?.SESSION_SECRET);
     if (!csrf.ok) {
       const message = csrf.reason === 'invalid_signature' ? 'Invalid CSRF token signature' : 'Invalid CSRF token';
-      return withSecurityHeaders(Response.json({ error: message }, { status: 403 }), cspNonce, request);
+      return withSecurityHeaders(Response.json({ error: message }, { status: 403 }), cspNonce, request, url.pathname);
     }
   }
 
-  return withSecurityHeaders(await next(), cspNonce, request);
+  return withSecurityHeaders(await next(), cspNonce, request, url.pathname);
 };
 
 function originAllowed(request: Request, publicSiteUrl?: string): boolean {
@@ -140,37 +148,18 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
   return null;
 }
 
-function withSecurityHeaders(response: Response, nonce: string, request: Request): Response {
+function withSecurityHeaders(response: Response, nonce: string, request: Request, pathname?: string): Response {
   const headers = new Headers(response.headers);
   const localDev = isLocalHttpDev(request);
   if (!localDev) {
     headers.set('Strict-Transport-Security', 'max-age=31536000; includeSubDomains; preload');
   }
 
-  // Astro dev serves inline script bodies with different whitespace, so
-  // hash-only CSP blocks login and inline handlers on http://localhost.
-  const scriptSrc = localDev
-    ? "'self' 'unsafe-inline'"
-    : [
-        "'self'",
-        `'nonce-${nonce}'`,
-        "'strict-dynamic'",
-        ...getCspScriptHashes(),
-      ].join(' ');
-  const csp = [
-    "default-src 'self'",
-    `script-src ${scriptSrc}`,
-    "style-src 'self' 'unsafe-inline'",
-    "img-src 'self' https://cdn.zabirboutiques.com data: blob:",
-    "font-src 'self'",
-    "connect-src 'self'",
-    "worker-src 'self'",
-    "frame-ancestors 'none'",
-    "base-uri 'self'",
-    "form-action 'self'",
-  ];
-  if (!localDev) csp.push('upgrade-insecure-requests');
-  headers.set('Content-Security-Policy', csp.join('; '));
+  const isStaff = pathname ? /^\/staff(?:\/|$)/.test(pathname) || /^\/api\/staff/.test(pathname) : false;
+  const scriptHashes = [...getCspScriptHashes()];
+  const csp = isStaff ? generateStaffCSP(nonce, localDev, scriptHashes) : generatePublicCSP(nonce, localDev, scriptHashes);
+
+  headers.set('Content-Security-Policy', csp);
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   headers.set('Permissions-Policy', 'camera=(), microphone=(), geolocation=(), payment=()');
   headers.set('X-Content-Type-Options', 'nosniff');

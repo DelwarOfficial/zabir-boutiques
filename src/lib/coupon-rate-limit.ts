@@ -29,7 +29,7 @@ export async function checkCouponRateLimit(db: D1Database, sessionId: string): P
   return { allowed: true, failures: row.failed_attempts };
 }
 
-export async function recordCouponFailure(db: D1Database, sessionId: string, code: string): Promise<CouponAttemptResult> {
+export async function recordCouponFailure(db: D1Database, sessionId: string, _code: string): Promise<CouponAttemptResult> {
   const now = nowSql();
   const row = await db
     .prepare("SELECT failed_attempts FROM coupon_brute_force WHERE session_id = ?1")

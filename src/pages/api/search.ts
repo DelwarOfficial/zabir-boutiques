@@ -6,24 +6,19 @@
  *   q       — search term (required, min 2 chars)
  *   limit   — max results (default 20, max 50)
  *
- * Returns: { results: [{ id, slug, name, price_paisa, available_quantity, snippet }] }
- *
- * Per Master_Prompt v7.0: <50ms p99 for autocomplete. The simple FTS5
- * query is well under that; complex queries may be cached via the
- * Cache API helper in src/lib/cache-api.ts.
+ * Returns: { ok: true, results: [{ id, slug, title, pricePaisa, imageUrl, variantLabel }] }
  */
 import type { APIContext } from "astro";
 import { getEnv } from "../../lib/env";
 import { formatPaisa } from "../../lib/money";
-import { autocomplete } from "../../lib/autocomplete-index";
-type Result = {
+
+type DbResult = {
   id: string;
   slug: string;
   name: string;
   price_paisa: number;
-  available_quantity: number;
-  snippet: string;
-  rank: number;
+  image_url: string | null;
+  variant_label: string | null;
 };
 
 export async function GET(context: APIContext): Promise<Response> {
@@ -39,36 +34,38 @@ export async function GET(context: APIContext): Promise<Response> {
   const escaped = q.replace(/"/g, '""');
   const ftsQuery = `"${escaped}"*`; // prefix match
 
-  const rows = await env.DB
-    .prepare(
-      `SELECT p.id, p.slug, p.name, p.price_paisa,
-              COALESCE((SELECT quantity - reserved_quantity FROM inventory_items ii WHERE ii.variant_id IN
-                        (SELECT id FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0 LIMIT 1)), 0) AS available_quantity,
-              snippet(products_fts, 1, '<mark>', '</mark>', '…', 16) AS snippet,
-              bm25(products_fts) AS rank
-       FROM products_fts
-       JOIN products p ON p.rowid = products_fts.rowid
-       WHERE products_fts MATCH ?1
-         AND p.status = 'published'
-       ORDER BY rank
-       LIMIT ?2`,
-    )
-    .bind(ftsQuery, limit)
-    .all<Result>();
+  try {
+    const rows = await env.DB
+      .prepare(
+        `SELECT p.id, p.slug, p.name, p.price_paisa,
+                (SELECT '/cdn-cgi/image/fit=cover,width=120/' || r2_key FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.sort_order ASC LIMIT 1) AS image_url,
+                (SELECT size || ' / ' || color FROM product_variants pv WHERE pv.product_id = p.id AND pv.is_deleted = 0 LIMIT 1) AS variant_label
+         FROM products_fts
+         JOIN products p ON p.rowid = products_fts.rowid
+         WHERE products_fts MATCH ?1
+           AND p.status = 'published'
+         LIMIT ?2`,
+      )
+      .bind(ftsQuery, limit)
+      .all<DbResult>();
 
-  return Response.json({
-    ok: true,
-    query: q,
-    results: (rows.results ?? []).map((r: Result) => ({ ...r, price_formatted: formatPaisa(r.price_paisa) })),
-  });
-}
+    const products = (rows.results ?? []).map((r) => ({
+      id: r.id,
+      slug: r.slug,
+      title: r.name,
+      pricePaisa: r.price_paisa,
+      imageUrl: r.image_url ?? '/assets/product-zb-stitch.svg',
+      variantLabel: r.variant_label || 'One Size',
+      priceFormatted: formatPaisa(r.price_paisa)
+    }));
 
-// Autocomplete endpoint (Phase 6.2) — KV-backed prefix index, <10ms p99.
-export async function _autocompleteHandler(context: APIContext): Promise<Response> {
-  const env = getEnv(context);
-  const url = new URL(context.request.url);
-  const q = (url.searchParams.get("q") ?? "").trim();
-  if (q.length < 1) return Response.json({ ok: true, results: [] });
-  const results = await autocomplete({ CACHE: env.CACHE }, q, 8);
-  return Response.json({ ok: true, results });
+    return Response.json({
+      ok: true,
+      query: q,
+      products, // Also return products key for the Search island
+      results: products // Keep results key for backward compatibility
+    });
+  } catch (err) {
+    return Response.json({ ok: false, error: 'Database search error' }, { status: 500 });
+  }
 }

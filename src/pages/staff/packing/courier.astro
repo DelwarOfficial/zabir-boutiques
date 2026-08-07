@@ -74,7 +74,7 @@ const packedOrders = await env.DB.prepare(
   </div>
 
   <script>
-    document.querySelectorAll('.handoff-btn').forEach((btn) => {
+    document.querySelectorAll<HTMLButtonElement>('.handoff-btn').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const orderId = btn.getAttribute('data-order-id');
         const provider = btn.getAttribute('data-provider');
@@ -86,7 +86,7 @@ const packedOrders = await env.DB.prepare(
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ provider }),
           });
-          const data = await res.json();
+          const data: { error?: string; code?: string } = await res.json();
           if (!res.ok) throw new Error(data.error || data.code || 'Handoff failed');
           window.location.reload();
         } catch (err) {

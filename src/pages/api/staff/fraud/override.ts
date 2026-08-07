@@ -6,7 +6,7 @@
  */
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
-import { requireAuth, assertOwnerOnly, RbacError } from '../../../../lib/rbac';
+import { requireAuth, assertOwnerOnly, isSuperAdmin, RbacError } from '../../../../lib/rbac';
 import { nowSql } from '../../../../lib/dates';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
@@ -21,7 +21,9 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertOwnerOnly(user);
-    await requireRecentStaffSession(context, user);
+    if (!isSuperAdmin(user.role)) {
+      await requireRecentStaffSession(context, user);
+    }
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     if (err instanceof CriticalAuthError) return err.toResponse();

@@ -45,8 +45,14 @@ async function enrichItems(
   const variantIds = items.map((i) => i.variantId);
   const rows = await env.DB
     .prepare(
-      `SELECT pv.id AS variant_id, pv.product_id, p.title, pv.label AS variant_label,
-              COALESCE(pv.image_url, p.image_url) AS image_url,
+      `SELECT pv.id AS variant_id, pv.product_id, p.name AS title,
+              CASE
+                WHEN pv.size IS NOT NULL AND pv.color IS NOT NULL THEN pv.size || ', ' || pv.color
+                WHEN pv.size IS NOT NULL THEN pv.size
+                WHEN pv.color IS NOT NULL THEN pv.color
+                ELSE pv.sku
+              END AS variant_label,
+              (SELECT pi.r2_key FROM product_images pi WHERE pi.product_id = p.id ORDER BY pi.sort_order LIMIT 1) AS image_url,
               pv.price_paisa, inv.quantity AS available_quantity
        FROM product_variants pv
        JOIN products p ON p.id = pv.product_id
@@ -83,14 +89,14 @@ export async function GET(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const sessionId = readCartSessionId(context.request);
   if (!sessionId) {
-    return Response.json({ ok: true, items: [] });
+    return Response.json({ ok: true, hasSession: false, items: [] });
   }
   const cartState = await doGetCart(env, sessionId);
   if (!cartState || cartState.items.length === 0) {
-    return Response.json({ ok: true, items: [] });
+    return Response.json({ ok: true, hasSession: true, items: [] });
   }
   const items = await enrichItems(env, cartState.items);
-  return Response.json({ ok: true, items });
+  return Response.json({ ok: true, hasSession: true, items });
 }
 
 export async function POST(context: APIContext): Promise<Response> {
@@ -100,6 +106,7 @@ export async function POST(context: APIContext): Promise<Response> {
     action?: string;
     variantId?: string;
     quantity?: number;
+    clientVersion?: number;
     couponCode?: string;
     customerContact?: string;
     items?: Array<{ variantId: string; quantity: number }>;
@@ -124,43 +131,36 @@ export async function POST(context: APIContext): Promise<Response> {
       case 'add': {
         cartResponse = await stub.fetch('https://do/add', {
           method: 'POST',
-          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity ?? 1 }),
+          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity ?? 1, clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'remove': {
         cartResponse = await stub.fetch('https://do/remove', {
           method: 'POST',
-          body: JSON.stringify({ variantId: body.variantId }),
+          body: JSON.stringify({ variantId: body.variantId, clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'quantity': {
         cartResponse = await stub.fetch('https://do/quantity', {
           method: 'POST',
-          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity }),
+          body: JSON.stringify({ variantId: body.variantId, quantity: body.quantity, clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'clear': {
         cartResponse = await stub.fetch('https://do/clear', {
           method: 'POST',
-          body: JSON.stringify({}),
+          body: JSON.stringify({ clientVersion: body.clientVersion }),
         });
         break;
       }
       case 'replace_all': {
-        // Clear existing, then add each
-        await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({}) });
-        if (Array.isArray(body.items)) {
-          for (const item of body.items) {
-            await stub.fetch('https://do/add', {
-              method: 'POST',
-              body: JSON.stringify({ variantId: item.variantId, quantity: item.quantity }),
-            });
-          }
-        }
-        cartResponse = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify({}) });
+        cartResponse = await stub.fetch('https://do/replaceAll', {
+          method: 'POST',
+          body: JSON.stringify({ items: body.items ?? [], clientVersion: body.clientVersion }),
+        });
         break;
       }
       default: {

@@ -3,92 +3,58 @@ import StaffLayout from "@/layouts/StaffLayout.astro";
 import PageHeader from "@/components/staff/PageHeader.astro";
 import { getCurrentStaffUser, can } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
+import { readCsrfCookie } from "../../../lib/csrf";
+import type { AuditEntryWithActor } from "../../../types/audit";
+import AuditLogViewer from "../../../islands/staff/AuditLogViewer.tsx";
 
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
 if (!can(user.role, "system.audit.view")) return new Response("Forbidden", { status: 403 });
 
 const env = getEnv(Astro);
-const { searchParams } = new URL(Astro.request.url);
-const page = Math.max(1, parseInt(searchParams.get("page") || "1", 10));
-const actionFilter = (searchParams.get("action") || "").trim();
-const actorFilter = (searchParams.get("actor") || "").trim();
+
+// Fetch initial entries server-side for fast first paint
+const page = 1;
 const limit = 50;
 
-let where = "WHERE 1=1";
-const bindings: unknown[] = [];
-if (actionFilter) { where += " AND al.action LIKE ?"; bindings.push(`%${actionFilter}%`); }
-if (actorFilter) { where += " AND (s.full_name LIKE ? OR al.actor_role LIKE ?)"; bindings.push(`%${actorFilter}%`, `%${actorFilter}%`); }
-
 const countRow = await env.DB.prepare(
-  `SELECT COUNT(*) as total FROM audit_log al LEFT JOIN staff_users s ON s.id = al.actor_staff_id ${where}`
-).bind(...bindings).first<{ total: number }>();
+  `SELECT COUNT(*) as total FROM audit_log`
+).first<{ total: number }>();
 const total = countRow?.total ?? 0;
 const totalPages = Math.max(1, Math.ceil(total / limit));
 
 const logs = await env.DB.prepare(
-  `SELECT al.id, al.actor_staff_id, al.actor_role, al.action, al.entity_type, al.entity_id,
-          al.ip_address, al.created_at, s.full_name as actor_name
+  `SELECT al.id, al.actor_staff_id, al.actor_role, al.action, al.entity_type,
+          al.entity_id, al.metadata_json, al.ip_address, al.created_at,
+          al.previous_hash, al.chain_hash,
+          s.full_name as actor_name
    FROM audit_log al
    LEFT JOIN staff_users s ON s.id = al.actor_staff_id
-   ${where}
-   ORDER BY al.created_at DESC LIMIT ? OFFSET ?`
-).bind(...bindings, limit, (page - 1) * limit).all<any>();
+   ORDER BY al.created_at DESC, al.rowid DESC
+   LIMIT ? OFFSET ?`
+).bind(limit, 0).all<any>();
 
-function qs(overrides: Record<string, string | number>) {
-  const p = new URLSearchParams();
-  if (actionFilter) p.set("action", actionFilter);
-  if (actorFilter) p.set("actor", actorFilter);
-  for (const [k, v] of Object.entries(overrides)) p.set(k, String(v));
-  return "?" + p.toString();
-}
+const initialEntries: AuditEntryWithActor[] = (logs.results ?? []).map(r => ({
+  ...r,
+  previous_hash: r.previous_hash ?? '',
+  chain_hash: r.chain_hash ?? '',
+}));
 ---
+
 <StaffLayout title="Audit Logs" user={user}>
-  <PageHeader title="Audit Logs" subtitle={`${total} entries · Page ${page}/${totalPages}`} />
+  <PageHeader title="Audit Logs" subtitle="Tamper-proof activity ledger with hash-chain verification" />
 
-  <form method="get" class="flex flex-wrap gap-2 mb-4 items-end">
-    <div>
-      <label class="block text-xs text-ink-secondary mb-1">Action</label>
-      <input name="action" type="text" value={actionFilter} placeholder="e.g. coupon.create"
-        class="px-2.5 py-1.5 border border-line rounded-md bg-bg text-ink text-xs w-44 box-border" />
-    </div>
-    <div>
-      <label class="block text-xs text-ink-secondary mb-1">Staff / Role</label>
-      <input name="actor" type="text" value={actorFilter} placeholder="name or role"
-        class="px-2.5 py-1.5 border border-line rounded-md bg-bg text-ink text-xs w-36 box-border" />
-    </div>
-    <button type="submit" class="px-3 py-1.5 bg-brand text-white rounded-md text-xs font-semibold border-0 cursor-pointer">Filter</button>
-    {(actionFilter || actorFilter) && <a href="/staff/audit" class="text-xs text-muted no-underline hover:underline">Clear</a>}
-  </form>
-
-  {logs.results?.length ? (
-    <div class="overflow-x-auto border border-line rounded-lg">
-      <table class="w-full border-collapse text-xs">
-        <thead><tr class="bg-surface-soft text-left">
-          <th class="px-2.5 py-2 font-semibold">Date</th>
-          <th class="px-2.5 py-2 font-semibold">Staff</th>
-          <th class="px-2.5 py-2 font-semibold">Action</th>
-          <th class="px-2.5 py-2 font-semibold">Entity</th>
-          <th class="px-2.5 py-2 font-semibold">IP</th>
-        </tr></thead>
-        <tbody>{logs.results.map(l => (
-          <tr class="border-t border-line-soft">
-            <td class="px-2.5 py-1.5 whitespace-nowrap">{l.created_at}</td>
-            <td class="px-2.5 py-1.5">{l.actor_name || l.actor_role || "—"}</td>
-            <td class="px-2.5 py-1.5 font-mono">{l.action}</td>
-            <td class="px-2.5 py-1.5 text-muted">{l.entity_type}/{l.entity_id?.substring(0, 8)}</td>
-            <td class="px-2.5 py-1.5 font-mono text-[10px]">{l.ip_address || "—"}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>
-  ) : (
-    <div class="text-center text-muted text-sm py-8 border border-line rounded-lg">No audit entries match your filters.</div>
-  )}
-
-  <div class="mt-4 flex gap-2 items-center">
-    {page > 1 && <a href={`/staff/audit${qs({ page: page - 1 })}`} class="px-3 py-1.5 border border-line rounded-md text-sm no-underline hover:bg-surface-soft">&larr; Previous</a>}
-    {page < totalPages && <a href={`/staff/audit${qs({ page: page + 1 })}`} class="px-3 py-1.5 border border-line rounded-md text-sm no-underline hover:bg-surface-soft">Next &rarr;</a>}
-    <span class="text-xs text-muted ml-auto">Showing {Math.min(limit, logs.results?.length ?? 0)} of {total}</span>
+  <div class="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 mb-4 flex items-center gap-2">
+    <svg class="h-3.5 w-3.5 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9.4-8 10-4.5-.6-8-5-8-10V6z"/></svg>
+    <span>All entries are append-only and protected by SHA-256 hash chain. No edits, no deletions.</span>
   </div>
+
+  <AuditLogViewer
+    client:load
+    initialEntries={initialEntries}
+    total={total}
+    page={page}
+    totalPages={totalPages}
+    csrfToken={readCsrfCookie(Astro.request) ?? ''}
+  />
 </StaffLayout>

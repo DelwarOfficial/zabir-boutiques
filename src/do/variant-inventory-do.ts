@@ -1,4 +1,5 @@
 import type { VariantInventoryDOContract } from '../lib/contracts/variant-inventory-do';
+import { RESERVATION_TTL_MS } from '../lib/reservation-ttl';
 
 /**
  * VariantInventoryDO [Master_Prompt v7.0 §6.6, §12.2]
@@ -24,19 +25,21 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
   private sold = 0;
   private initialized = false;
   private reservations = new Map<string, { qty: number; expiresAt: number }>();
+  private env: { DB?: D1Database };
 
-  constructor(state: DurableObjectState, _env: unknown) {
+  constructor(state: DurableObjectState, env: { DB?: D1Database }) {
     this.state = state;
+    this.env = env;
   }
 
   private available(): number {
     return this.stock - this.reserved - this.sold;
   }
 
-  private async ensureInitialized(env: { DB?: D1Database }, variantId: string): Promise<void> {
+  private async ensureInitialized(_env: { DB?: D1Database }, variantId: string): Promise<void> {
     if (this.initialized) return;
-    if (env?.DB) {
-      const row = await env.DB
+    if (this.env?.DB) {
+      const row = await this.env.DB
         .prepare(
           `SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity
            FROM inventory_items WHERE variant_id = ?1`,
@@ -116,9 +119,12 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       staffId?: string;
       channel?: string;
       reason?: string;
-      env?: { DB?: D1Database };
+      notes?: string;
     };
-    const env = body.env ?? {};
+    // Use the real Cloudflare binding injected via the constructor, never a
+    // serialized value from the request body (bindings cannot cross the
+    // network and would be undefined / attacker-controlled).
+    const env = this.env;
     const variantId = (body.variantId ?? url.searchParams.get("variantId") ?? "").toString();
     await this.ensureInitialized(env, variantId);
 
@@ -142,7 +148,10 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
     }
 
     const qty = Number(body.qty ?? 0);
-    if (!Number.isSafeInteger(qty) || qty <= 0) {
+    // Only reserve/release/confirm/directSale consume `qty`. adjustStock uses
+    // `stock` (delta) and must not be rejected by this check.
+    const consumesQty = action === "reserve" || action === "release" || action === "confirm" || action === "directSale";
+    if (consumesQty && (!Number.isSafeInteger(qty) || qty <= 0)) {
       return Response.json({ ok: false, error: "INVALID_QTY" }, { status: 400 });
     }
 
@@ -154,7 +163,7 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       }
       const reservationId = crypto.randomUUID();
       this.reserved += qty;
-      this.reservations.set(reservationId, { qty, expiresAt: Date.now() + 10 * 60 * 1000 });
+      this.reservations.set(reservationId, { qty, expiresAt: Date.now() + RESERVATION_TTL_MS });
       await this.persistState();
       return Response.json({ ok: true, reservationId, available: this.available() });
     }
@@ -202,8 +211,9 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       const d1Result = await env.DB.batch([
         env.DB.prepare(
           `UPDATE inventory_items
-           SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
-           WHERE variant_id = ?2`,
+            SET sold_quantity = COALESCE(sold_quantity, 0) + ?1, updated_at = datetime('now')
+            WHERE variant_id = ?2
+              AND (quantity - reserved_quantity - COALESCE(sold_quantity, 0)) >= ?1`,
         ).bind(qty, variantId),
         env.DB.prepare(
           `INSERT INTO stock_adjustments (id, variant_id, delta, reason, adjusted_by, created_at)
@@ -260,6 +270,39 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       return Response.json({ ok: true, reversed: true, auditEventId });
     }
 
+    // Stock adjustment for staff operations [Master Plan §14.3]
+    // Delta may be positive (restock) or negative (write-off).
+    // This path serializes through the DO to prevent concurrent D1-only mutations.
+    if (action === "adjustStock") {
+      const delta = Number(body.stock ?? 0);
+      if (!Number.isSafeInteger(delta) || delta === 0) {
+        return Response.json({ ok: false, error: "INVALID_DELTA" }, { status: 400 });
+      }
+      const adjustmentId = body.reservationId ?? crypto.randomUUID();
+      const previousStock = this.stock;
+      const newStock = this.stock + delta;
+      if (newStock < 0) {
+        return Response.json({ ok: false, error: "INSUFFICIENT_STOCK", current_stock: this.stock }, { status: 409 });
+      }
+      if (env.DB) {
+        const batchResult = await env.DB.batch([
+          env.DB.prepare(
+            `UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2 AND quantity + ?1 >= 0`
+          ).bind(delta, variantId),
+          env.DB.prepare(
+            `INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))`
+          ).bind(adjustmentId, variantId, delta, body.reason ?? 'adjustment', previousStock, newStock, body.notes ?? null, body.staffId ?? null),
+        ], { atomic: true });
+        if (batchResult[0].meta.changes !== 1) {
+          return Response.json({ ok: false, error: "STOCK_UPDATE_FAILED", current_stock: this.stock }, { status: 500 });
+        }
+      }
+      this.stock = newStock;
+      await this.persistState();
+      return Response.json({ ok: true, previous_stock: previousStock, new_stock: newStock, adjustment_id: adjustmentId });
+    }
+
     return Response.json({ ok: false, error: "UNKNOWN_ACTION" }, { status: 400 });
   }
 
@@ -295,6 +338,13 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
     const res = await this.fetch(new Request('https://do/reverseDirectSale', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, qty: input.quantity, invoiceId: input.invoice_id, reason: input.reason }) }));
     const data = await res.json() as { reversed?: boolean; auditEventId?: string; message?: string };
     return data.reversed ? { reversed: true, audit_event_id: data.auditEventId ?? '' } : { reversed: false, audit_event_id: data.auditEventId ?? '', message: 'already_reversed' };
+  }
+
+  async adjustStock(input: { variant_id: string; delta: number; reason: string; staff_id: string; notes?: string }): Promise<{ ok: true; previous_stock: number; new_stock: number; adjustment_id: string } | { ok: false; error: string; current_stock?: number }> {
+    const res = await this.fetch(new Request('https://do/adjustStock', { method: 'POST', body: JSON.stringify({ variantId: input.variant_id, stock: input.delta, reason: input.reason, staffId: input.staff_id, notes: input.notes, reservationId: crypto.randomUUID() }) }));
+    const data = await res.json() as { ok?: boolean; error?: string; previous_stock?: number; new_stock?: number; adjustment_id?: string; current_stock?: number };
+    if (data.ok) return { ok: true, previous_stock: data.previous_stock ?? 0, new_stock: data.new_stock ?? 0, adjustment_id: data.adjustment_id ?? '' };
+    return { ok: false, error: data.error ?? 'UNKNOWN', current_stock: data.current_stock };
   }
 
   async getAvailability(input: { variant_id: string }): Promise<{ stock: number; reserved: number; sold: number; available: number }> {

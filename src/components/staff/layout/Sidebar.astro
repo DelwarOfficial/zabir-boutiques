@@ -1,0 +1,79 @@
+---
+import type { MenuItem } from "@/lib/staff-menu";
+
+interface Props {
+  menu: (MenuItem & { active: boolean })[];
+  currentPath: string;
+}
+const { menu } = Astro.props;
+---
+
+<div id="sidebar-backdrop" class="staff-backdrop md:hidden" aria-hidden="true"></div>
+<nav id="sidebar" class="staff-sidebar md:sticky md:top-[60px] md:self-start md:h-[calc(100dvh-60px)]" aria-label="Staff navigation">
+  <ul class="list-none p-0 m-0">
+    {menu.map((item) => (
+      <li>
+        <a href={item.href} class={item.active ? 'active' : ''}>
+          <span class="h-1.5 w-1.5 rounded-full" style={item.active ? 'background:var(--brand)' : 'background:transparent'} aria-hidden="true"></span>
+          {item.label}
+        </a>
+      </li>
+    ))}
+  </ul>
+</nav>
+
+<script is:inline>
+  (function() {
+    const sidebar = document.getElementById('sidebar');
+    const toggle = document.getElementById('sidebar-toggle');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    function setOpen(open) {
+      if (!sidebar) return;
+      sidebar.classList.toggle('open', open);
+      if (backdrop) backdrop.classList.toggle('open', open);
+    }
+    toggle?.addEventListener('click', () => setOpen(!sidebar.classList.contains('open')));
+    backdrop?.addEventListener('click', () => setOpen(false));
+    sidebar?.addEventListener('click', (e) => {
+      if (window.innerWidth <= 768 && e.target instanceof HTMLAnchorElement) setOpen(false);
+    });
+  })();
+</script>
+
+<style is:inline>
+  .staff-sidebar {
+    width: 240px; min-width: 240px;
+    background: var(--surface-soft);
+    border-right: 1px solid var(--line);
+    padding: 0.75rem 0;
+    overflow-y: auto;
+    transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  }
+  .staff-sidebar a {
+    display: flex; align-items: center; gap: 0.5rem;
+    padding: 0.55rem 1.25rem;
+    color: var(--ink-secondary);
+    text-decoration: none;
+    font-size: 0.875rem;
+    border-left: 3px solid transparent;
+    transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+  }
+  .staff-sidebar a:hover { background: var(--brand-glow); color: var(--ink); transform: translateX(2px); }
+  .staff-sidebar a.active {
+    border-left-color: var(--brand);
+    background: var(--brand-glow);
+    font-weight: 700;
+    color: var(--ink);
+  }
+  @media (max-width: 768px) {
+    .staff-sidebar { position: fixed; top: 60px; left: 0; bottom: 0; z-index: 100; transform: translateX(-100%); box-shadow: 8px 0 32px rgba(0,0,0,0.1); }
+    .staff-sidebar.open { transform: translateX(0); }
+  }
+  .staff-backdrop {
+    position: fixed; inset: 0; z-index: 99;
+    background: rgba(0,0,0,0.4);
+    opacity: 0; pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+  .staff-backdrop.open { opacity: 1; pointer-events: auto; }
+</style>

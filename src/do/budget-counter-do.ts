@@ -98,6 +98,10 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
     if (req.method === "POST" && url.pathname === "/record-usage") {
       return Response.json(await this.recordUsage(await req.json() as Parameters<BudgetCounterDO['recordUsage']>[0]));
     }
+    if (req.method === "POST" && url.pathname === "/reconcile") {
+      const body = (await req.json()) as { deltaUsdCents: number; op: string };
+      return Response.json(await this.reconcile(body));
+    }
     return new Response("not found", { status: 404 });
   }
 
@@ -257,6 +261,38 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
       resetAt: new Date(this.periodStartMs + this.cfg.periodSeconds * 1000).toISOString(),
     };
   }
+
+  /**
+   * Reconcile a pre-authorized estimate hold with the real cost of an
+   * inference. Callers (see ai-client.ts) charge an `estimate` up front to
+   * reserve budget, then call `/reconcile` with `delta = actual - estimate`
+   * so the scope ledger nets to exactly `actual` instead of
+   * `estimate + actual` (the previous double-count). The inference already
+   * happened, so the delta is applied unconditionally and clamped at 0; we
+   * do not re-check the allowance here.
+   */
+  private async reconcile(body: { deltaUsdCents: number; op: string }): Promise<IncrementResult> {
+    if (!this.cfg) {
+      return { allowed: true, totalUsdCents: 0, limitUsdCents: 0, remainingUsdCents: 0, warn: false, resetAt: "" };
+    }
+    this.maybeRollover();
+    this.totalUsdCents = Math.max(0, this.totalUsdCents + body.deltaUsdCents);
+    await this.storage.put("total", this.totalUsdCents);
+    if (this.env.ANALYTICS) {
+      this.env.ANALYTICS.writeDataPoint({
+        indexes: [this.cfg.scope, body.op],
+        doubles: [body.deltaUsdCents, this.totalUsdCents],
+      });
+    }
+    return {
+      allowed: this.totalUsdCents <= this.cfg.limitUsdCents,
+      totalUsdCents: this.totalUsdCents,
+      limitUsdCents: this.cfg.limitUsdCents,
+      remainingUsdCents: Math.max(0, this.cfg.limitUsdCents - this.totalUsdCents),
+      warn: this.totalUsdCents >= this.cfg.limitUsdCents * this.cfg.warnAtPercent,
+      resetAt: new Date(this.periodStartMs + this.cfg.periodSeconds * 1000).toISOString(),
+    };
+  }
 }
 
 /** Helpers for callers. */
@@ -277,6 +313,16 @@ export async function chargeBudget(env: Env, scope: string, costUsdCents: number
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ costUsdCents, op }),
+  }).then(r => r.json())) as IncrementResult;
+}
+
+export async function reconcileBudget(env: Env, scope: string, deltaUsdCents: number, op: string): Promise<IncrementResult> {
+  const id = env.AI_BUDGET.idFromName(scope);
+  const stub = env.AI_BUDGET.get(id);
+  return (await stub.fetch("https://budget/reconcile", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ deltaUsdCents, op }),
   }).then(r => r.json())) as IncrementResult;
 }
 

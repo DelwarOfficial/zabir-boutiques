@@ -9,6 +9,7 @@ CREATE TABLE IF NOT EXISTS direct_checkout_activity (
   variant_id TEXT NOT NULL,
   quantity INTEGER NOT NULL DEFAULT 0,
   customer_phone TEXT,
+  customer_email TEXT,
   customer_name TEXT,
   source_page TEXT,
   landing_version INTEGER NOT NULL DEFAULT 0,

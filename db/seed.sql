@@ -1,6 +1,6 @@
 -- Zabir Boutiques v6.8A Seed Data
-INSERT OR REPLACE INTO staff_users (id, email, phone, password_hash, full_name, role, is_active, created_at, updated_at)
-  VALUES ('59cd9624-966b-4930-a6a0-db3707c904ab', 'admin@zabirboutiques.com', '+8801712345678', '424e7811a66b4dd4bab7f86f231fd32a6a60512aefdd684843f6c70808bdc7ac', 'Admin User', 'super_admin', 1, '2026-06-04 00:00:00', '2026-06-04 00:00:00');
+INSERT OR REPLACE INTO staff_users (id, email, phone, password_hash, password_salt, full_name, role, is_active, created_at, updated_at)
+  VALUES ('59cd9624-966b-4930-a6a0-db3707c904ab', 'admin@zabirboutiques.com', '+8801712345678', 'f6cc44c20862b8d4febb6200ebbb72bd529cb3acbbe99d893da5770ae3ce4e4a', 'aa4027bb393ac1163d120a3dd2ad020d', 'Admin User', 'super_admin', 1, '2026-06-04 00:00:00', '2026-06-04 00:00:00');
 
 INSERT OR REPLACE INTO categories (id, name, slug, sort_order, is_active, created_at, updated_at)
   VALUES ('a1000000-0000-4000-8000-000000000001', 'Pakistani Collection', 'pakistani-collection', 1, 1, '2026-06-04 00:00:00', '2026-06-04 00:00:00');

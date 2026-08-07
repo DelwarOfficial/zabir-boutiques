@@ -37,19 +37,21 @@ const { message = 'This section requires recent authentication for security.' } 
   <p class="text-xs text-muted text-center mt-4">Your session is still active. This step confirms your identity for sensitive operations.</p>
 </div>
 
-<script is:inline>
+<script is:inline nonce={Astro.locals.cspNonce}>
   (function() {
     const form = document.getElementById('step-up-form');
     const btn = document.getElementById('step-up-btn');
     const errEl = document.getElementById('step-up-error');
     form?.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const pw = form.querySelector('[name=password]').value;
+      const input = form.querySelector<HTMLInputElement>('[name=password]');
+      const pw = input ? input.value : '';
       if (!pw) return;
+      if (!btn || !errEl) return;
       btn.disabled = true; btn.textContent = 'Verifying…';
       errEl.classList.add('hidden');
       try {
-        // Re-authenticate by posting to login (refreshes session last_active_at)
+        // Re-authenticate via step-up to stamp recent auth (does not create new session)
         const res = await fetch('/api/staff/step-up', {
           method: 'POST',
           headers: {

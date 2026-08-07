@@ -1,8 +1,8 @@
 ---
 import "@/styles/global.css";
+import { env } from "cloudflare:workers";
 
-const env = (Astro.locals as any).runtime?.env;
-const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
+const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
 ---
 
 <!doctype html>
@@ -15,7 +15,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
     {TURNSTILE_SITE_KEY ? (
-      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce={Astro.locals.cspNonce}></script>
     ) : null}
     <style is:global>
       :root {
@@ -111,6 +111,9 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
               <label style="display:block;font-size:0.8rem;color:var(--ink-secondary);margin-bottom:0.3rem;">Password</label>
               <input name="password" type="password" autocomplete="current-password" required
                 style="width:100%;padding:0.6rem 0.75rem;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--ink);font-size:0.9rem;outline:none;" />
+              <div style="text-align:right;margin-top:0.25rem;">
+                <a href="/staff/forgot-password" style="font-size:0.75rem;color:var(--ink-secondary);text-decoration:none;">Forgot password?</a>
+              </div>
             </div>
             {TURNSTILE_SITE_KEY ? <div class="cf-turnstile mb-3 flex justify-center" data-sitekey={TURNSTILE_SITE_KEY}></div> : null}
             <button type="submit" id="login-btn" class="brand-btn">Sign in</button>
@@ -201,7 +204,10 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
           password = pwInput.value;
 
           var turnstileToken = '';
-          try { turnstileToken = turnstile.getResponse(); } catch (_) {}
+          try {
+            const turnstileInput = document.querySelector('[name="cf-turnstile-response"]');
+            turnstileToken = turnstileInput && turnstileInput.value ? turnstileInput.value : turnstile.getResponse();
+          } catch (_) {}
 
           const res = await fetch('/api/staff/login', {
             method: 'POST',
@@ -220,6 +226,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
               return;
             }
             showError(err1, body.error || 'Invalid credentials');
+            try { turnstile.reset(); } catch (_) {}
             return;
           }
 
@@ -237,6 +244,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
           loginBtn.disabled = false;
           loginBtn.textContent = 'Sign in';
           showError(err1, body.error || 'Login failed');
+          try { turnstile.reset(); } catch (_) {}
         }
 
         document.getElementById('login-form').addEventListener('submit', submitLogin);
@@ -304,7 +312,8 @@ const TURNSTILE_SITE_KEY: string | undefined = env?.TURNSTILE_SITE_KEY;
           });
           inp.addEventListener('paste', function(e) {
             e.preventDefault();
-            const paste = (e.clipboardData || window.clipboardData).getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+            const cbData = e.clipboardData || window.clipboardData;
+            const paste = cbData ? cbData.getData('text').replace(/[^0-9]/g, '').slice(0, 6) : '';
             paste.split('').forEach((ch, i) => {
               if (i < 6) {
                 digitInputs[i].value = ch;

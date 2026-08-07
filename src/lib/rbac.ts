@@ -1,32 +1,25 @@
 /**
- * Central RBAC System [v6.8D — Platform Security Hardening]
+ * Central RBAC System [Master Plan §17.2]
  *
- * KEY DISTINCTION (v6.8D security audit):
- *   super_admin → FULL platform-control access (API keys, integrations, backups, webhooks)
- *   owner       → Business-level full access, but NO platform secret/API-control authority
- *
- * Roles:
- *   super_admin  → full platform + business access
- *   owner        → full business access, limited platform read
- *   manager      → daily operations
- *   salesman     → sales + COD order creation
- *   packing      → packing queue + courier handoff
- *   support      → order search + support notes
- *   developer    → read-only API Code / Developer info
- *   auditor      → read-only audit + reports
+ * 5 roles per Master Plan:
+ *   super_admin → full platform + business access
+ *   owner       → full business access, limited platform read
+ *   manager     → daily operations (products, orders, inventory, fraud review)
+ *   staff       → combined sales + packing + support (create orders, pack, ship, support notes)
+ *   viewer      → read-only (audit logs, reports, API code view)
  */
 import type { APIContext } from 'astro';
-import { env as cloudflareEnv } from 'cloudflare:workers';
 import { hashSessionToken } from './sessions';
 import { nowSql } from './dates';
 import { safeLog } from './pii-scrubber';
 import { writeAuditLog } from './audit';
 import { readStaffSessionCookie } from './staff-cookies';
+import { getEnv } from './env';
 
-export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'salesman' | 'packing' | 'support' | 'developer' | 'auditor';
+export type StaffRole = 'super_admin' | 'owner' | 'manager' | 'staff' | 'viewer';
 
 const VALID_STAFF_ROLES: ReadonlySet<string> = new Set<StaffRole>([
-  'super_admin', 'owner', 'manager', 'salesman', 'packing', 'support', 'developer', 'auditor'
+  'super_admin', 'owner', 'manager', 'staff', 'viewer'
 ]);
 
 export function isValidStaffRole(value: unknown): value is StaffRole {
@@ -106,12 +99,12 @@ const BUSINESS_OWNER_TIER: ReadonlySet<StaffRole> = new Set(['super_admin', 'own
  */
 export const PLATFORM_PERMS: ReadonlySet<Permission> = new Set([
   'platform.full_access',
-  'integrations.read', 'integrations.test', 'integrations.logs.read',
+  'integrations.test', 'integrations.logs.read',
   'api_keys.read', 'api_keys.create', 'api_keys.revoke', 'api_keys.delete',
   'api_code.update',
   'backups.restore',
   'webhooks.read', 'webhooks.update',
-  'settings.platform.update'
+  'settings.platform.read', 'settings.platform.update'
 ]);
 
 const MANAGER_PERMS: Permission[] = [
@@ -121,37 +114,26 @@ const MANAGER_PERMS: Permission[] = [
   'support.view', 'support.note', 'reports.view', 'payments.view'
 ];
 
-const SALESMAN_PERMS: Permission[] = [
-  'orders.view', 'orders.create', 'orders.update', 'support.note'
+// Staff merges former salesman + packing + support roles
+const STAFF_PERMS: Permission[] = [
+  'orders.view', 'orders.create', 'orders.update', 'orders.pack', 'orders.ship',
+  'support.view', 'support.note'
 ];
 
-const PACKING_PERMS: Permission[] = [
-  'orders.view', 'orders.pack', 'orders.ship'
-];
-
-const SUPPORT_PERMS: Permission[] = [
-  'support.view', 'support.note', 'orders.view'
-];
-
-// Developer: read-only API Code / Developer area only.
-const DEVELOPER_PERMS: Permission[] = [
-  'api_code.read'
-];
-
-// Auditor: read-only audit + reports.
-const AUDITOR_PERMS: Permission[] = [
-  'system.audit.view', 'reports.view'
+// Viewer merges former developer + auditor roles (read-only)
+const VIEWER_PERMS: Permission[] = [
+  'api_code.read', 'system.audit.view', 'reports.view'
 ];
 
 // Owner: business-level permissions (not platform-control)
 const OWNER_PERMS: Permission[] = [
-  'staff.manage', 'roles.manage', 'settings.manage',
+  'staff.manage', 'settings.manage',
   'system.audit.view', 'system.backup.manage',
   'products.manage', 'categories.manage', 'inventory.manage', 'inventory.adjust',
   'orders.view', 'orders.create', 'orders.update', 'orders.confirm', 'orders.cancel',
   'orders.pack', 'orders.ship', 'fraud.view', 'fraud.override', 'media.upload',
   'support.view', 'support.note', 'reports.view', 'payments.view', 'payments.verify', 'payments.refund',
-  'api_code.read', 'backups.read', 'backups.download',
+  'api_code.read',
   'integrations.read'
 ];
 
@@ -162,11 +144,8 @@ const PERMISSION_MATRIX: Record<StaffRole, ReadonlySet<Permission>> = {
   super_admin: new Set<Permission>(), // handled by isSuperAdmin short-circuit
   owner: new Set(OWNER_PERMS),
   manager: new Set(MANAGER_PERMS),
-  salesman: new Set(SALESMAN_PERMS),
-  packing: new Set(PACKING_PERMS),
-  support: new Set(SUPPORT_PERMS),
-  developer: new Set(DEVELOPER_PERMS),
-  auditor: new Set(AUDITOR_PERMS)
+  staff: new Set(STAFF_PERMS),
+  viewer: new Set(VIEWER_PERMS)
 };
 
 export class RbacError extends Error {
@@ -216,25 +195,31 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const locals = context.locals as App.Locals | undefined;
   if (locals?.staffUserResolved) return locals.staffUser ?? null;
 
-  const env = cloudflareEnv as { DB?: D1Database; SESSION_SECRET?: string; SESSION?: KVNamespace };
-  if (!env?.DB || !env.SESSION_SECRET) return null;
+  let fullEnv: any;
+  try {
+    fullEnv = getEnv(context);
+  } catch {
+    return null;
+  }
+  const db = fullEnv.DB as D1Database | undefined;
+  const sessionSecret = fullEnv.SESSION_SECRET as string | undefined;
+  const sessionKV = fullEnv.SESSION as KVNamespace | undefined;
+  if (!db || !sessionSecret) return null;
 
   const sessionToken = readStaffSessionCookie(context.request);
   if (!sessionToken) return null;
 
-  const tokenHash = await hashSessionToken(sessionToken, env.SESSION_SECRET);
+  const tokenHash = await hashSessionToken(sessionToken, sessionSecret);
   const now = nowSql();
 
   // Extract from KV when available (Task 5). D1 is still used for authoritative revocation/idle checks.
-  let kvCachedRole: string | null = null;
-  if (env.SESSION) {
+  if (sessionKV) {
     try {
-      const cached = await env.SESSION.get(`staff-session:${tokenHash}`, 'json') as any;
-      if (cached && cached.role && isValidStaffRole(cached.role)) kvCachedRole = cached.role;
+      sessionKV.get(`staff-session:${tokenHash}`, 'json') as any;
     } catch {}
   }
 
-  const row = await env.DB.prepare(
+  const row = await db.prepare(
     `SELECT s.id AS session_id, s.staff_user_id, u.role, u.full_name, s.last_active_at
      FROM staff_sessions s
      JOIN staff_users u ON u.id = s.staff_user_id
@@ -262,7 +247,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
       // Atomic idle-revoke. The guard `is_revoked = 0` makes this
       // idempotent: a second concurrent request sees 0 changes and
       // moves on.
-      const revoke = await env.DB.prepare(
+      const revoke = await db.prepare(
         `UPDATE staff_sessions
          SET is_revoked = 1, expires_at = ?2
          WHERE id = ?1 AND is_revoked = 0`,
@@ -271,9 +256,9 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
         // We won the race. Record the revocation event for the
         // session-blacklist mirror + audit log.
         try {
-          await env.DB.batch(
+          await db.batch(
             [
-              env.DB.prepare(
+              db.prepare(
                 `INSERT OR REPLACE INTO session_blacklist (token_hash, staff_user_id, revoked_at, expires_at)
                  SELECT ?1, staff_user_id, ?2, ?3 FROM staff_sessions WHERE id = ?4`,
               ).bind(tokenHash, now, nowSql(new Date(Date.now() + 8 * 60 * 60 * 1000)), row.session_id),
@@ -287,7 +272,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
         // Best-effort — the revoke has already committed. A failure here
         // is logged but does not block the response.
         try {
-          await writeAuditLog(env.DB, {
+          await writeAuditLog(db, {
             actorStaffId: row.staff_user_id,
             actorRole: row.role,
             action: 'staff.session.idle_revoked',
@@ -311,7 +296,7 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   // concurrent request, the guard causes 0 changes and we still return
   // the user (the revoke + our no-op refresh is benign; the next
   // request will hit the idle check or find is_revoked=1).
-  env.DB.prepare(
+  db.prepare(
     `UPDATE staff_sessions
      SET last_active_at = ?2, expires_at = ?3
      WHERE id = ?1 AND is_revoked = 0`,
@@ -338,8 +323,8 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   };
 
   // Cache to KV for subsequent extractions (Task 5)
-  if (env.SESSION) {
-    env.SESSION.put(
+  if (sessionKV) {
+    sessionKV.put(
       `staff-session:${tokenHash}`,
       JSON.stringify(staffUser),
       { expirationTtl: 30 * 60 }
@@ -385,22 +370,19 @@ export function assertManagerOrOwner(user: StaffUser): void {
   requireRole(user, ['super_admin', 'owner', 'manager']);
 }
 
-export function assertSalesAccess(user: StaffUser): void {
-  requireRole(user, ['super_admin', 'owner', 'manager', 'salesman']);
-}
-
-export function assertPackingAccess(user: StaffUser): void {
-  requireRole(user, ['super_admin', 'owner', 'manager', 'packing']);
-}
-
-export function assertSupportAccess(user: StaffUser): void {
-  requireRole(user, ['super_admin', 'owner', 'manager', 'support']);
+/** Staff-level access: super_admin, owner, manager, and staff roles */
+export function assertStaffAccess(user: StaffUser): void {
+  requireRole(user, ['super_admin', 'owner', 'manager', 'staff']);
 }
 
 /**
  * List of permissions granted to a role (for menu building / debugging).
+ * Super_admin gets all known permissions (business + platform).
  */
 export function permissionsFor(role: StaffRole): Permission[] {
-  if (SUPER_ADMIN_ONLY.has(role)) return ['platform.full_access'];
+  if (SUPER_ADMIN_ONLY.has(role)) {
+    const all = new Set<Permission>([...OWNER_PERMS, ...PLATFORM_PERMS]);
+    return Array.from(all);
+  }
   return Array.from(PERMISSION_MATRIX[role] ?? []);
 }

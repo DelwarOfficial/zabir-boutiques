@@ -363,7 +363,9 @@ export async function handleFraudAuditBatch(
       msg.ack();
     } catch (err) {
       safeLog.error("[fraud-audit-consumer] failed", { error: err instanceof Error ? err.message : String(err) });
-      // Per spec: 2x retry then auto-approve with review flag.
+      // After max_retries (2) are exhausted the message is routed to the
+      // dead-letter queue (fraud-audit-dlq) for replay/manual review rather
+      // than dropped, so the order is never silently stranded in pending_review.
       msg.retry({ delaySeconds: 2 });
     }
   }

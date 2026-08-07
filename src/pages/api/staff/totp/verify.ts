@@ -6,14 +6,14 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { verifyTotpCode } from '../../../../lib/totp';
-import { writeAuditLog } from '../../../../lib/audit';
+import { writeCriticalAuditLog } from '../../../../lib/audit';
 import { storeStaffTotpSecret } from '../../../../lib/otp-secrets';
 
 export async function POST(context: APIContext): Promise<Response> {
   let user;
   try {
     user = await requireAuth(context);
-    requireRole(user, ['owner']);
+    requireRole(user, ['owner', 'super_admin']);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
     throw err;
@@ -28,7 +28,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   await storeStaffTotpSecret(env.DB, user.id, body.secret, env);
 
-  await writeAuditLog(env.DB, {
+  await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: 'totp.enabled',

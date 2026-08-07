@@ -1,7 +1,7 @@
 import { AlertTriangle, ArrowRight, CheckCircle2, ChevronRight, Loader2, MapPin, Minus, Package, Plus, ShieldCheck, Sparkles, Trash2, Truck, User } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useLocalCart } from "../hooks/useLocalCart";
-import { applyOutOfStockUpdate } from "../lib/cart-store";
+import { applyOutOfStockUpdate, readCartSessionId } from "../lib/cart-store";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
 
@@ -12,9 +12,15 @@ type CheckoutStatus =
   | { type: "success"; orderNumber: string; redirectUrl?: string }
   | { type: "error"; code: string; message: string };
 
-const SHIPPING_COST: Record<DeliveryZone, Paisa> = {
-  inside_dhaka: 7000,
-  outside_dhaka: 13000,
+type StoredCoupon = {
+  code?: string;
+  discountPaisa?: number;
+};
+
+type CouponValidationResponse = {
+  ok?: boolean;
+  code?: string;
+  discountPaisa?: number;
 };
 
 type Step = 0 | 1 | 2 | 3;
@@ -25,7 +31,7 @@ const STEPS: Array<{ id: Step; label: string; icon: typeof User }> = [
   { id: 3, label: "Review", icon: Package },
 ];
 
-export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string }) {
+export function GuestCheckout({ turnstileSiteKey, insideDhakaPaisa, outsideDhakaPaisa }: { turnstileSiteKey?: string; insideDhakaPaisa?: number; outsideDhakaPaisa?: number }) {
   const cart = useLocalCart();
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
@@ -35,9 +41,49 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
   const [status, setStatus] = useState<CheckoutStatus>({ type: "idle" });
   const [step, setStep] = useState<Step>(0);
+  const [couponCode, setCouponCode] = useState("");
+  const [couponDiscount, setCouponDiscount] = useState(0);
+  const shippingCosts = useMemo<Record<DeliveryZone, Paisa>>(() => ({
+    inside_dhaka: (Number.isSafeInteger(insideDhakaPaisa) && insideDhakaPaisa! >= 0 ? insideDhakaPaisa! : 7000) as Paisa,
+    outside_dhaka: (Number.isSafeInteger(outsideDhakaPaisa) && outsideDhakaPaisa! >= 0 ? outsideDhakaPaisa! : 13000) as Paisa,
+  }), [insideDhakaPaisa, outsideDhakaPaisa]);
   const idempotencyKeyRef = useRef<string | null>(null);
   const turnstileRef = useRef<HTMLDivElement>(null);
   const turnstileWidgetId = useRef<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('zb-coupon');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as StoredCoupon;
+        if (parsed && parsed.code && typeof parsed.discountPaisa === 'number') {
+          setCouponCode(parsed.code);
+          setCouponDiscount(parsed.discountPaisa);
+        }
+      } catch {}
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!couponCode) return;
+    fetch('/api/checkout/validate-coupon', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: couponCode, subtotalPaisa: cart.subtotalPaisa })
+    })
+      .then(res => res.json() as Promise<CouponValidationResponse>)
+      .then(data => {
+        if (data.ok && typeof data.code === "string" && typeof data.discountPaisa === "number") {
+          setCouponDiscount(data.discountPaisa);
+          localStorage.setItem('zb-coupon', JSON.stringify({ code: data.code, discountPaisa: data.discountPaisa }));
+        } else {
+          setCouponCode("");
+          setCouponDiscount(0);
+          localStorage.removeItem('zb-coupon');
+        }
+      })
+      .catch(() => {});
+  }, [cart.subtotalPaisa, couponCode]);
 
   useEffect(() => {
     if (!turnstileSiteKey) return;
@@ -69,10 +115,10 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
   }, [turnstileSiteKey]);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
-  const shippingPaisa = SHIPPING_COST[zone];
-  const totalPaisa = addPaisa([cart.subtotalPaisa, shippingPaisa]);
-  const distinctItemCount = cart.items.length;
-  const prepaymentRequired = distinctItemCount > 2 && paymentMethod === "cod";
+  const shippingPaisa = shippingCosts[zone];
+  const totalPaisa = Math.max(0, addPaisa([cart.subtotalPaisa, shippingPaisa]) - couponDiscount);
+  const totalQuantity = cart.items.reduce((sum, i) => sum + i.quantity, 0);
+  const prepaymentRequired = totalQuantity > 2 && paymentMethod === "cod";
   const advancePaisa = prepaymentRequired ? ((totalPaisa + 1) >> 1) : 0;
 
   const contactValid = name.trim().length >= 2 && normalizedPhone.ok;
@@ -93,6 +139,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
 
         async function postCheckout(method: PaymentMethod | "partial_prepay") {
           const turnstile = turnstileWidgetId.current ? (window as any).turnstile?.getResponse(turnstileWidgetId.current) ?? "" : "";
+          const sessionId = readCartSessionId();
           return fetch("/api/checkout", {
             method: "POST",
             headers: {
@@ -100,15 +147,13 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
               "Idempotency-Key": idempotencyKey,
             },
             body: JSON.stringify({
-              cart: cart.items.map((item) => ({
-                variant_id: item.variantId,
-                quantity: item.quantity,
-              })),
+              session_id: sessionId,
               customer: {
                 name: name.trim(),
                 phone: phoneE164,
                 address: address.trim(),
               },
+              couponCode: couponCode || undefined,
               payment_method: method,
               shipping_zone: zone,
               turnstile,
@@ -161,6 +206,7 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
 
         idempotencyKeyRef.current = null;
         cart.clear();
+        localStorage.removeItem('zb-coupon');
         setStatus({ type: "success", orderNumber: payload.order_number || "Pending", redirectUrl: payload.checkout_url });
         if (payload.checkout_url) {
           window.setTimeout(() => { window.location.href = payload.checkout_url as string; }, 1500);
@@ -297,22 +343,22 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
               <fieldset>
                 <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Delivery Zone</legend>
                 <div className="grid grid-cols-2 gap-2 rounded-xl bg-[var(--surface-soft)] p-1">
-                  {[
-                    ["inside_dhaka", "Inside Dhaka", 7000],
-                    ["outside_dhaka", "Outside Dhaka", 13000],
-                  ].map(([value, label, price]) => (
+                  {([
+                    ["inside_dhaka", "Inside Dhaka"],
+                    ["outside_dhaka", "Outside Dhaka"],
+                  ] as const).map(([value, label]) => { const price = shippingCosts[value]; return (
                     <button
                       key={String(value)}
                       type="button"
                       onClick={() => setZone(value as DeliveryZone)}
                       className={`press tap-44 rounded-lg px-3 py-3 text-left text-sm font-bold transition ${
-                        zone === value ? "bg-[var(--surface)] text-[var(--brand)] shadow-sm" : "text-[var(--muted)]"
+                        zone === value ? "bg-[var(--surface)] text-[var(--brand)] shadow-sm" : "bg-[var(--surface-soft)] text-[var(--muted)]"
                       }`}
                     >
                       {label}
                       <span className="block text-xs font-bold tabular">{formatPaisa(price as Paisa)}</span>
                     </button>
-                  ))}
+                  )})}
                 </div>
               </fieldset>
               <div className="flex justify-between">
@@ -455,7 +501,13 @@ export function GuestCheckout({ turnstileSiteKey }: { turnstileSiteKey?: string 
           <div className="mt-4 space-y-1.5 border-t border-[var(--line)] pt-3 text-sm tabular">
             <div className="flex justify-between gap-3"><span className="text-[var(--muted)]">Subtotal</span><strong>{formatPaisa(cart.subtotalPaisa)}</strong></div>
             <div className="flex justify-between gap-3"><span className="text-[var(--muted)]">Shipping</span><strong>{formatPaisa(shippingPaisa)}</strong></div>
-            <div className="flex justify-between gap-3 border-t border-[var(--line)] pt-2 text-base"><span>Total</span><strong>{formatPaisa(totalPaisa)}</strong></div>
+            {couponDiscount > 0 && (
+              <div className="flex justify-between gap-3 text-[var(--success)] font-semibold">
+                <span>Discount ({couponCode})</span>
+                <span>-{formatPaisa(couponDiscount)}</span>
+              </div>
+            )}
+            <div className="flex justify-between gap-3 border-t border-[var(--line)] pt-2 text-base"><span>Total</span><strong className="text-[var(--brand-storefront)]">{formatPaisa(totalPaisa)}</strong></div>
           </div>
         </aside>
       </div>

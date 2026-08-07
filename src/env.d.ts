@@ -19,79 +19,78 @@ declare global {
   }
 }
 
-export type Env = {
-  DB: D1Database;
-  CACHE: KVNamespace;
-  SESSION: KVNamespace;
-  MEDIA: R2Bucket;
-  BACKUPS: R2Bucket;
-  LOGS?: R2Bucket;
-  EMAIL_TEMPLATES?: R2Bucket;
-  REPORTS?: R2Bucket;
-  // Master Plan §2.1 — Workers AI binding [Master_Prompt v7.0 §24.1]
-  AI: Ai;
-  TINIFY_API_KEY: string;
-  IMAGIFY_API_KEY?: string;
-  UDDOKTAPAY_API_KEY: string;
-  UDDOKTAPAY_BASE_URL: string;
-  UDDOKTAPAY_WEBHOOK_SECRET?: string;
-  SSLCOMMERZ_STORE_ID?: string;
-  SSLCOMMERZ_STORE_PASSWORD?: string;
-  SSLCOMMERZ_BASE_URL?: string;
-  SSLCOMMERZ_WEBHOOK_SECRET?: string;
-  TOTP_CIPHER_KEY?: string;
-  FRAUDBD_API_KEY: string;
-  DEEPSEEK_API_KEY: string;
-  DEEPSEEK_BASE_URL?: string;
-  OPENAI_API_KEY: string;
-  SESSION_SECRET: string;
-  API_KEY_PEPPER: string;
-  AUDIT_LEDGER_SECRET: string;
-  PASSWORD_PEPPER: string;
-  PUBLIC_SITE_URL: string;
-  PUBLIC_SITE_NAME: string;
-  VAT_RATE_PERCENT?: string;
-  // Master Plan §3.4 — Durable Objects (required in deployed Workers)
-  VARIANT_INVENTORY_DO: DurableObjectNamespace;
-  IDEMPOTENCY_DO: DurableObjectNamespace;
-  AI_BUDGET: DurableObjectNamespace;
-  WAF_RULES: DurableObjectNamespace;
-  CART_DO: DurableObjectNamespace;
-  DIRECT_CHECKOUT_DO: DurableObjectNamespace;
-  PROVIDER_HEALTH_DO: DurableObjectNamespace;
-  // Master Plan §3.5 — Queues (required in deployed Workers)
-  PAYMENT_WEBHOOKS: Queue;
-  ORDER_EMAILS: Queue;
-  IMAGE_PROCESSING: Queue;
-  FRAUD_AUDIT: Queue;
-  D1_BACKUP: Queue;
-  CART_ACTIVITY: Queue;
-  // Master Plan §17.2 — Analytics Engine
-  ANALYTICS: AnalyticsEngineDataset;
-  // Master_Prompt v7.0 §2.6 Turnstile
-  TURNSTILE_SITE_KEY?: string;
-  TURNSTILE_SECRET_KEY?: string;
-  ALLOW_DEV_PHONE_OTP?: string;
-  // Master_Prompt v7.0 §2.10 Email
-  RESEND_API_KEY?: string;
-  RESEND_FROM_EMAIL?: string;
-  EMAIL_PROVIDER?: 'resend' | 'cloudflare_email';
-  // POS invoice compliance (Bangladesh NBR SRO 198/Law/2015).
-  // Operator-supplied. Production deploy MUST set these via
-  // `wrangler secret put`; without them the printed receipt is missing
-  // the legal footer.
-  POS_BIN?: string; // 15-digit Business Identification Number
-  POS_TIN?: string; // 12-digit Taxpayer Identification Number
-  // Courier adapters (Master Plan §2.4)
-  PATHAO_CLIENT_ID?: string;
-  PATHAO_CLIENT_SECRET?: string;
-  PATHAO_BASE_URL?: string;
-  STEADFAST_API_KEY?: string;
-  STEADFAST_SECRET?: string;
-  STEADFAST_BASE_URL?: string;
-  REDX_API_TOKEN?: string;
-  REDX_BASE_URL?: string;
-};
+/**
+ * Augment Cloudflare.Env (used by `import { env } from "cloudflare:workers"`).
+ * Merges with the empty interface from @cloudflare/workers-types.
+ */
+declare global {
+  namespace Cloudflare {
+    interface Env {
+      DB: D1Database;
+      CACHE: KVNamespace;
+      SESSION: KVNamespace;
+      MEDIA: R2Bucket;
+      BACKUPS: R2Bucket;
+      LOGS?: R2Bucket;
+      EMAIL_TEMPLATES?: R2Bucket;
+      REPORTS?: R2Bucket;
+      AI: Ai;
+      TINIFY_API_KEY: string;
+      IMAGIFY_API_KEY?: string;
+      UDDOKTAPAY_API_KEY: string;
+      UDDOKTAPAY_BASE_URL: string;
+      UDDOKTAPAY_WEBHOOK_SECRET?: string;
+      SSLCOMMERZ_STORE_ID?: string;
+      SSLCOMMERZ_STORE_PASSWORD?: string;
+      SSLCOMMERZ_BASE_URL?: string;
+      SSLCOMMERZ_WEBHOOK_SECRET?: string;
+      TOTP_CIPHER_KEY?: string;
+      FRAUDBD_API_KEY: string;
+      DEEPSEEK_API_KEY: string;
+      DEEPSEEK_BASE_URL?: string;
+      OPENAI_API_KEY: string;
+      SESSION_SECRET: string;
+      API_KEY_PEPPER: string;
+      AUDIT_LEDGER_SECRET: string;
+      PASSWORD_PEPPER: string;
+      PUBLIC_SITE_URL: string;
+      PUBLIC_SITE_NAME: string;
+      VAT_RATE_PERCENT?: string;
+      VARIANT_INVENTORY_DO: DurableObjectNamespace;
+      IDEMPOTENCY_DO: DurableObjectNamespace;
+      AI_BUDGET: DurableObjectNamespace;
+      WAF_RULES: DurableObjectNamespace;
+      CART_DO: DurableObjectNamespace;
+      DIRECT_CHECKOUT_DO: DurableObjectNamespace;
+      PROVIDER_HEALTH_DO: DurableObjectNamespace;
+      PAYMENT_WEBHOOKS: Queue;
+      ORDER_EMAILS: Queue;
+      IMAGE_PROCESSING: Queue;
+      FRAUD_AUDIT: Queue;
+      D1_BACKUP: Queue;
+      CART_ACTIVITY: Queue;
+      ANALYTICS: AnalyticsEngineDataset;
+      TURNSTILE_SITE_KEY?: string;
+      TURNSTILE_SECRET_KEY?: string;
+      ALLOW_DEV_PHONE_OTP?: string;
+      RESEND_API_KEY?: string;
+      RESEND_FROM_EMAIL?: string;
+      EMAIL_PROVIDER?: 'resend' | 'cloudflare_email';
+      POS_BIN?: string;
+      POS_TIN?: string;
+      PATHAO_CLIENT_ID?: string;
+      PATHAO_CLIENT_SECRET?: string;
+      PATHAO_BASE_URL?: string;
+      STEADFAST_API_KEY?: string;
+      STEADFAST_SECRET?: string;
+      STEADFAST_BASE_URL?: string;
+      REDX_API_TOKEN?: string;
+      REDX_BASE_URL?: string;
+    }
+  }
+}
+
+export type Env = Cloudflare.Env;
 
 declare global {
   interface Window {

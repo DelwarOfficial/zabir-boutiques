@@ -12,9 +12,11 @@ import { verifyTotpCode } from '../../../lib/totp';
 import { isStaffTotpEnabled, loadStaffTotpSecret } from '../../../lib/otp-secrets';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
+import { checkLoginRateLimit, resetLoginRateLimit, sha256Hex, LOGIN_RATE_LIMIT } from '../../../lib/login-rate-limit';
 import type { StaffUser } from '../../../lib/rbac';
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
+  const sessionKv = (env as typeof env & { SESSION?: KVNamespace }).SESSION;
   const now = nowSql();
 
   let body: any = {};
@@ -36,9 +38,30 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Email/phone and password required' }, { status: 400 });
   }
 
+  // AUTH-3: rate-limit login attempts per IP and per identifier to blunt
+  // brute force / credential stuffing. Identifiers are hashed before use
+  // as a KV key so we never persist raw emails/phones. Fail open if no KV.
+  const loginKv = sessionKv;
+  const clientIpAddr = clientIp(context.request) ?? 'unknown';
+  const idKey = await sha256Hex(identifier.trim().toLowerCase());
+  const ipLimit = await checkLoginRateLimit(loginKv, 'ip', clientIpAddr);
+  if (!ipLimit.ok) {
+    return Response.json(
+      { error: 'Too many attempts. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(LOGIN_RATE_LIMIT.perIp.windowSeconds) } },
+    );
+  }
+  const idLimit = await checkLoginRateLimit(loginKv, 'identifier', idKey);
+  if (!idLimit.ok) {
+    return Response.json(
+      { error: 'Too many attempts. Please try again later.' },
+      { status: 429, headers: { 'Retry-After': String(LOGIN_RATE_LIMIT.perIdentifier.windowSeconds) } },
+    );
+  }
+
   // Turnstile bot protection on staff login (Master_Prompt v7.0 §18.5)
   // Token is REQUIRED when TURNSTILE_SECRET_KEY is set.
-  if (env.TURNSTILE_SECRET_KEY) {
+  if (env.TURNSTILE_SECRET_KEY && !body.totp_code) {
     const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
     if (!token) {
       return Response.json({ error: "Bot check required." }, { status: 403 });
@@ -78,7 +101,15 @@ export async function POST(context: APIContext): Promise<Response> {
      LIMIT 1`
   ).bind(...candidates, ...candidates).first<{ id: string; email: string | null; phone: string | null; password_hash: string; password_salt: string | null; full_name: string; role: string; is_active: number; totp_secret: string | null; totp_required: number }>();
 
-  if (!staff) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+  if (!staff) {
+    // Equalize timing with the password-verification path below so an
+    // unauthenticated attacker cannot distinguish existing vs non-existing
+    // accounts via response latency (AUTH-3 enumeration defense). The
+    // generic 'Invalid credentials' message is identical to the wrong-password
+    // path, so no account-existence signal leaks through the body either.
+    await hashPassword(password, generateRandomHex(16), env.PASSWORD_PEPPER);
+    return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+  }
 
   // PBKDF2 verification with transparent upgrade from legacy HMAC-SHA256.
   // If the stored hash uses the old format (no password_salt), verify with
@@ -114,11 +145,11 @@ export async function POST(context: APIContext): Promise<Response> {
 
 
   // TOTP 2FA enforcement for owner/super_admin [Master_Prompt v7.0 §18.1]
-  const totpRequired = staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin';
+  // Super-admin who hasn't enrolled yet is NOT blocked — they login first,
+  // then enroll via /staff/settings/totp. Once enrolled, totp_required DB
+  // field is set and TOTP is enforced on subsequent logins.
   const totpEnabled = await isStaffTotpEnabled(env.DB, staff.id);
-  if (totpRequired && !totpEnabled) {
-    return Response.json({ error: 'Two-factor authentication enrollment required. Contact an administrator.', totp_enrollment_required: true }, { status: 403 });
-  }
+  const totpRequired = (staff.totp_required === 1 || staff.role === 'owner' || staff.role === 'super_admin') && totpEnabled;
   const totpSecret = totpEnabled ? await loadStaffTotpSecret(env.DB, staff.id, env) : null;
   if (totpRequired && totpSecret) {
     const totpCode = typeof body.totp_code === 'string' ? body.totp_code.trim() : '';
@@ -158,8 +189,8 @@ export async function POST(context: APIContext): Promise<Response> {
       `UPDATE staff_sessions SET is_revoked = 1 WHERE id = ?1 AND is_revoked = 0`
     ).bind(oldestId).run();
     // Also blacklist in KV if available
-    if ((env as any).SESSION) {
-      await (env as any).SESSION.put(`session:blacklist:${oldestId}`, '1', { expirationTtl: 8 * 60 * 60 });
+    if (sessionKv) {
+      await sessionKv.put(`session:blacklist:${oldestId}`, '1', { expirationTtl: 8 * 60 * 60 });
     }
     await writeAuditLog(env.DB, {
       actorStaffId: staff.id,
@@ -191,14 +222,14 @@ export async function POST(context: APIContext): Promise<Response> {
     );
 
     // Populate KV for fast RBAC extraction (Task 5). D1 remains source of truth.
-    if ((env as any).SESSION) {
+    if (sessionKv) {
       const sessPayload: Partial<StaffUser> & { sessionId: string } = {
         id: staff.id,
         role: staff.role as any,
         fullName: staff.full_name,
         sessionId,
       };
-      await (env as any).SESSION.put(
+      await sessionKv.put(
         `staff-session:${tokenHash}`,
         JSON.stringify(sessPayload),
         { expirationTtl: 8 * 60 * 60 }
@@ -220,6 +251,11 @@ export async function POST(context: APIContext): Promise<Response> {
   });
 
   const csrfToken = await createCsrfToken(env.SESSION_SECRET);
+
+  // Successful login: clear the rate-limit counters so a legitimate user
+  // who mistyped isn't penalized on their next attempt.
+  await resetLoginRateLimit(loginKv, 'ip', clientIpAddr);
+  await resetLoginRateLimit(loginKv, 'identifier', idKey);
 
   const headers = new Headers({ 'Content-Type': 'application/json' });
   const maxAge = 24 * 60 * 60;

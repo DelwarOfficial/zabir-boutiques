@@ -4,7 +4,6 @@ import { requireAuth, assertSuperAdminOnly, requirePermission, RbacError } from 
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateApiKey, hashApiKey, normalizeApiKeyScopes, ApiKeyError, API_KEY_SCOPES } from '../../../../lib/api-keys';
 import { nowSql } from '../../../../lib/dates';
-import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 
 export async function GET(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -46,10 +45,8 @@ export async function POST(context: APIContext): Promise<Response> {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
     requirePermission(user, 'api_keys.create');
-    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
-    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 
@@ -123,10 +120,8 @@ export async function DELETE(context: APIContext): Promise<Response> {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
     requirePermission(user, 'api_keys.revoke');
-    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
-    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

@@ -207,10 +207,10 @@ export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise
   const expired = await db.prepare(
     `SELECT id, variant_id, quantity FROM stock_reservations
      WHERE status = 'active'
-       AND created_at < datetime('now', '-15 minutes')
+       AND expires_at < ?2
        AND release_requested_at IS NULL
-      LIMIT ?1`
-  ).bind(maxRows).all<{ id: string; variant_id: string; quantity: number }>();
+    LIMIT ?1`
+  ).bind(maxRows, now).all<{ id: string; variant_id: string; quantity: number }>();
 
   const rows = expired.results ?? [];
   if (rows.length === 0) return;
@@ -260,8 +260,18 @@ export async function confirmReservedVariants(
 ): Promise<{ ok: true } | { ok: false; failedVariantId: string }> {
   if (items.length === 0) return { ok: true };
   const db = env.DB;
-  const deductStmts = items.flatMap((item) => {
-    const stmts = [
+  // Build the batched statements while recording the flat index of each
+  // item's inventory-deduct statement. The batch is interleaved (inventory
+  // stmt, then an optional reservation stmt), so per-item indices must be
+  // tracked explicitly — a fixed `index * (reservationId ? 2 : 1)` stride
+  // is wrong when items have mixed reservationId presence (INV-2: it could
+  // read the wrong statement's result, masking a failed deduction or
+  // reporting a false failure).
+  const inventoryStmtIndex: number[] = [];
+  const deductStmts: ReturnType<typeof db.prepare>[] = [];
+  for (const item of items) {
+    inventoryStmtIndex.push(deductStmts.length);
+    deductStmts.push(
       db.prepare(
         `UPDATE inventory_items
          SET reserved_quantity = reserved_quantity - ?1,
@@ -269,9 +279,9 @@ export async function confirmReservedVariants(
              updated_at = ?3
          WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
       ).bind(item.qty, item.variantId, now),
-    ];
+    );
     if (item.reservationId) {
-      stmts.push(
+      deductStmts.push(
         db.prepare(
           `UPDATE stock_reservations
            SET status = 'confirmed', updated_at = ?2
@@ -279,13 +289,11 @@ export async function confirmReservedVariants(
         ).bind(item.reservationId, now),
       );
     }
-    return stmts;
-  });
+  }
   const results = await db.batch(deductStmts, { atomic: true });
-  const failedIndex = items.findIndex((item, index) => {
-    const inventoryResult = results[index * (item.reservationId ? 2 : 1)];
-    return inventoryResult?.meta.changes !== 1;
-  });
+  const failedIndex = inventoryStmtIndex.findIndex(
+    (stmtIndex) => results[stmtIndex]?.meta.changes !== 1,
+  );
   if (failedIndex === -1) {
     await syncConfirmedReservationsDoState(env, items);
     return { ok: true };

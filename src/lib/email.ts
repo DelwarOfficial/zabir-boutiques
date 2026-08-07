@@ -113,6 +113,60 @@ export async function sendTransactionalEmail(
   }
 }
 
+type PasswordResetEmailPayload = {
+  to: string;
+  fullName: string;
+  resetLink: string;
+};
+
+export async function sendPasswordResetEmail(
+  env: { DB: D1Database; EMAIL_PROVIDER?: string; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string; PUBLIC_SITE_URL?: string },
+  payload: PasswordResetEmailPayload,
+): Promise<{ ok: boolean; id?: string; error?: string }> {
+  const provider = getEmailProvider(env);
+  const messageId = crypto.randomUUID();
+  const now = new Date().toISOString().replace("T", " ").slice(0, 19);
+  const subject = "Reset your Zabir Boutiques staff password";
+  const html = `<h1>Password reset requested</h1>
+<p>Hi ${payload.fullName},</p>
+<p>A password reset was requested for your Zabir Boutiques staff account.</p>
+<p style="margin:1.5rem 0;"><a href="${payload.resetLink}" style="display:inline-block;padding:0.65rem 1.5rem;background:#b8860b;color:#fff;text-decoration:none;border-radius:8px;font-weight:600;">Reset password</a></p>
+<p>This link expires in <strong>1 hour</strong>.</p>
+<p>If you didn't request this password reset, you can safely ignore this email — your password won't change.</p>
+<p>— Zabir Boutiques Staff</p>`;
+
+  try {
+    const result = await provider.sendEmail({
+      to: [payload.to],
+      from_name: "Zabir Boutiques",
+      subject,
+      html,
+      tags: ["password_reset"],
+      custom_args: { email_type: "password_reset" },
+      message_id: messageId,
+    });
+    await env.DB.prepare(
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
+       VALUES (?1, NULL, 'password_reset', ?2, ?3, ?4, ?5, ?6)`,
+    ).bind(
+      messageId,
+      payload.to,
+      result.status,
+      result.status === 'sent' ? now : null,
+      result.error_code ?? null,
+      now,
+    ).run();
+    return { ok: result.accepted, id: result.provider_message_id, error: result.error_code };
+  } catch (err) {
+    const error = err instanceof Error ? err.message : 'unknown';
+    await env.DB.prepare(
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
+       VALUES (?1, NULL, 'password_reset', ?2, 'failed', NULL, ?3, ?4)`,
+    ).bind(messageId, payload.to, error, now).run();
+    return { ok: false, error };
+  }
+}
+
 export async function sendAbandonedCartEmail(
   env: { DB: D1Database; EMAIL_PROVIDER?: string; RESEND_API_KEY?: string; RESEND_FROM_EMAIL?: string },
   payload: AbandonedCartEmail,

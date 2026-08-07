@@ -11,9 +11,18 @@ export function getStaticPaths() {
 
 const { category } = Astro.props;
 const activeFilter = Astro.url.searchParams.get("filter") || category.slug;
-const products = productsForCatalogCategory(activeFilter);
+const rawProducts = productsForCatalogCategory(activeFilter);
 
-// JSON-LD ItemList schema [Master_Prompt v7.0 §20.2]
+// Sort logic
+const sortBy = Astro.url.searchParams.get("sort") || "newest";
+let products = [...rawProducts];
+if (sortBy === "price_asc") {
+  products.sort((a, b) => a.pricePaisa - b.pricePaisa);
+} else if (sortBy === "price_desc") {
+  products.sort((a, b) => b.pricePaisa - a.pricePaisa);
+}
+
+// JSON-LD ItemList schema
 const site = Astro.site?.origin ?? 'https://zabirboutiques.com';
 const itemListSchema = {
   "@context": "https://schema.org",
@@ -21,7 +30,7 @@ const itemListSchema = {
   "name": category.name,
   "description": `${category.name} collection at Zabir Boutiques`,
   "numberOfItems": products.length,
-  "itemListElement": products.slice(0, 20).map((product, index) => ({
+  "itemListElement": products.slice(0, 24).map((product, index) => ({
     "@type": "ListItem",
     "position": index + 1,
     "item": {
@@ -55,14 +64,41 @@ const breadcrumbSchema = {
     <script type="application/ld+json" set:html={JSON.stringify(breadcrumbSchema)} />
   </Fragment>
 
-  <section class="py-2">
-    <p class="text-xs font-black uppercase tracking-[0.2em] text-[var(--brand)]">Category</p>
-    <h1 class="mt-1 text-3xl font-black">{category.name}</h1>
+  <nav class="text-[11px] uppercase tracking-[0.18em] font-bold text-[var(--muted)]" aria-label="Breadcrumb">
+    <a href="/" class="hover:text-[var(--brand-storefront)]">Home</a> <span class="mx-1">/</span>
+    <span class="text-[var(--ink-storefront)]">{category.name}</span>
+  </nav>
+
+  <section class="py-4 border-b border-[var(--border-storefront)]">
+    <p class="text-[10px] font-black uppercase tracking-[0.25em] text-[var(--brand-storefront)]">Category</p>
+    <h1 class="mt-1 text-3xl font-black text-[var(--ink-storefront)]">{category.name}</h1>
     <p class="mt-2 text-sm leading-6 text-[var(--muted)]">{category.subcategories.map((item) => item.name).join(" · ")}</p>
   </section>
 
-  <section class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
-    {/* Island budget: max 3 cards (3×AddToCart + Header + BottomNav = 5) */}
-    {(products.length ? products : productsForCatalogCategory(category.slug)).slice(0, 3).map((product) => <ProductCard product={product} />)}
+  <!-- Filters & Sort header -->
+  <section class="my-6 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div class="flex items-center gap-2 text-xs font-semibold text-[var(--muted)]">
+      <span>Showing {Math.min(products.length, 24)} of {products.length} products</span>
+    </div>
+
+    <!-- Simple client-side sorting reload -->
+    <div class="flex items-center gap-2">
+      <label for="sort-select" class="text-xs font-bold text-[var(--muted)] uppercase tracking-wider">Sort:</label>
+      <select 
+        id="sort-select" 
+        onchange="const u = new URL(location); u.searchParams.set('sort', this.value); location.href = u.search;"
+        class="h-9 px-3 text-xs font-bold rounded-lg border border-[var(--border-storefront)] bg-[var(--surface-storefront)] text-[var(--ink-storefront-secondary)] outline-none focus:border-[var(--brand-storefront)] cursor-pointer"
+      >
+        <option value="newest" selected={sortBy === "newest"}>Newest</option>
+        <option value="price_asc" selected={sortBy === "price_asc"}>Price: Low to High</option>
+        <option value="price_desc" selected={sortBy === "price_desc"}>Price: High to Low</option>
+      </select>
+    </div>
+  </section>
+
+  <section class="mt-4 grid grid-cols-2 gap-3.5 sm:grid-cols-3 lg:grid-cols-4">
+    {(products.length ? products : productsForCatalogCategory(category.slug))
+      .slice(0, 24)
+      .map((product) => <ProductCard product={product} />)}
   </section>
 </RootLayout>

@@ -48,7 +48,7 @@ describe('PWA storefront wiring', () => {
   });
 
   it('allows service workers in CSP', () => {
-    expect(read('src/middleware.ts')).toContain("worker-src 'self'");
+    expect(read('src/lib/security/csp.ts')).toContain("worker-src 'self'");
   });
 });
 

@@ -34,10 +34,10 @@ export function useLocalCart() {
       const existing = current.find((cartItem) => cartItem.variantId === item.variantId);
       const next = existing
         ? current.map((cartItem) =>
-            cartItem.variantId === item.variantId
-              ? { ...cartItem, quantity: cartItem.quantity + item.quantity, availableQuantity: item.availableQuantity }
-              : cartItem
-          )
+          cartItem.variantId === item.variantId
+            ? { ...cartItem, quantity: cartItem.quantity + item.quantity, availableQuantity: item.availableQuantity }
+            : cartItem
+        )
         : [...current, item];
       writeCart(next);
       syncCartToServer("add", { variantId: item.variantId, quantity: item.quantity });

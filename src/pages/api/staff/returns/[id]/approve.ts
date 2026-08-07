@@ -1,28 +1,18 @@
-/**
- * POST /api/staff/returns/{id}/approve [Master_Prompt v7.0 §7.2]
- * Approve a return. Restock items + trigger UddoktaPay refund for
- * prepaid amounts. RBAC: payments.refund.
- *
- * Safety properties (P0-002 audit fix):
- *  - Idempotency is enforced by payment_events UNIQUE(invoice_id, event_type, status).
- *    A replay of this endpoint cannot fire a second UddoktaPay refund call.
- *  - Refund amount is capped at the original payment amount and is a
- *    non-negative integer paisa value.
- *  - The order state machine is driven to 'returned' and then to
- *    'refunded' on the same code path, with order_status_history rows
- *    written for each transition.
- *  - payments.status is updated to 'refunded' (or 'partially_refunded')
- *    alongside the gateway call.
- */
 import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { nowSql } from "../../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";
-import { writeAuditLog, clientIp, userAgent } from "../../../../../lib/audit";
+import { prepareAuditLogInsert, clientIp, userAgent } from "../../../../../lib/audit";
 import { canTransition } from "../../../../../lib/order-state-machine";
-import { doSyncFromD1 } from "../../../../../lib/do-client";
+import { doAdjustStock } from "../../../../../lib/do-client";
 import { verifyUddoktaPayment } from "../../../../../lib/payments";
 import { UddoktaPayClient } from "../../../../../lib/integrations/uddoktapay";
+import { safeLog } from "../../../../../lib/pii-scrubber";
+
+interface ReturnItem {
+  variant_id: string;
+  quantity: number;
+}
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -34,6 +24,7 @@ export async function POST(context: APIContext): Promise<Response> {
     if (err instanceof RbacError) return err.toResponse();
     throw err instanceof Error ? err : new Error(String(err));
   }
+
   const id = context.params.id;
   if (!id) return Response.json({ ok: false, code: "MISSING_ID" }, { status: 400 });
 
@@ -56,58 +47,123 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: "INVALID_ORDER_TRANSITION", current: order.status }, { status: 409 });
   }
 
-  // Restock: for each item, increment inventory_items.quantity.
-  const items = JSON.parse(rr.items_json) as Array<{ variant_id: string; quantity: number }>;
-  if (items.length > 0) {
-    const stmts = items.map((it) =>
-      env.DB
-        .prepare(
-          `UPDATE inventory_items
-           SET quantity = quantity + ?1, updated_at = ?2
-           WHERE variant_id = ?3`,
-        )
-        .bind(it.quantity, now, it.variant_id),
-    );
-    await env.DB.batch(stmts, { atomic: true });
-    for (const it of items) {
-      await env.DB
-        .prepare(
-          `INSERT INTO stock_adjustments (id, variant_id, delta, reason, adjusted_by, created_at)
-           VALUES (?1, ?2, ?3, 'return_approved', ?4, ?5)`,
-        )
-        .bind(crypto.randomUUID(), it.variant_id, it.quantity, user.id, now)
-        .run();
-    }
-    if (env.VARIANT_INVENTORY_DO) {
-      for (const it of items) {
-        const row = await env.DB
-          .prepare("SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?1")
-          .bind(it.variant_id)
-          .first<{ quantity: number; reserved_quantity: number; sold_quantity: number }>();
-        if (row) await doSyncFromD1(env, it.variant_id, row.quantity, row.reserved_quantity, row.sold_quantity);
+  let items: ReturnItem[];
+  try {
+    items = JSON.parse(rr.items_json) as ReturnItem[];
+  } catch {
+    return Response.json({ ok: false, code: "INVALID_RETURN_ITEMS" }, { status: 500 });
+  }
+  if (!Array.isArray(items) || items.length === 0) {
+    return Response.json({ ok: false, code: "EMPTY_RETURN_ITEMS" }, { status: 400 });
+  }
+
+  // ── RET-1: reconcile returned items against canonical order_items ──────
+  // Never trust the stored items_json for quantity authority. Recalculate
+  // from order_items and enforce (a) variant belongs to the order,
+  // (b) qty is a positive integer, (c) cumulative approved qty ≤ purchased.
+  const orderItems = await env.DB
+    .prepare("SELECT variant_id, quantity, unit_price_paisa FROM order_items WHERE order_id = ?1")
+    .bind(rr.order_id)
+    .all<{ variant_id: string; quantity: number; unit_price_paisa: number }>();
+  const purchased = new Map<string, { qty: number; unit: number }>();
+  for (const oi of orderItems.results ?? []) {
+    purchased.set(oi.variant_id, { qty: oi.quantity, unit: oi.unit_price_paisa });
+  }
+
+  const priorReturns = await env.DB
+    .prepare(
+      "SELECT items_json, status FROM return_requests WHERE order_id = ?1 AND id != ?2 AND status IN ('approved','completed')",
+    )
+    .bind(rr.order_id, id)
+    .all<{ items_json: string; status: string }>();
+  const alreadyReturned = new Map<string, number>();
+  for (const pr of priorReturns.results ?? []) {
+    try {
+      const pri = JSON.parse(pr.items_json) as ReturnItem[];
+      for (const it of pri) {
+        if (it && typeof it.variant_id === "string" && Number.isSafeInteger(it.quantity) && it.quantity > 0) {
+          alreadyReturned.set(it.variant_id, (alreadyReturned.get(it.variant_id) ?? 0) + it.quantity);
+        }
       }
+    } catch {
+      // Malformed prior return is ignored for the cap calc; audited separately.
     }
   }
 
-  // Refund: query UddoktaPay for the most recent payment on this order.
-  // The refund is gated by a payment_events UNIQUE claim on
-  // (invoice_id, 'refund', 'refunded') so a replay cannot double-fire.
+  // ── RET-1 + RET-2: validate items and compute the item-based refund ────
+  const priorRefundSum = await env.DB
+    .prepare(
+      "SELECT COALESCE(SUM(refund_amount_paisa), 0) AS total FROM return_requests WHERE order_id = ?1 AND id != ?2 AND status IN ('approved','completed')",
+    )
+    .bind(rr.order_id, id)
+    .first<{ total: number }>();
+  const alreadyRefunded = priorRefundSum?.total ?? 0;
+
   const payment = await env.DB
     .prepare("SELECT id, invoice_id, amount_paisa, status FROM payments WHERE order_id = ?1 ORDER BY created_at DESC LIMIT 1")
     .bind(rr.order_id)
     .first<{ id: string; invoice_id: string; amount_paisa: number; status: string }>();
-  let refundAmount = 0;
+  const paymentAmount = payment?.amount_paisa ?? 0;
 
-  if (payment && payment.status === "paid") {
-    // Re-verify the payment is actually settled on the gateway side.
+  const evaluation = evaluateReturnRequest({
+    items,
+    purchased,
+    alreadyReturned,
+    paymentAmount,
+    alreadyRefunded,
+  });
+  if (!evaluation.ok) {
+    const status = evaluation.code === "INVALID_RETURN_QUANTITY" ? 400 : 409;
+    return Response.json({ ok: false, code: evaluation.code }, { status });
+  }
+  const refundAmount = evaluation.refundAmount;
+
+  // ── RET-3: commit the approval FIRST (single winner) so concurrent / ────
+  // replayed approvals cannot double-restock. Restock below is also made
+  // idempotent via a deterministic stock_adjustments id.
+  const transition = await env.DB
+    .prepare(
+      "UPDATE return_requests SET status = 'approved', refund_amount_paisa = ?2, reviewed_by = ?3, updated_at = ?4 WHERE id = ?1 AND status = 'pending'",
+    )
+    .bind(id, refundAmount, user.id, now)
+    .run();
+  if (transition.meta.changes !== 1) {
+    return Response.json({ ok: true, code: "ALREADY_PROCESSED", refund_paisa: refundAmount, status: "approved" }, { status: 200 });
+  }
+
+  // Restock (idempotent per variant via stable adjustment id).
+  for (const item of items) {
+    const result = await doAdjustStock(
+      env,
+      item.variant_id,
+      item.quantity,
+      "return_approved",
+      user.id,
+      undefined,
+      `return:${id}:${item.variant_id}`,
+    );
+    if (!result.ok) {
+      safeLog.error("[returns/approve] Restock failed via DO", { variantId: item.variant_id, error: result.error });
+      await env.DB
+        .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+        .bind(id)
+        .run();
+      return Response.json({ ok: false, code: "RESTOCK_FAILED", error: result.error }, { status: 409 });
+    }
+  }
+
+  // Refund via payment provider when a paid payment exists and amount > 0.
+  let refundPaid = 0;
+  if (payment && payment.status === "paid" && refundAmount > 0) {
     const verified = await verifyUddoktaPayment(payment.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
     if (verified.status !== "paid") {
+      await env.DB
+        .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+        .bind(id)
+        .run();
       return Response.json({ ok: false, code: "REFUND_FAILED_PAYMENT_UNVERIFIED" }, { status: 409 });
     }
 
-    // Idempotency claim. If another instance of this handler has already
-    // claimed the refund, the INSERT OR IGNORE returns 0 changes and we
-    // skip the gateway call entirely.
     const refundClaim = await env.DB
       .prepare(
         `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
@@ -117,14 +173,6 @@ export async function POST(context: APIContext): Promise<Response> {
       .run();
 
     if (refundClaim.meta.changes === 1) {
-      // We won the claim. Cap refund at the original payment amount and
-      // assert it's a valid non-negative integer paisa value.
-      const requestedRefund = payment.amount_paisa;
-      if (!Number.isSafeInteger(requestedRefund) || requestedRefund < 0) {
-        return Response.json({ ok: false, code: "REFUND_AMOUNT_INVALID" }, { status: 500 });
-      }
-      refundAmount = Math.min(requestedRefund, payment.amount_paisa);
-
       try {
         const refund = await new UddoktaPayClient(env).refundPayment({
           invoiceId: payment.invoice_id,
@@ -132,98 +180,123 @@ export async function POST(context: APIContext): Promise<Response> {
           reason: "return_approved",
         });
         if (!refund.ok) {
-          // Roll back the claim so a retry can try again.
+          await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
           await env.DB
-            .prepare(
-              `DELETE FROM payment_events WHERE payment_id = ?1 AND invoice_id = ?2 AND event_type = 'refund' AND status = 'refunded' AND created_at = ?3`,
-            )
-            .bind(payment.id, payment.invoice_id, now)
+            .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+            .bind(id)
             .run();
-          return Response.json({ ok: false, code: "REFUND_API_FAILED", status: refund.errorCode ?? 'REFUND_FAILED' }, { status: 502 });
+          return Response.json({ ok: false, code: "REFUND_API_FAILED", status: refund.errorCode ?? "REFUND_FAILED" }, { status: 502 });
         }
-        // Mark the payment refunded so future return requests on the
-        // same order can short-circuit.
         await env.DB
-          .prepare(
-            `UPDATE payments SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'paid'`,
-          )
+          .prepare("UPDATE payments SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'paid'")
           .bind(payment.id, now)
           .run();
+        refundPaid = refundAmount;
       } catch (err) {
+        await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
         await env.DB
-          .prepare(
-            `DELETE FROM payment_events WHERE payment_id = ?1 AND invoice_id = ?2 AND event_type = 'refund' AND status = 'refunded' AND created_at = ?3`,
-          )
-          .bind(payment.id, payment.invoice_id, now)
+          .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+          .bind(id)
           .run();
         return Response.json({ ok: false, code: "REFUND_API_ERROR", error: err instanceof Error ? err.message : "unknown" }, { status: 502 });
       }
-    } else {
-      // Another handler already claimed. Re-read the actual refunded amount
-      // and return success without re-firing the gateway.
-      const priorClaim = await env.DB
-        .prepare(
-          `SELECT created_at FROM payment_events WHERE payment_id = ?1 AND event_type = 'refund' AND status = 'refunded' LIMIT 1`,
-        )
-        .bind(payment.id)
-        .first<{ created_at: string }>();
-      refundAmount = payment.amount_paisa;
-      void priorClaim;
     }
   }
 
-  // Drive the order state machine: delivered -> returned -> refunded.
-  // P1-001 audit fix: wrap the 5 post-refund statements in a single
-  // atomic batch. The state machine + history rows either all commit
-  // or all roll back. A retry of the return id returns ALREADY_PROCESSED
-  // and so the operator cannot manually retry a partial state.
   const fromStatus = order.status;
-  const stateMachineBatch = await env.DB.batch(
-    [
-      env.DB
-        .prepare(
-          `UPDATE return_requests SET status = 'approved', refund_amount_paisa = ?2, reviewed_by = ?3, updated_at = ?4 WHERE id = ?1`,
-        )
-        .bind(id, refundAmount, user.id, now),
-      env.DB
-        .prepare(
-          `UPDATE orders SET status = 'returned', updated_at = ?2 WHERE id = ?1 AND status = ?3`,
-        )
-        .bind(rr.order_id, now, fromStatus),
-      env.DB
-        .prepare(
-          `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
-           VALUES (?1, ?2, ?3, 'returned', ?4, ?5)`,
-        )
-        .bind(crypto.randomUUID(), rr.order_id, fromStatus, user.id, now),
-      env.DB
-        .prepare(
-          `UPDATE orders SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'returned'`,
-        )
-        .bind(rr.order_id, now),
-      env.DB
-        .prepare(
-          `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
-           VALUES (?1, ?2, 'returned', 'refunded', ?3, ?4)`,
-        )
-        .bind(crypto.randomUUID(), rr.order_id, user.id, now),
-    ],
-    { atomic: true },
-  );
-  // Reference the result so the variable is "used" — Vite/esbuild will
-  // tree-shake the call otherwise. The atomicity guarantee is the
-  // value, not the response.
-  void stateMachineBatch;
-
-  await writeAuditLog(env.DB, {
+  const auditStmt = await prepareAuditLogInsert(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
     action: "return.approve",
     entityType: "return_request",
     entityId: id,
-    metadata: { order_id: rr.order_id, restock_count: items.length, refund_paisa: refundAmount, payment_id: payment?.id ?? null },
+    metadata: { order_id: rr.order_id, restock_count: items.length, refund_paisa: refundPaid, payment_id: payment?.id ?? null },
     ipAddress: clientIp(context.request),
     userAgent: userAgent(context.request),
-  });
-  return Response.json({ ok: true, refund_paisa: refundAmount, order_status: "refunded" });
+  }, now);
+
+  const stateResults = await env.DB.batch([
+    env.DB.prepare(
+      "UPDATE orders SET status = 'returned', updated_at = ?2 WHERE id = ?1 AND status = ?3",
+    ).bind(rr.order_id, now, fromStatus),
+    env.DB.prepare(
+      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
+       VALUES (?1, ?2, ?3, 'returned', ?4, ?5)`,
+    ).bind(crypto.randomUUID(), rr.order_id, fromStatus, user.id, now),
+    env.DB.prepare(
+      "UPDATE orders SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'returned'",
+    ).bind(rr.order_id, now),
+    env.DB.prepare(
+      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
+       VALUES (?1, ?2, 'returned', 'refunded', ?3, ?4)`,
+    ).bind(crypto.randomUUID(), rr.order_id, user.id, now),
+    auditStmt,
+  ], { atomic: true });
+
+  if (stateResults[0].meta.changes !== 1 || stateResults[2].meta.changes !== 1) {
+    return Response.json({ ok: false, code: "STATE_MACHINE_COMMIT_FAILED" }, { status: 500 });
+  }
+
+  return Response.json({ ok: true, refund_paisa: refundPaid, order_status: "refunded" });
 }
+
+async function deleteRefundClaim(db: D1Database, paymentId: string, invoiceId: string, createdAt: string): Promise<void> {
+  await db
+    .prepare("DELETE FROM payment_events WHERE payment_id = ?1 AND invoice_id = ?2 AND event_type = 'refund' AND status = 'refunded' AND created_at = ?3")
+    .bind(paymentId, invoiceId, createdAt)
+    .run();
+}
+
+export interface ReturnEvaluation {
+  ok: boolean;
+  code?: string;
+  refundAmount: number;
+  returnedValue: number;
+}
+
+/**
+ * Pure, server-side reconciliation for a return approval (RET-1 / RET-2).
+ *
+ * - Every returned item must belong to the order (variant present in `purchased`).
+ * - Every returned quantity must be a positive integer.
+ * - Cumulative approved quantity (this return + prior approved/completed returns)
+ *   must not exceed the purchased quantity for that variant.
+ * - The refund is the sum of returned line values, capped at the amount actually
+ *   paid minus prior refunds — never the full payment for a partial return.
+ *
+ * All inputs are canonical records supplied by the caller; nothing here trusts
+ * the caller-provided items_json for authority.
+ */
+export function evaluateReturnRequest(params: {
+  items: ReturnItem[];
+  purchased: Map<string, { qty: number; unit: number }>;
+  alreadyReturned: Map<string, number>;
+  paymentAmount: number;
+  alreadyRefunded: number;
+}): ReturnEvaluation {
+  const { items, purchased, alreadyReturned, paymentAmount, alreadyRefunded } = params;
+  if (!Array.isArray(items) || items.length === 0) {
+    return { ok: false, code: "EMPTY_RETURN_ITEMS", refundAmount: 0, returnedValue: 0 };
+  }
+
+  let returnedValue = 0;
+  for (const item of items) {
+    if (typeof item.variant_id !== "string" || !Number.isSafeInteger(item.quantity) || item.quantity <= 0) {
+      return { ok: false, code: "INVALID_RETURN_QUANTITY", refundAmount: 0, returnedValue: 0 };
+    }
+    const p = purchased.get(item.variant_id);
+    if (!p) {
+      return { ok: false, code: "RETURN_VARIANT_NOT_IN_ORDER", refundAmount: 0, returnedValue: 0 };
+    }
+    const cumulative = (alreadyReturned.get(item.variant_id) ?? 0) + item.quantity;
+    if (cumulative > p.qty) {
+      return { ok: false, code: "RETURN_QTY_EXCEEDS_PURCHASED", refundAmount: 0, returnedValue: 0 };
+    }
+    returnedValue += item.quantity * p.unit;
+  }
+
+  const remainingRefundable = Math.max(0, paymentAmount - alreadyRefunded);
+  const refundAmount = Math.max(0, Math.min(returnedValue, remainingRefundable));
+  return { ok: true, refundAmount, returnedValue };
+}
+

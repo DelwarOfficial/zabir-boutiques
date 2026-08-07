@@ -9,51 +9,139 @@
 import RootLayout from "@/layouts/RootLayout.astro";
 import { BuyNowLandingForm } from "@/islands/BuyNowLandingForm";
 import { formatPaisa } from "@/lib/money";
+import type { DirectCheckoutState } from "@/lib/do-client";
+import { env } from "cloudflare:workers";
 
 const { slug } = Astro.params;
-const sid = Astro.url.searchParams.get("sid");
+let sid = Astro.url.searchParams.get("sid");
 
+// 1. Direct landing page access: generate session if sid is missing
 if (!sid) {
-  return Astro.redirect(`/products/${slug ?? ""}`);
+  const product = await env.DB.prepare(
+    `SELECT p.id, p.slug, p.name, p.price_paisa
+     FROM products p
+     WHERE p.slug = ?1 AND p.status = 'published'`
+  ).bind(slug).first<{
+    id: string; slug: string; name: string; price_paisa: number;
+  }>();
+
+  if (!product) {
+    return Astro.redirect("/");
+  }
+
+  const queryVariantId = Astro.url.searchParams.get("variantId");
+  let variantId = queryVariantId;
+
+  if (!variantId) {
+    const defaultVariant = await env.DB.prepare(
+      `SELECT v.id FROM product_variants v WHERE v.product_id = ?1 AND v.is_deleted = 0 ORDER BY v.size, v.color LIMIT 1`
+    ).bind(product.id).first<{ id: string }>();
+    variantId = defaultVariant?.id ?? product.id;
+  }
+
+  const queryQty = Number(Astro.url.searchParams.get("quantity")) || 1;
+
+  // Generate a new secure HMAC session ID
+  const secret = env.SESSION_SECRET || "dev-session-secret-at-least-32-chars-long-for-hmac";
+  const random = crypto.getRandomValues(new Uint8Array(32));
+  const payload = `${Date.now()}:${Array.from(random, b => b.toString(16).padStart(2, '0')).join('')}`;
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
+  const sessionId = Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
+
+  const now = new Date();
+  if (env.DIRECT_CHECKOUT_DO) {
+    const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+    const stub = env.DIRECT_CHECKOUT_DO.get(id);
+    await stub.fetch('https://do/create', {
+      method: 'POST',
+      body: JSON.stringify({
+        productId: product.id,
+        variantId: variantId,
+        quantity: queryQty,
+        selectedOptions: {},
+        sourcePage: `/products/${product.slug}`,
+        utmParams: Object.fromEntries(Astro.url.searchParams),
+        sessionId,
+        origin: Astro.url.origin,
+        userAgent: Astro.request.headers.get("User-Agent") ?? '',
+      }),
+    });
+  } else {
+    await env.DB.prepare(
+      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, createdAt)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+    ).bind(
+      sessionId,
+      product.id,
+      variantId,
+      queryQty,
+      JSON.stringify({}),
+      now.toISOString()
+    ).run();
+  }
+
+  const newParams = new URLSearchParams(Astro.url.searchParams);
+  newParams.set("sid", sessionId);
+  return Astro.redirect(`/buy-now/${slug}?${newParams.toString()}`);
 }
 
-// Load session from DirectCheckoutSessionDO
-const env = (Astro.locals as any).runtime?.env;
-const turnstileSiteKey: string | undefined = env?.TURNSTILE_SITE_KEY;
-if (!env?.DIRECT_CHECKOUT_DO) {
-  return Astro.redirect(`/products/${slug ?? ""}`);
+// 2. Load session from DirectCheckoutSessionDO or D1 database fallback
+const turnstileSiteKey: string | undefined = env.TURNSTILE_SITE_KEY;
+let session: DirectCheckoutState | null = null;
+
+if (env.DIRECT_CHECKOUT_DO) {
+  const id = env.DIRECT_CHECKOUT_DO.idFromName(sid);
+  const stub = env.DIRECT_CHECKOUT_DO.get(id);
+  const response = await stub.fetch("https://do/get", {
+    method: "POST",
+    body: JSON.stringify({
+      sessionId: sid,
+      origin: Astro.url.origin,
+      userAgent: Astro.request.headers.get("User-Agent") ?? "",
+    }),
+  });
+  const data = (await response.json().catch(() => null)) as { ok?: boolean; session?: DirectCheckoutState } | null;
+  session = data?.ok ? data.session ?? null : null;
 }
 
-const doId = env.DIRECT_CHECKOUT_DO.idFromName(sid);
-const stub = env.DIRECT_CHECKOUT_DO.get(doId);
-const sessionRes = await stub.fetch("https://do/get", {
-  method: "POST",
-  body: JSON.stringify({
-    origin: Astro.request.headers.get("Origin") ?? Astro.url.origin,
-    userAgent: Astro.request.headers.get("User-Agent") ?? "",
-  }),
-});
-const sessionData = (await sessionRes.json().catch(() => null)) as {
-  ok?: boolean;
-  session?: {
+if (!session) {
+  const row = await env.DB.prepare(
+    `SELECT sessionId, productId, variantId, quantity, selectedOptions, sourcePage, utmParams, createdAt
+     FROM checkout_sessions
+     WHERE sessionId = ?1 AND deletedAt IS NULL`
+  ).bind(sid).first<{
     sessionId: string;
     productId: string;
     variantId: string;
     quantity: number;
-    selectedOptions: Record<string, string>;
-    expiresAt: string;
-    formDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
-  };
-  error?: string;
-} | null;
+    selectedOptions: string | null;
+    sourcePage: string | null;
+    utmParams: string | null;
+    createdAt: string;
+  }>();
 
-if (!sessionData?.ok || !sessionData.session) {
+  if (row) {
+    session = {
+      sessionId: row.sessionId,
+      productId: row.productId,
+      variantId: row.variantId,
+      quantity: row.quantity,
+      selectedOptions: row.selectedOptions ? JSON.parse(row.selectedOptions) : {},
+      sourcePage: row.sourcePage,
+      utmParams: row.utmParams ? JSON.parse(row.utmParams) : null,
+      createdAt: row.createdAt,
+      expiresAt: new Date(new Date(row.createdAt).getTime() + 30 * 60 * 1000).toISOString(),
+      landingVersion: 1,
+      formDraft: null,
+    };
+  }
+}
+
+if (!session || new Date(session.expiresAt) < new Date()) {
   return Astro.redirect(`/products/${slug ?? ""}`);
 }
 
-const session = sessionData.session;
-
-// Load product from D1
 const product = await env.DB.prepare(
   `SELECT p.id, p.slug, p.name, p.description, p.price_paisa, p.compare_price_paisa, p.status
    FROM products p
@@ -73,7 +161,10 @@ const images = await env.DB.prepare(
    FROM product_images WHERE product_id = ?1 ORDER BY sort_order ASC`
 ).bind(product.id).all<{ id: string; r2_key: string; alt_text: string | null; width: number | null; height: number | null; sort_order: number }>();
 
-const imageList = images.results ?? [];
+type ProductImage = { id: string; r2_key: string; alt_text: string | null; width: number | null; height: number | null; sort_order: number };
+type ProductVariant = { id: string; size: string | null; color: string | null; sku: string; price_paisa: number };
+
+const imageList: ProductImage[] = images.results ?? [];
 const primaryImage = imageList[0]?.r2_key ?? "/assets/product-zb-stitch.svg";
 const primaryAlt = imageList[0]?.alt_text ?? product.name;
 
@@ -84,16 +175,20 @@ const variants = await env.DB.prepare(
    JOIN products p ON p.id = v.product_id
    WHERE v.product_id = ?1 AND v.is_deleted = 0
    ORDER BY v.size, v.color`
-).bind(product.id).all<{
-  id: string; size: string | null; color: string | null; sku: string; price_paisa: number;
-}>();
+).bind(product.id).all<ProductVariant>();
 
-const variantList = variants.results ?? [];
+const variantList: ProductVariant[] = variants.results ?? [];
 const selectedVariant = variantList.find(v => v.id === session.variantId) ?? variantList[0];
 
-// Delivery pricing
-const INSIDE_DHAKA = 7000;
-const OUTSIDE_DHAKA = 13000;
+// Delivery pricing from DB
+let INSIDE_DHAKA = 7000;
+let OUTSIDE_DHAKA = 13000;
+try {
+  const inside = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_inside_dhaka_paisa'`).first<{ value: string }>();
+  const outside = await env.DB.prepare(`SELECT value FROM site_settings WHERE key = 'delivery_outside_dhaka_paisa'`).first<{ value: string }>();
+  if (inside) { const v = Number(inside.value); if (Number.isSafeInteger(v) && v >= 0) INSIDE_DHAKA = v; }
+  if (outside) { const v = Number(outside.value); if (Number.isSafeInteger(v) && v >= 0) OUTSIDE_DHAKA = v; }
+} catch {}
 
 const variantLabel = [selectedVariant?.size, selectedVariant?.color].filter(Boolean).join(" / ") || "Standard";
 const unitPrice = selectedVariant?.price_paisa ?? product.price_paisa;
@@ -155,10 +250,10 @@ const faqJsonLd = JSON.stringify({
 });
 
 // Parse product description into feature list
-const features = (product.description ?? "")
+const features: string[] = (product.description ?? "")
   .split("\n")
-  .map(l => l.replace(/^[•\-\*]\s*/, "").trim())
-  .filter(l => l.length > 0);
+  .map((l: string) => l.replace(/^[•\-\*]\s*/, "").trim())
+  .filter((l: string) => l.length > 0);
 ---
 
 <RootLayout title={`${product.name} | Zabir Boutiques`} description={product.description ?? product.name} ogImage={ogImage}>
@@ -303,7 +398,7 @@ const features = (product.description ?? "")
               <h2 class="text-xl font-extrabold mb-4">প্রোডাক্ট গ্যালারি</h2>
               <div class="flex gap-3 overflow-x-auto snap-x snap-mandatory rounded-2xl bg-[var(--surface-soft)] p-2 scrollbar-hide">
                 {imageList.map((img, i) => (
-                  <div class="snap-center shrink-0 w-[82%] sm:w-[46%] aspect-[4/5] overflow-hidden rounded-2xl bg-[var(--surface)]" key={img.id}>
+                  <div class="snap-center shrink-0 w-[82%] sm:w-[46%] aspect-[4/5] overflow-hidden rounded-2xl bg-[var(--surface)]">
                     <img
                       src={img.r2_key}
                       alt={img.alt_text ?? product.name}

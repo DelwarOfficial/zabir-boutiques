@@ -8,57 +8,9 @@ if (!can(user.role, "media.upload")) return new Response("Forbidden", { status: 
 ---
 <StaffLayout title="Media Upload" user={user}>
   <PageHeader title="Media Upload" subtitle="Upload product images. Automatically compressed with WebP thumbnails." />
-  <div class="bg-surface border-2 border-dashed border-line rounded-lg p-8 text-center max-w-lg mx-auto">
-    <form id="upload-form" action="/api/staff/uploads" method="post" enctype="multipart/form-data" class="flex flex-col items-center gap-4">
-      <label class="cursor-pointer">
-        <div class="text-muted text-sm mb-2">Select an image (JPEG, PNG, WebP, GIF, AVIF — max 20MB)</div>
-        <input type="file" name="file" accept="image/*" required class="text-sm" />
-      </label>
-      <div>
-        <label class="block text-xs text-ink-secondary mb-1">Product ID</label>
-        <input name="product_id" type="text" required placeholder="paste product UUID"
-          class="px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border w-64 font-mono" />
-      </div>
-      <button type="submit" id="upload-btn"
-        class="px-5 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50">Upload</button>
-      <p id="upload-msg" class="text-xs m-0 hidden"></p>
-    </form>
+  <div class="bg-surface border border-line rounded-lg p-8 text-center max-w-lg mx-auto">
+    <p class="text-ink-secondary mb-4">Media upload is now integrated into the product creation flow.</p>
+    <a href="/staff/products/new"
+      class="inline-block px-5 py-2 bg-brand text-white rounded-md text-sm font-semibold no-underline hover:opacity-90">Create a New Product</a>
   </div>
-
-<script is:inline>
-  (function() {
-    const form = document.getElementById('upload-form');
-    const btn = document.getElementById('upload-btn');
-    const msg = document.getElementById('upload-msg');
-    function getCsrf() {
-      if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
-      try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; }
-    }
-    form?.addEventListener('submit', async (e) => {
-      e.preventDefault();
-      btn.disabled = true; btn.textContent = 'Uploading…';
-      msg.className = 'text-xs m-0 hidden';
-      const data = new FormData(form);
-      try {
-        const res = await fetch('/api/staff/uploads', {
-          method: 'POST',
-          headers: { 'X-CSRF-Token': getCsrf() },
-          body: data
-        });
-        const json = await res.json().catch(() => ({}));
-        if (res.ok && json.ok) {
-          msg.textContent = 'Uploaded: ' + json.r2_key + (json.compressed ? ' (compressed)' : '');
-          msg.className = 'text-xs m-0 text-green-700';
-        } else {
-          msg.textContent = json.error || json.message || 'Upload failed.';
-          msg.className = 'text-xs m-0 text-red-600';
-        }
-      } catch {
-        msg.textContent = 'Network error.';
-        msg.className = 'text-xs m-0 text-red-600';
-      }
-      btn.disabled = false; btn.textContent = 'Upload';
-    });
-  })();
-</script>
 </StaffLayout>

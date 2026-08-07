@@ -1,5 +1,12 @@
 ---
 import StaffLayout from "@/layouts/StaffLayout.astro";
+import PageHeader from "@/components/staff/PageHeader.astro";
+import Card from "@/components/staff/ui/Card.astro";
+import Table from "@/components/staff/ui/Table.astro";
+import Badge from "@/components/staff/ui/Badge.astro";
+import Button from "@/components/staff/ui/Button.astro";
+import Input from "@/components/staff/ui/Input.astro";
+import Select from "@/components/staff/ui/Select.astro";
 import { getCurrentStaffUser, isOwnerTier } from "../../../lib/rbac";
 import { getEnv } from "../../../lib/env";
 
@@ -18,105 +25,71 @@ const coupons = await env.DB.prepare(
    LIMIT 200`
 ).all<any>();
 const rows = coupons.results ?? [];
+
+const columns = [
+  { key: 'code', label: 'Code' },
+  { key: 'discount', label: 'Discount' },
+  { key: 'min_order', label: 'Min Order' },
+  { key: 'used', label: 'Used', align: 'center' as const },
+  { key: 'limit', label: 'Limit', align: 'center' as const },
+  { key: 'expires', label: 'Expires' },
+  { key: 'status', label: 'Status', align: 'center' as const },
+  { key: 'created_by', label: 'Created By' },
+  { key: 'action', label: 'Action', align: 'right' as const },
+];
+
+const discountOptions = [
+  { value: '5000', label: '৳50' },
+  { value: '10000', label: '৳100' },
+  { value: '15000', label: '৳150' },
+  { value: '20000', label: '৳200' },
+];
 ---
 
 <StaffLayout title="Coupons" user={user}>
-  <div class="flex justify-between items-center mb-4 flex-wrap gap-2">
-    <h1 class="m-0 text-xl font-bold">Coupon Management</h1>
-    <div class="flex items-center gap-3">
-      <span class="text-sm text-muted">{rows.length} coupons</span>
-      <button id="new-coupon-btn" type="button"
-        class="px-3 py-1.5 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer">+ New Coupon</button>
-    </div>
+  <PageHeader title="Coupon Management" subtitle={`${rows.length} coupons total`}>
+    <Button slot="actions" id="new-coupon-btn" type="button">+ New Coupon</Button>
+  </PageHeader>
+
+  <div id="coupon-form" class="hidden mb-5 fade-up">
+    <Card title="Create Coupon" subtitle="New coupons are created as active by default.">
+      <form class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
+        <Input label="Code" name="code" type="text" required maxLength={30} placeholder="EID50" />
+        <Select label="Discount" name="amount" options={discountOptions} />
+        <Input label="Min order (৳)" name="min" type="number" placeholder="0" hint="Optional" />
+        <Input label="Usage limit" name="limit" type="number" placeholder="∞" hint="Optional" />
+        <Input label="Expires" name="expires" type="date" hint="Optional" />
+      </form>
+      <div class="flex items-center gap-3 mt-4">
+        <Button type="submit" id="coupon-submit">Create Coupon</Button>
+        <Button type="button" id="coupon-cancel" variant="secondary">Cancel</Button>
+        <p id="coupon-msg" class="text-xs m-0 hidden"></p>
+      </div>
+    </Card>
   </div>
 
-  <!-- Create form (hidden until toggled) -->
-  <form id="coupon-form" class="hidden bg-surface border border-line rounded-lg p-4 mb-5">
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3">
-      <div>
-        <label class="block text-xs text-ink-secondary mb-1" for="f-code">Code</label>
-        <input id="f-code" name="code" type="text" required maxlength="30" placeholder="EID50"
-          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border uppercase" />
-      </div>
-      <div>
-        <label class="block text-xs text-ink-secondary mb-1" for="f-amount">Discount</label>
-        <select id="f-amount" name="amount" class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border">
-          <option value="5000">৳50</option>
-          <option value="10000">৳100</option>
-          <option value="15000">৳150</option>
-          <option value="20000">৳200</option>
-        </select>
-      </div>
-      <div>
-        <label class="block text-xs text-ink-secondary mb-1" for="f-min">Min order (৳) <span class="text-muted">opt.</span></label>
-        <input id="f-min" name="min" type="number" min="0" step="1" placeholder="0"
-          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
-      </div>
-      <div>
-        <label class="block text-xs text-ink-secondary mb-1" for="f-limit">Usage limit <span class="text-muted">opt.</span></label>
-        <input id="f-limit" name="limit" type="number" min="1" step="1" placeholder="∞"
-          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
-      </div>
-      <div>
-        <label class="block text-xs text-ink-secondary mb-1" for="f-expires">Expires <span class="text-muted">opt.</span></label>
-        <input id="f-expires" name="expires" type="date"
-          class="w-full px-3 py-2 border border-line rounded-md bg-bg text-ink text-sm box-border" />
-      </div>
-    </div>
-    <div class="flex items-center gap-3 mt-3">
-      <button type="submit" id="coupon-submit"
-        class="px-4 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50">Create Coupon</button>
-      <button type="button" id="coupon-cancel"
-        class="px-4 py-2 bg-surface border border-line rounded-md text-sm cursor-pointer">Cancel</button>
-      <p id="coupon-msg" class="text-xs m-0 hidden"></p>
-    </div>
-  </form>
-
-  <div class="overflow-x-auto border border-line rounded-lg">
-    <table class="w-full border-collapse text-sm">
-      <thead>
-        <tr class="bg-surface-soft text-left">
-          <th class="px-3 py-2.5 font-semibold">Code</th>
-          <th class="px-3 py-2.5 font-semibold">Discount</th>
-          <th class="px-3 py-2.5 font-semibold">Min Order</th>
-          <th class="px-3 py-2.5 font-semibold text-center">Used</th>
-          <th class="px-3 py-2.5 font-semibold text-center">Limit</th>
-          <th class="px-3 py-2.5 font-semibold">Expires</th>
-          <th class="px-3 py-2.5 font-semibold text-center">Status</th>
-          <th class="px-3 py-2.5 font-semibold">Created By</th>
-          <th class="px-3 py-2.5 font-semibold text-right">Action</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.length ? rows.map((c) => (
-          <tr class="border-t border-line-soft">
-            <td class="px-3 py-2 font-mono font-bold">{c.code}</td>
-            <td class="px-3 py-2 font-semibold">{c.discount_type === 'percentage'
-              ? `${c.discount_percent}%${c.max_discount_paisa ? ` (max ৳${Math.floor(c.max_discount_paisa / 100)})` : ''}`
-              : `৳${Math.floor(c.discount_amount_paisa / 100)}`}</td>
-            <td class="px-3 py-2">{c.min_order_paisa ? `৳${Math.floor(c.min_order_paisa / 100)}` : '—'}</td>
-            <td class="px-3 py-2 text-center">{c.used_count}</td>
-            <td class="px-3 py-2 text-center">{c.usage_limit ?? '∞'}</td>
-            <td class="px-3 py-2 text-muted">{c.expires_at ? c.expires_at.split(' ')[0] : '—'}</td>
-            <td class="px-3 py-2 text-center">
-              <span class={`inline-block px-1.5 py-0.5 rounded text-[10px] font-semibold ${c.is_active ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>
-                {c.is_active ? 'Active' : 'Inactive'}
-              </span>
-            </td>
-            <td class="px-3 py-2 text-muted">{c.created_by_name || '—'}</td>
-            <td class="px-3 py-2 text-right">
-              <button type="button" class="coupon-toggle px-2.5 py-1 border border-line rounded text-xs cursor-pointer hover:bg-surface-soft"
-                data-id={c.id} data-active={c.is_active ? '1' : '0'}>
-                {c.is_active ? 'Deactivate' : 'Activate'}
-              </button>
-            </td>
-          </tr>
-        )) : (
-          <tr><td colspan="9" class="px-4 py-8 text-center text-muted">No coupons yet. Create one to get started.</td></tr>
-        )}
-      </tbody>
-    </table>
-  </div>
+  <Table columns={columns} empty={!rows.length} emptyMessage="No coupons yet. Create one to get started.">
+    {rows.map(c => (
+      <tr class="border-t border-line-soft hover:bg-surface-soft transition-colors">
+        <td class="px-3 py-2 font-mono font-bold">{c.code}</td>
+        <td class="px-3 py-2 font-semibold">{c.discount_type === 'percentage'
+          ? `${c.discount_percent}%${c.max_discount_paisa ? ` (max ৳${Math.floor(c.max_discount_paisa / 100)})` : ''}`
+          : `৳${Math.floor(c.discount_amount_paisa / 100)}`}</td>
+        <td class="px-3 py-2">{c.min_order_paisa ? `৳${Math.floor(c.min_order_paisa / 100)}` : '—'}</td>
+        <td class="px-3 py-2 text-center">{c.used_count}</td>
+        <td class="px-3 py-2 text-center">{c.usage_limit ?? '∞'}</td>
+        <td class="px-3 py-2 text-muted">{c.expires_at ? c.expires_at.split(' ')[0] : '—'}</td>
+        <td class="px-3 py-2 text-center"><Badge variant={c.is_active ? 'success' : 'danger'}>{c.is_active ? 'Active' : 'Inactive'}</Badge></td>
+        <td class="px-3 py-2 text-muted">{c.created_by_name || '—'}</td>
+        <td class="px-3 py-2 text-right">
+          <button type="button" class="coupon-toggle px-2.5 py-1 border border-line rounded text-xs cursor-pointer hover:bg-surface-soft"
+            data-id={c.id} data-active={c.is_active ? '1' : '0'}>
+            {c.is_active ? 'Deactivate' : 'Activate'}
+          </button>
+        </td>
+      </tr>
+    ))}
+  </Table>
 
 <script is:inline>
   (function () {
@@ -130,7 +103,6 @@ const rows = coupons.results ?? [];
         : (json && (json.message || json.error)) || 'Action failed.';
     }
 
-    // --- Create form toggle ---
     const form = document.getElementById('coupon-form');
     const openBtn = document.getElementById('new-coupon-btn');
     const cancelBtn = document.getElementById('coupon-cancel');
@@ -160,7 +132,6 @@ const rows = coupons.results ?? [];
         discount_amount_paisa: amount,
         min_order_paisa: Number.isFinite(minTaka) && minTaka > 0 ? minTaka * 100 : 0,
         usage_limit: limitRaw ? parseInt(limitRaw, 10) : null,
-        // Store end-of-day so the whole expiry date is valid.
         expires_at: expiresDate ? expiresDate + ' 23:59:59' : null
       };
 
@@ -188,7 +159,6 @@ const rows = coupons.results ?? [];
       }
     });
 
-    // --- Activate / deactivate toggle ---
     document.querySelectorAll('.coupon-toggle').forEach((btn) => {
       btn.addEventListener('click', async () => {
         const id = btn.dataset.id;

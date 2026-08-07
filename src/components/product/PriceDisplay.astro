@@ -1,0 +1,36 @@
+---
+import { formatPaisa } from "@/lib/money";
+
+interface Props {
+  pricePaisa: number;
+  comparePricePaisa?: number;
+  class?: string;
+  size?: 'sm' | 'md';
+}
+
+const { pricePaisa, comparePricePaisa, class: className = '', size = 'md' } = Astro.props;
+
+// Calculate discount percentage if compare price is higher than current price
+const hasDiscount = comparePricePaisa && comparePricePaisa > pricePaisa;
+const discountPercent = hasDiscount
+  ? Math.round(((comparePricePaisa! - pricePaisa) / comparePricePaisa!) * 100)
+  : 0;
+
+const priceClass = size === 'sm' ? 'text-sm sm:text-base font-bold' : 'text-xl sm:text-2xl font-extrabold';
+---
+
+<div class={`flex flex-wrap items-baseline gap-1.5 tabular ${className}`}>
+  <ins class={`${priceClass} text-[var(--ink-storefront)] no-underline`}>
+    {formatPaisa(pricePaisa)}
+  </ins>
+  {hasDiscount && (
+    <>
+      <del class="text-[10px] sm:text-xs text-[var(--muted)] line-through">
+        {formatPaisa(comparePricePaisa!)}
+      </del>
+      <span class="chip chip-brand text-[8px] sm:text-[9px] font-bold py-0.5 px-1 rounded-full uppercase tracking-wider scale-90">
+        -{discountPercent}%
+      </span>
+    </>
+  )}
+</div>

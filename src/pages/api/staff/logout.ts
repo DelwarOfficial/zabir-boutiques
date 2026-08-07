@@ -21,6 +21,11 @@ export async function POST(context: APIContext): Promise<Response> {
       `UPDATE staff_sessions SET is_revoked = 1 WHERE token_hash = ?1`
     ).bind(tokenHash).run();
 
+    // Clear KV cache entry so stale session isn't served on next request
+    if (env.SESSION) {
+      env.SESSION.delete(`staff-session:${tokenHash}`).catch(() => {});
+    }
+
     if (session) {
       await writeAuditLog(env.DB, {
         actorStaffId: session.staff_user_id,

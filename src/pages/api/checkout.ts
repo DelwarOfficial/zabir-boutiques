@@ -84,7 +84,12 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Master Plan §6.1 step 4: Load cart from CartDO (source of truth).
   // Guest checkout must have a CartDO session; Buy Now uses DirectCheckoutSessionDO instead.
-  const sessionId = typeof body.session_id === 'string' ? body.session_id : null;
+  let sessionId = typeof body.session_id === 'string' ? body.session_id : null;
+  if (!sessionId) {
+    const raw = context.request.headers.get('cookie') ?? '';
+    const match = raw.match(/(?:^|;\s*)zb_cart_sid=([^;]*)/);
+    if (match) sessionId = decodeURIComponent(match[1]);
+  }
   if (!sessionId || !env.CART_DO) {
     return Response.json({ ok: false, code: 'MISSING_CART_SESSION', message: 'Cart session is required. Please add items to your cart and try again.' }, { status: 400 });
   }
@@ -102,11 +107,12 @@ export async function POST(context: APIContext): Promise<Response> {
 
   if (env.TURNSTILE_SECRET_KEY) {
     const token = typeof body.turnstile === 'string' ? body.turnstile : context.request.headers.get('CF-Turnstile-Token');
-    if (token) {
-      const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
-      if (!r.ok) {
-        return Response.json({ ok: false, code: 'TURNSTILE_FAILED', message: 'Bot check failed.' }, { status: 403 });
-      }
+    if (!token) {
+      return Response.json({ ok: false, code: 'TURNSTILE_REQUIRED', message: 'Bot check required.' }, { status: 403 });
+    }
+    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+    if (!r.ok) {
+      return Response.json({ ok: false, code: 'TURNSTILE_FAILED', message: 'Bot check failed.' }, { status: 403 });
     }
   }
 
@@ -241,9 +247,9 @@ export async function POST(context: APIContext): Promise<Response> {
     vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa - discountPaisa), 'total_paisa');
 
-    // Master Plan §11.1 step 10: COD threshold uses distinct item count, not SUM(quantity)
-    const distinctItemCount = items.length;
-    const prepayment = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
+    // Master Plan §12.1 step 9: COD threshold uses SUM(quantity), not line count
+    const totalQuantity = items.reduce((sum, i) => sum + i.qty, 0);
+    const prepayment = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
     if (prepayment.required && paymentMethod === 'cod') {
       if (couponClaimed && couponClaim) {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
@@ -267,7 +273,7 @@ export async function POST(context: APIContext): Promise<Response> {
       advancePaisa = totalPaisa;
       balancePaisa = 0;
     } else if (paymentMethod === 'partial_prepay') {
-      const split = calculatePrepayment(distinctItemCount, totalPaisa, paymentMethod);
+      const split = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
       advancePaisa = split.advancePaisa;
       balancePaisa = split.balancePaisa;
     }
@@ -307,7 +313,6 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     stockReserved = true;
 
-    const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
     const orderItems = items.map((item) => ({
       variantId: item.variantId,
       quantity: item.qty,
@@ -397,8 +402,8 @@ export async function POST(context: APIContext): Promise<Response> {
     }
 
     // Enqueue order confirmation email [Master_Prompt v7.0 §17.2]
-    await enqueueOrderEmail(env, orderId, 'order_confirmed').catch(() => {});
-    await enqueueFraudAudit(env, orderId, phoneResult.local, score === 50 ? 'fraud_check_review' : 'post_checkout_audit').catch(() => {});
+    await enqueueOrderEmail(env, orderId, 'order_confirmed').catch((err) => safeLog.warn('[checkout] Failed to enqueue order email', { error: err instanceof Error ? err.message : String(err), orderId }));
+    await enqueueFraudAudit(env, orderId, phoneResult.local, score === 50 ? 'fraud_check_review' : 'post_checkout_audit').catch((err) => safeLog.warn('[checkout] Failed to enqueue fraud audit', { error: err instanceof Error ? err.message : String(err), orderId }));
 
     return Response.json(response, { status: 201 });
   } catch (err) {
