@@ -1,0 +1,33 @@
+# pattern,tag,weight
+# Tailored for Zabir Boutiques V8 — security-critical surfaces per Master Plan §18
+**/lib/security.ts,auth_crypto,1.5
+**/lib/csrf.ts,csrf,1.5
+**/lib/rbac.ts,authz,1.5
+**/lib/staff-cookies.ts,session,1.5
+**/lib/phone-verification.*,otp,1.5
+**/lib/turnstile.ts,bot,1.0
+**/lib/payments.ts,payments,1.5
+**/lib/payment-webhook-ingress.ts,payments,1.5
+**/lib/checkout-pricing.ts,money,1.5
+**/lib/money.ts,money,1.5
+**/lib/idempotency.ts,idempotency,1.0
+**/lib/inventory.ts,inventory,1.0
+**/lib/do-client.ts,do_client,1.0
+**/lib/integrations/payments/**,payments,1.5
+**/lib/integrations/fraudbd/**,fraud,1.0
+**/do/*.ts,durable_objects,1.0
+**/pages/api/payments/**,payments,1.5
+**/pages/api/checkout.ts,checkout,1.5
+**/pages/api/buy-now/**,checkout,1.0
+**/pages/api/staff/login.ts,auth,1.5
+**/pages/api/staff/orders/**,orders,1.0
+**/pages/api/staff/invoices/**,pos,1.0
+**/pages/api/staff/fraud/**,fraud,1.0
+**/middleware.ts,security_perimeter,1.5
+**/db/migrations/**,schema,1.0
+**/lib/security/**,auth_crypto,1.5
+**/*.env*,secrets,2.0
+**/.env*,secrets,2.0
+**/lib/api-keys.ts,authz,1.5
+**/lib/pii-scrubber.ts,pii,1.0
+**/lib/audit.ts,audit,1.0

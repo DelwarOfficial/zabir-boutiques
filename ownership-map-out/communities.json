@@ -1,0 +1,651 @@
+[
+  {
+    "id": 1,
+    "size": 84,
+    "files": [
+      ".kiro/specs/staff-operations-v2/requirements.md",
+      "AGENTS.md",
+      "Bug_fixing_prompt.md",
+      "FINAL_EXECUTION_REPORT.md",
+      "GAP_FIX_LIST.md",
+      "Master_Prompt.md",
+      "README.md",
+      "Zabir_Boutiques_Master_Plan.md",
+      "astro.config.mjs",
+      "db/migrations/0001_initial_v6_8a_schema.sql",
+      "db/migrations/0003_staff_operations_v2.sql",
+      "db/migrations/0027_stock_reservations_status_rebuild.sql",
+      "package.json",
+      "scripts/apply-migrations.ts",
+      "scripts/build-static-snapshots.ts",
+      "scripts/csp-hashes-plugin.mjs",
+      "scripts/migrate.ts",
+      "src/components/staff/PageHeader.astro",
+      "src/do/budget-counter-do.ts",
+      "src/do/cart-do.ts",
+      "src/do/direct-checkout-session-do.ts",
+      "src/do/idempotency-do.ts",
+      "src/do/provider-health-do.ts",
+      "src/do/variant-inventory-do.ts",
+      "src/entry-cloudflare.ts",
+      "src/env.d.ts",
+      "src/generated/csp-hashes.ts",
+      "src/lib/ai-client.ts",
+      "src/lib/ai-content.ts",
+      "src/lib/analytics.ts",
+      "src/lib/audit.ts",
+      "src/lib/cache-api.ts",
+      "src/lib/checkout-pricing.ts",
+      "src/lib/content-moderation.ts",
+      "src/lib/contracts/index.ts",
+      "src/lib/contracts/variant-inventory-do.ts",
+      "src/lib/cron-dispatch.ts",
+      "src/lib/do-client.ts",
+      "src/lib/email.ts",
+      "src/lib/fraud.ts",
+      "src/lib/integrations/fraudbd/client.ts",
+      "src/lib/integrations/uddoktapay/client.ts",
+      "src/lib/integrations/uddoktapay/types.ts",
+      "src/lib/inventory.ts",
+      "src/lib/maintenance/archive.ts",
+      "src/lib/maintenance/backup.ts",
+      "src/lib/maintenance/inventory-reconcile.ts",
+      "src/lib/maintenance/partial-prepay.ts",
+      "src/lib/maintenance/reconciliation.ts",
+      "src/lib/maintenance/sitemap.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 319,
+        "touch_share": 0.5951,
+        "recency_share": 0.5893,
+        "sensitive_share": 0.5763,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 217,
+        "touch_share": 0.4049,
+        "recency_share": 0.4107,
+        "sensitive_share": 0.4237,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 536,
+      "recency_weight": 436.297985,
+      "sensitive_weight": 265.5
+    }
+  },
+  {
+    "id": 2,
+    "size": 33,
+    "files": [
+      "src/components/staff/StepUpRequired.astro",
+      "src/layouts/StaffLayout.astro",
+      "src/lib/api-keys.ts",
+      "src/pages/api/staff/api-keys/index.ts",
+      "src/pages/staff/api-code/index.astro",
+      "src/pages/staff/audit/index.astro",
+      "src/pages/staff/backups/index.astro",
+      "src/pages/staff/coupons/index.astro",
+      "src/pages/staff/fraud/index.astro",
+      "src/pages/staff/index.astro",
+      "src/pages/staff/inventory/index.astro",
+      "src/pages/staff/media-admin/index.astro",
+      "src/pages/staff/media/index.astro",
+      "src/pages/staff/orders/[id].astro",
+      "src/pages/staff/orders/index.astro",
+      "src/pages/staff/packing/index.astro",
+      "src/pages/staff/packing/packed.astro",
+      "src/pages/staff/packing/slips.astro",
+      "src/pages/staff/products/index.astro",
+      "src/pages/staff/reports/index.astro",
+      "src/pages/staff/roles/index.astro",
+      "src/pages/staff/sales/index.astro",
+      "src/pages/staff/sales/instore.astro",
+      "src/pages/staff/sales/new.astro",
+      "src/pages/staff/sales/notes.astro",
+      "src/pages/staff/sales/orders.astro",
+      "src/pages/staff/sales/search.astro",
+      "src/pages/staff/settings/index.astro",
+      "src/pages/staff/support/escalations.astro",
+      "src/pages/staff/support/index.astro",
+      "src/pages/staff/support/search.astro",
+      "src/pages/staff/users/index.astro",
+      "tests/phase12-extended.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 118,
+        "touch_share": 0.5291,
+        "recency_share": 0.5192,
+        "sensitive_share": 1.0,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 105,
+        "touch_share": 0.4709,
+        "recency_share": 0.4808,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 223,
+      "recency_weight": 180.261252,
+      "sensitive_weight": 3.0
+    }
+  },
+  {
+    "id": 3,
+    "size": 18,
+    "files": [
+      "src/components/product/ProductCard.astro",
+      "src/components/shell/CategoryRail.astro",
+      "src/components/shell/Footer.astro",
+      "src/components/shell/Header.astro",
+      "src/islands/AddToCartButton.tsx",
+      "src/islands/BottomNav.tsx",
+      "src/islands/BuyNowLandingForm.tsx",
+      "src/islands/GuestCheckout.tsx",
+      "src/islands/ThemeToggle.tsx",
+      "src/layouts/RootLayout.astro",
+      "src/lib/integrations/payments/index.ts",
+      "src/lib/integrations/sslcommerz/client.ts",
+      "src/pages/buy-now/[slug].astro",
+      "src/pages/categories/[slug].astro",
+      "src/pages/index.astro",
+      "src/pages/order-track.astro",
+      "src/pages/orders.astro",
+      "src/styles/global.css"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 55,
+        "touch_share": 0.6471,
+        "recency_share": 0.6394,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 30,
+        "touch_share": 0.3529,
+        "recency_share": 0.3606,
+        "sensitive_share": 1.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 85,
+      "recency_weight": 68.713483,
+      "sensitive_weight": 3.0
+    }
+  },
+  {
+    "id": 4,
+    "size": 14,
+    "files": [
+      "db/migrations/0009_staff_roles_developer_auditor.sql",
+      "src/lib/staff-menu.ts",
+      "src/pages/api/staff/api-code/index.ts",
+      "src/pages/api/staff/orders/[id]/label.ts",
+      "src/pages/api/staff/totp/disable.ts",
+      "src/pages/api/staff/totp/setup.ts",
+      "src/pages/api/staff/totp/verify.ts",
+      "src/pages/checkout.astro",
+      "src/pages/staff/login.astro",
+      "src/pages/staff/sales/pos-history.astro",
+      "src/pages/staff/sales/pos.astro",
+      "src/pages/staff/settings/totp.astro",
+      "tests/rbac.test.ts",
+      "tests/staff-menu.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 35,
+        "touch_share": 0.5469,
+        "recency_share": 0.5554,
+        "sensitive_share": 0.4,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 29,
+        "touch_share": 0.4531,
+        "recency_share": 0.4446,
+        "sensitive_share": 0.6,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 64,
+      "recency_weight": 52.06078,
+      "sensitive_weight": 5.0
+    }
+  },
+  {
+    "id": 5,
+    "size": 6,
+    "files": [
+      "src/lib/integrations/courier/index.ts",
+      "src/lib/integrations/courier/pathao/index.ts",
+      "src/lib/integrations/courier/redx/index.ts",
+      "src/lib/integrations/courier/steadfast/index.ts",
+      "src/pages/staff/packing/courier.astro",
+      "tests/migration-fixtures.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 17,
+        "touch_share": 0.8947,
+        "recency_share": 0.8987,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 2,
+        "touch_share": 0.1053,
+        "recency_share": 0.1013,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 19,
+      "recency_weight": 15.63708,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 6,
+    "size": 6,
+    "files": [
+      "src/lib/invoices.ts",
+      "src/pages/api/staff/invoices/[id]/index.ts",
+      "src/pages/api/staff/invoices/[id]/print.ts",
+      "src/pages/api/staff/invoices/[id]/void.ts",
+      "src/pages/api/staff/invoices/index.ts",
+      "tests/pos-invoices.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 15,
+        "touch_share": 0.5769,
+        "recency_share": 0.5755,
+        "sensitive_share": 0.5714,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 11,
+        "touch_share": 0.4231,
+        "recency_share": 0.4245,
+        "sensitive_share": 0.4286,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 26,
+      "recency_weight": 21.384236,
+      "sensitive_weight": 14.0
+    }
+  },
+  {
+    "id": 7,
+    "size": 3,
+    "files": [
+      "db/migrations/0033_direct_checkout_activity.sql",
+      "src/lib/cart-store.ts",
+      "src/pages/api/cart/index.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 7,
+        "touch_share": 0.875,
+        "recency_share": 0.8805,
+        "sensitive_share": 1.0,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 1,
+        "touch_share": 0.125,
+        "recency_share": 0.1195,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 8,
+      "recency_weight": 6.582667,
+      "sensitive_weight": 2.0
+    }
+  },
+  {
+    "id": 8,
+    "size": 3,
+    "files": [
+      "src/lib/staff-pos-invoice.ts",
+      "src/pages/api/staff/orders/[id]/invoice.ts",
+      "tests/staff-pos-invoice.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 3,
+        "touch_share": 0.5,
+        "recency_share": 0.5004,
+        "sensitive_share": 0.5,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 3,
+        "touch_share": 0.5,
+        "recency_share": 0.4996,
+        "sensitive_share": 0.5,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 6,
+      "recency_weight": 4.918678,
+      "sensitive_weight": 2.0
+    }
+  },
+  {
+    "id": 9,
+    "size": 2,
+    "files": [
+      "scripts/audit/audit-drift.ts",
+      "src/pages/sitemap.xml.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 6,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 6,
+      "recency_weight": 4.96337,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 10,
+    "size": 2,
+    "files": [
+      "src/lib/email-provider.ts",
+      "src/lib/payment-provider.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 2,
+        "touch_share": 0.5,
+        "recency_share": 0.5009,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 2,
+        "touch_share": 0.5,
+        "recency_share": 0.4991,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 4,
+      "recency_weight": 3.303188,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 11,
+    "size": 2,
+    "files": [
+      "tests/master-plan-v7-guardrails.test.ts",
+      "tests/red-team-gaps.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 7,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 7,
+      "recency_weight": 5.78875,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 12,
+    "size": 2,
+    "files": [
+      "src/lib/integrations/deepseek/client.ts",
+      "src/lib/integrations/deepseek/types.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 4,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 4,
+      "recency_weight": 3.304754,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 13,
+    "size": 2,
+    "files": [
+      "src/lib/integrations/email/resend/client.ts",
+      "src/lib/integrations/email/resend/types.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 4,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 4,
+      "recency_weight": 3.303395,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 14,
+    "size": 2,
+    "files": [
+      "src/pages/api/staff/coupons/[id].ts",
+      "src/pages/api/staff/coupons/index.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 4,
+        "touch_share": 0.6667,
+        "recency_share": 0.6572,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      },
+      {
+        "person_id": "delwarnetwork@gmail.com",
+        "name": "delwarnetwork",
+        "touches": 2,
+        "touch_share": 0.3333,
+        "recency_share": 0.3428,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 2,
+    "owner_count": 2,
+    "totals": {
+      "touches": 6,
+      "recency_weight": 4.815093,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 15,
+    "size": 2,
+    "files": [
+      "db/seed.sql",
+      "scripts/seed.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 6,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 6,
+      "recency_weight": 4.734971,
+      "sensitive_weight": 0
+    }
+  },
+  {
+    "id": 16,
+    "size": 2,
+    "files": [
+      "ZABIR_BOUTIQUES_MASTER_PLAN_v6.8D.md",
+      "db/migrations/0004_partial_prepay.sql"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 5,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 1.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 5,
+      "recency_weight": 3.978775,
+      "sensitive_weight": 2.0
+    }
+  },
+  {
+    "id": 17,
+    "size": 2,
+    "files": [
+      "src/lib/prepayment.ts",
+      "tests/prepayment.test.ts"
+    ],
+    "maintainers": [
+      {
+        "person_id": "delwarofficial@users.noreply.github.com",
+        "name": "DelwarOfficial",
+        "touches": 4,
+        "touch_share": 1.0,
+        "recency_share": 1.0,
+        "sensitive_share": 0.0,
+        "primary_tz_offset": "+06:00"
+      }
+    ],
+    "bus_factor": 1,
+    "owner_count": 1,
+    "totals": {
+      "touches": 4,
+      "recency_weight": 3.159602,
+      "sensitive_weight": 0
+    }
+  }
+]

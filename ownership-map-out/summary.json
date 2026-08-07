@@ -1,0 +1,985 @@
+{
+  "generated_at": "2026-08-07T14:56:49.553621+00:00",
+  "repo": "D:\\websie\\zabir-boutiques",
+  "parameters": {
+    "since": "12 months ago",
+    "until": null,
+    "half_life_days": 180.0,
+    "bus_factor_threshold": 1,
+    "stale_days": 365,
+    "owner_threshold": 0.5,
+    "sensitive_config": "ownership-sensitivity.csv",
+    "identity": "author",
+    "date_field": "author",
+    "include_merges": false,
+    "cochange_enabled": true,
+    "cochange_max_files": 50,
+    "cochange_min_count": 2,
+    "cochange_min_jaccard": 0.05,
+    "cochange_default_excludes": true,
+    "cochange_excludes": [
+      "**/Cargo.lock",
+      "**/Cargo.toml",
+      "**/package-lock.json",
+      "**/yarn.lock",
+      "**/pnpm-lock.yaml",
+      "**/go.sum",
+      "**/go.mod",
+      "**/Gemfile.lock",
+      "**/Pipfile.lock",
+      "**/poetry.lock",
+      "**/composer.lock",
+      "**/.github/**",
+      "**/.gitignore",
+      "**/.gitattributes",
+      "**/.gitmodules",
+      "**/.editorconfig",
+      "**/.vscode/**",
+      "**/.idea/**"
+    ],
+    "author_default_excludes": true,
+    "author_exclude_regexes": [
+      "dependabot"
+    ],
+    "community_top_owners": 5
+  },
+  "orphaned_sensitive_code": [],
+  "hidden_owners": [
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "53% of checkout code",
+      "category": "checkout",
+      "share": 0.5349
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "57% of orders code",
+      "category": "orders",
+      "share": 0.5667
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "76% of security_perimeter code",
+      "category": "security_perimeter",
+      "share": 0.7647
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "54% of schema code",
+      "category": "schema",
+      "share": 0.5366
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "70% of durable_objects code",
+      "category": "durable_objects",
+      "share": 0.7
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "67% of do_client code",
+      "category": "do_client",
+      "share": 0.6667
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "53% of payments code",
+      "category": "payments",
+      "share": 0.5294
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "57% of pos code",
+      "category": "pos",
+      "share": 0.5714
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "70% of auth code",
+      "category": "auth",
+      "share": 0.7
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "67% of money code",
+      "category": "money",
+      "share": 0.6667
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "62% of inventory code",
+      "category": "inventory",
+      "share": 0.625
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "100% of otp code",
+      "category": "otp",
+      "share": 1.0
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "88% of fraud code",
+      "category": "fraud",
+      "share": 0.875
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "50% of bot code",
+      "category": "bot",
+      "share": 0.5
+    },
+    {
+      "person": "delwarnetwork@gmail.com",
+      "name": "delwarnetwork",
+      "controls": "100% of csrf code",
+      "category": "csrf",
+      "share": 1.0
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "86% of authz code",
+      "category": "authz",
+      "share": 0.8571
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "100% of session code",
+      "category": "session",
+      "share": 1.0
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "100% of secrets code",
+      "category": "secrets",
+      "share": 1.0
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "100% of audit code",
+      "category": "audit",
+      "share": 1.0
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "100% of pii code",
+      "category": "pii",
+      "share": 1.0
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "100% of idempotency code",
+      "category": "idempotency",
+      "share": 1.0
+    },
+    {
+      "person": "delwarofficial@users.noreply.github.com",
+      "name": "DelwarOfficial",
+      "controls": "100% of auth_crypto code",
+      "category": "auth_crypto",
+      "share": 1.0
+    }
+  ],
+  "bus_factor_hotspots": [
+    {
+      "path": "db/migrations/0033_direct_checkout_activity.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T20:59:40+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0033_rollback_direct_checkout_activity.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T20:39:54+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/integrations/payments/index.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T20:39:54+06:00",
+      "sensitivity_tags": [
+        "payments"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0032_payments_order_unique_active.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T20:35:33+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0032_rollback_payments_order_unique_active.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T20:35:33+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/pages/api/payments/reconcile.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T20:35:33+06:00",
+      "sensitivity_tags": [
+        "payments"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0031_order_courier_handoff.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T15:01:08+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0031_rollback_order_courier_handoff.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T15:01:08+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/pages/api/staff/orders/[id]/courier.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T15:01:08+06:00",
+      "sensitivity_tags": [
+        "orders"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0029_rollback_customer_phone_otp.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T14:49:29+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0030_staff_sessions_step_up.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T14:39:02+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0030_rollback_staff_sessions_step_up.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T14:39:02+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/phone-verification.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T14:39:02+06:00",
+      "sensitivity_tags": [
+        "otp"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0029_customer_phone_otp.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T08:54:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0019_rollback_cart_activity.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T06:58:32+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/integrations/fraudbd/client.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T06:58:32+06:00",
+      "sensitivity_tags": [
+        "fraud"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0024_stock_reservations_unique_constraint.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T06:42:55+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0027_stock_reservations_status_rebuild.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T06:42:55+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0028_fix_stock_reservations_active_index_shape.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T06:42:55+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0028_rollback_fix_stock_reservations_active_index_shape.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T06:42:55+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/integrations/fraudbd/errors.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T05:11:19+06:00",
+      "sensitivity_tags": [
+        "fraud"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/integrations/fraudbd/index.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T05:11:19+06:00",
+      "sensitivity_tags": [
+        "fraud"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/integrations/fraudbd/mock.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T05:11:19+06:00",
+      "sensitivity_tags": [
+        "fraud"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/integrations/fraudbd/types.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T05:11:19+06:00",
+      "sensitivity_tags": [
+        "fraud"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0027_rollback_stock_reservations_status_rebuild.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-19T05:01:56+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0021_create_otp_secrets.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0022_create_api_audit_logs.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0023_create_ai_budget_limits.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0025_cart_activity_v7_cleanup.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0026_add_checkout_vat_paisa.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0021_rollback_create_otp_secrets.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0022_rollback_create_api_audit_logs.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0023_rollback_create_ai_budget_limits.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0024_rollback_stock_reservations_unique_constraint.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0025_rollback_cart_activity_v7_cleanup.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0026_rollback_add_checkout_vat_paisa.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T23:43:47+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0020_staff_totp.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T17:00:14+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0020_rollback_staff_totp.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T17:00:14+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0019_cart_activity.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T16:19:58+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0018_schema_constraints.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T01:18:31+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0018_rollback_schema_constraints.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T01:18:31+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/csrf.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T01:18:31+06:00",
+      "sensitivity_tags": [
+        "csrf"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/payment-webhook-ingress.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T01:18:31+06:00",
+      "sensitivity_tags": [
+        "payments"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/0017_variants_stock_generated.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T00:29:58+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "db/migrations/rollback/0017_rollback_variants_stock_generated.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-18T00:29:58+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarnetwork@gmail.com"
+    },
+    {
+      "path": "src/lib/staff-cookies.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-17T19:34:08+06:00",
+      "sensitivity_tags": [
+        "session"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0016_invoices.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-17T00:59:39+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0016_rollback_invoices.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-17T00:59:39+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0015_tamper_lockout.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-17T00:43:13+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0015_rollback_tamper_lockout.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-17T00:43:13+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": ".env.example",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "secrets"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0014_inventory_baseline.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0001_rollback_initial_v6_8a_schema.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0002_rollback_indexes.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0003_rollback_staff_operations_v2.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0004_rollback_partial_prepay.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0005_rollback_password_salt.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0006_rollback_api_keys.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0007_rollback_audit_chain.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0008_rollback_security_hardening.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0009_rollback_staff_roles_developer_auditor.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0010_rollback_coupon_claim_tokens.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0011_rollback_master_prompt_v7_gaps.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0012_rollback_fts5_search.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0013_rollback_order_state_machine_constraints.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/0014_rollback_inventory_baseline.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:42:36+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0013_order_state_machine_constraints.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:02:23+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/lib/audit.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T23:02:23+06:00",
+      "sensitivity_tags": [
+        "audit"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/rollback/README.md",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T19:16:26+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/do/waf-rules.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T19:16:26+06:00",
+      "sensitivity_tags": [
+        "durable_objects"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0011_master_prompt_v7_gaps.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T18:38:40+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0012_fts5_search.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T18:38:40+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/lib/pii-scrubber.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T18:38:40+06:00",
+      "sensitivity_tags": [
+        "pii"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0010_coupon_claim_tokens.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T17:12:22+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/lib/idempotency.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T17:12:22+06:00",
+      "sensitivity_tags": [
+        "idempotency"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/lib/money.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-16T17:12:22+06:00",
+      "sensitivity_tags": [
+        "money"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0009_staff_roles_developer_auditor.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-08T18:49:04+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0008_security_hardening.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-08T11:55:42+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/lib/api-keys.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-08T11:55:42+06:00",
+      "sensitivity_tags": [
+        "authz"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0005_password_salt.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-07T21:14:22+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0006_api_keys.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-07T21:14:22+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0007_audit_chain.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-07T21:14:22+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0004_partial_prepay.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-07T18:09:04+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "src/lib/security.ts",
+      "bus_factor": 1,
+      "last_touch": "2026-06-06T15:34:50+06:00",
+      "sensitivity_tags": [
+        "auth_crypto"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    },
+    {
+      "path": "db/migrations/0002_indexes.sql",
+      "bus_factor": 1,
+      "last_touch": "2026-06-06T13:28:12+06:00",
+      "sensitivity_tags": [
+        "schema"
+      ],
+      "top_owner": "delwarofficial@users.noreply.github.com"
+    }
+  ],
+  "stats": {
+    "commits": 84,
+    "commits_seen": 84,
+    "commits_excluded_identities": 0,
+    "commits_excluded_merges": 0,
+    "edges": 1491,
+    "people": 2,
+    "files": 595,
+    "cochange_pairs_total": 10202,
+    "cochange_edges": 1566,
+    "cochange_commits_used": 71,
+    "cochange_commits_skipped": 5,
+    "cochange_commits_filtered": 2,
+    "cochange_files_excluded": 22
+  }
+}

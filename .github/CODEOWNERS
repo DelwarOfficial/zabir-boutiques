@@ -1,0 +1,74 @@
+# CODEOWNERS — Zabir Boutiques V8
+#
+# Enforces the per-PR Cluster Owner review mandated by Master Plan §34.
+# The security-ownership map (security_ownership_map.md) found bus-factor = 1
+# across every trust primitive: each file below had exactly one author and
+# zero second touches. Requiring both contributors to review these paths
+# raises the effective bus factor to 2 and makes the §34 review binding.
+#
+# GitHub usernames resolved from git history (both UTC+6, both real accounts):
+#   @DelwarOfficial  — owns the trust/crypto + auth/RBAC layer
+#   @delwarnetwork   — owns the DO/state + webhook + checkout layer
+#
+# Default: any unlisted path needs at least one owner.
+*                       @DelwarOfficial @delwarnetwork
+
+# ───────────────────────────────────────────────────────────────────────
+# Root-of-trust primitives — MUST be reviewed by BOTH owners.
+# These are the bf=1 files from the ownership map where a regression
+# compromises the entire money flow or the PII boundary.
+# ───────────────────────────────────────────────────────────────────────
+# HMAC-SHA256, timing-safe compare, CSRF token mint/verify primitives
+/src/lib/security.ts                   @DelwarOfficial @delwarnetwork
+# Double-submit CSRF validation (staff mutation gate)
+/src/lib/csrf.ts                       @DelwarOfficial @delwarnetwork
+# PII redaction chokepoint — every log line flows through safeLog
+/src/lib/pii-scrubber.ts               @DelwarOfficial @delwarnetwork
+# Webhook authenticity + event-id idempotency (the money-in path)
+/src/lib/payment-webhook-ingress.ts    @DelwarOfficial @delwarnetwork
+
+# ───────────────────────────────────────────────────────────────────────
+# Security perimeter & authorization — review by BOTH.
+# ───────────────────────────────────────────────────────────────────────
+# Central auth guard, RBAC, CSRF enforcement, CSP nonce, rate limiting
+/src/middleware.ts                     @DelwarOfficial @delwarnetwork
+/src/lib/rbac.ts                       @DelwarOfficial @delwarnetwork
+/src/lib/api-keys.ts                   @DelwarOfficial @delwarnetwork
+/src/lib/staff-cookies.ts              @DelwarOfficial @delwarnetwork
+/src/lib/staff-route-rbac.ts           @DelwarOfficial @delwarnetwork
+/src/lib/phone-verification.ts         @DelwarOfficial @delwarnetwork
+
+# ───────────────────────────────────────────────────────────────────────
+# Money & idempotency — review by BOTH.
+# Integer-paisa arithmetic, checkout pricing, payment apply, idempotency.
+# ───────────────────────────────────────────────────────────────────────
+/src/lib/money.ts                      @DelwarOfficial @delwarnetwork
+/src/lib/checkout-pricing.ts           @DelwarOfficial @delwarnetwork
+/src/lib/payments.ts                   @DelwarOfficial @delwarnetwork
+/src/lib/idempotency.ts                @DelwarOfficial @delwarnetwork
+/src/lib/inventory.ts                  @DelwarOfficial @delwarnetwork
+/src/lib/do-client.ts                  @DelwarOfficial @delwarnetwork
+
+# ───────────────────────────────────────────────────────────────────────
+# Stateful concurrency authority — Durable Objects.
+# One-alarm-per-object rule, object-ID formats, stock serialization.
+# ───────────────────────────────────────────────────────────────────────
+/src/do/                               @DelwarOfficial @delwarnetwork
+/src/lib/contracts/                    @DelwarOfficial @delwarnetwork
+
+# ───────────────────────────────────────────────────────────────────────
+# Schema & migrations — review by BOTH.
+# Single-statement files, rollback pairs, uniqueness constraints (F-01, RT-002).
+# ───────────────────────────────────────────────────────────────────────
+/db/                                   @DelwarOfficial @delwarnetwork
+
+# ───────────────────────────────────────────────────────────────────────
+# Payment & checkout API routes — review by BOTH.
+# ───────────────────────────────────────────────────────────────────────
+/src/pages/api/checkout.ts             @DelwarOfficial @delwarnetwork
+/src/pages/api/payments/               @DelwarOfficial @delwarnetwork
+/src/pages/api/buy-now/                @DelwarOfficial @delwarnetwork
+/src/pages/api/staff/login.ts          @DelwarOfficial @delwarnetwork
+/src/pages/api/staff/fraud/            @DelwarOfficial @delwarnetwork
+/src/pages/api/staff/orders/           @DelwarOfficial @delwarnetwork
+/src/pages/api/staff/invoices/         @DelwarOfficial @delwarnetwork
