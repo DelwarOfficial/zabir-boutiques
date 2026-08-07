@@ -4,7 +4,7 @@
 **Target market:** Bangladesh F-commerce and boutique retail  
 **Primary hosting budget:** Cloudflare Workers Paid plan, minimum $5/month account plan  
 **Document status:** Source of truth for developers and AI coding agents  
-**Version:** V8 Cloudflare Canonical Plan (supersedes V7)  
+**Version:** V8 Cloudflare Canonical Plan   
 **Date:** 2026-08-07  
 **Source of changes:** `Zabir_Boutiques_V7_RedTeam_Review.md` (accepted in full). Every change is listed in `V8_CHANGELOG.md`. Migrations are specified in `V8_MIGRATION_PLAN.md`, which is the standalone, authoritative form of Section 35.  
 **Assumed team size:** 2–4 engineers plus the Owner. Section 34 is scoped to that team and MUST NOT be expanded beyond it without a written staffing change.
@@ -18,7 +18,7 @@
 - [0. Non-Negotiable Canonical Decisions](#0-non-negotiable-canonical-decisions)
 - [1. Executive Summary](#1-executive-summary)
 - [2. Platform and Cost Strategy](#2-platform-and-cost-strategy)
-- [3. Astro 6 Framework Configuration](#3-astro-6-framework-configuration)
+- [3. Astro 7.2 Framework Configuration](#3-astro-6-framework-configuration)
 - [4. Cloudflare Service Matrix](#4-cloudflare-service-matrix)
 - [5. Source-of-Truth Ownership](#5-source-of-truth-ownership)
 - [6. Data Architecture](#6-data-architecture)
@@ -112,7 +112,7 @@ The platform is designed around four priorities:
 3. **Fast mobile-first pages.** Catalog pages are on-demand rendered and cached at the edge with Cache API + SWR and tag-based purging. Only static legal/info pages are prerendered.
 4. **Low operational cost.** The default build targets Cloudflare Workers Paid at the $5/month minimum, with D1, R2, KV, Durable Objects, Queues, Workers AI, Cron Triggers, and Pages used carefully.
 
-The project uses **Astro 6 + React 19 Islands + Tailwind CSS + Cloudflare adapter**. Server-first rendering with selective prerendering provides speed for public pages. Dynamic on-demand routes handle checkout, cart validation, staff dashboard, POS, payments, webhooks, inventory mutation, authentication, and admin APIs.
+The project uses **Astro 7.2 + React 19 Islands + Tailwind CSS + Cloudflare adapter**. Server-first rendering with selective prerendering provides speed for public pages. Dynamic on-demand routes handle checkout, cart validation, staff dashboard, POS, payments, webhooks, inventory mutation, authentication, and admin APIs.
 
 ---
 
@@ -123,7 +123,7 @@ The project uses **Astro 6 + React 19 Islands + Tailwind CSS + Cloudflare adapte
 | Layer | Canonical Choice |
 |---|---|
 | Hosting | Cloudflare Pages + Workers/Pages Functions |
-| Framework | Astro 6 |
+| Framework | Astro 7.2 |
 | Rendering | `output: 'server'` (universal). All routes are dynamic by default. Only static legal/info pages opt in with `export const prerender = true` (Section 3.3). `output: 'static'` is FORBIDDEN anywhere in the project. |
 | UI | React 19 Islands + Tailwind CSS |
 | Database | Cloudflare D1 |
@@ -339,7 +339,7 @@ Every external API adapter must have:
 
 ---
 
-## 3. Astro 6 Framework Configuration
+## 3. Astro 7.2 Framework Configuration
 
 ### 3.1 Required Config
 
