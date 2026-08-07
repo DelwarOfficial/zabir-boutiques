@@ -2,7 +2,22 @@
 
 **Status:** Authoritative. This file is the standalone form of Section 35 of the Master Plan. Where this file and Section 35 differ, this file wins.
 **Date:** 2026-08-07
-**Repository head at time of writing:** `db/migrations/0033_direct_checkout_activity.sql`. The next free number is **0034**.
+**Re-baselined:** 2026-08-08 (V8 landing audit).
+
+### Repository state reconciliation
+
+The real repository head is **`db/migrations/0039_staff_roles_consolidate_5.sql`**, not `0033`. The gap between the original V8 draft assumption (`0033`) and reality is filled by six in-flight migrations that landed before this plan was adopted. They are unrelated to the V8 schema work below and are listed here so future readers understand the numbering:
+
+| # | Slug (applied in repo) | Purpose |
+|---|---|---|
+| 0034 | `guest_carts_checkout_sessions_provider_health` | D1 tables for guest carts, Buy Now sessions, provider circuit-breaker state |
+| 0035 | `password_reset_tokens` | Staff password-reset token + rate-limit tables |
+| 0036 | `rbac_management` | Dynamic `roles` + `role_permissions` tables + system-role seed |
+| 0037 | `site_settings_seed` | Seed rows for the operational-settings table |
+| 0038 | `inventory_movements` | Inventory movement ledger |
+| 0039 | `staff_roles_consolidate_5` | Staff role consolidation |
+
+All six carry rollback files (`db/migrations/rollback/0034..0039_*.rollback.sql`). **The next free migration number is `0040`** — which is exactly where the V8 schema work below begins. There is no collision and no renumbering required: the body's `0040`–`0071` range is correctly numbered against the real head. Two originally-drafted migrations were withdrawn against existing schema: `invoices_add_idempotency_key` + `create_idx_invoices_idempotency_key` (RR-03 — `invoices.idempotency_key` already exists in `db/migrations/0016_invoices.sql`) and `create_site_settings` (RR-04 — `site_settings` already exists in `db/migrations/0001_initial_v6_8a_schema.sql`, seeded by `0037_site_settings_seed.sql`). Everything from `0069` on reflects both withdrawals. The earlier "next free is 0070" line was a stale artefact of a partial renumber and is withdrawn.
 
 ---
 
@@ -30,20 +45,19 @@
 ### Dependency order
 
 ```
-0034 ──► 0036 ──► 0037            (checkout_id must exist before the checkout index)
-0035 ──► 0036                     (old index dropped before the new one is created)
-0038 ─── independent
-0039..0043 ── independent (orders columns)
-0044 ──► 0045 ──► 0046            (columns before the unique index)
-0047 ─── independent
-0048 ──► 0049                     (table before its unique index)
-0050 ──► 0051                     (table before its seed)
-0052..0060 ── independent
-0061 requires 0047 (refunds/orders present)
-0062 ─── independent
+0040 ──► 0042 ──► 0043            (checkout_id must exist before the checkout index)
+0041 ──► 0042                     (old index dropped before the new one is created)
+0044 ─── independent
+0045..0049 ── independent (orders columns)
+0050 ──► 0051 ──► 0052            (columns before the unique index)
+0053 ─── independent
+0054 ──► 0055                     (table before its unique index)
+0056 ──► 0057                     (table before its seed)
+0058..0068 ── independent
+0067 requires 0053 (refunds/orders present)
 ```
 
-**0035, 0036, 0037 MUST be applied as a set in one maintenance window.** Between 0035 and 0036 the table has no active-reservation uniqueness protection at all.
+**0041, 0042, 0043 MUST be applied as a set in one maintenance window.** Between 0041 and 0042 the table has no active-reservation uniqueness protection at all.
 
 ---
 
@@ -51,7 +65,7 @@
 
 Nothing else ships before these five.
 
-### 0034 — `stock_reservations_add_checkout_id`
+### 0040 — `stock_reservations_add_checkout_id`
 
 | Property | Value |
 |---|---|
@@ -65,14 +79,14 @@ Nothing else ships before these five.
 **Forward SQL**
 
 ```sql
--- db/migrations/0034_stock_reservations_add_checkout_id.sql
+-- db/migrations/0040_stock_reservations_add_checkout_id.sql
 ALTER TABLE stock_reservations ADD COLUMN checkout_id TEXT;
 ```
 
 **Rollback SQL**
 
 ```sql
--- db/migrations/rollback/0034_stock_reservations_add_checkout_id.rollback.sql
+-- db/migrations/rollback/0040_stock_reservations_add_checkout_id.rollback.sql
 -- ROLLBACK_EXCEPTION: column checkout_id left in place; harmless and idempotent.
 -- Dropping it would require a table rebuild, which is riskier than the residue.
 SELECT 1 WHERE 0;
@@ -81,7 +95,7 @@ SELECT 1 WHERE 0;
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0034_stock_reservations_add_checkout_id.preflight.sql
+-- db/migrations/preflight/0040_stock_reservations_add_checkout_id.preflight.sql
 -- Returns a row if the column already exists.
 SELECT name FROM pragma_table_info('stock_reservations') WHERE name = 'checkout_id';
 ```
@@ -94,13 +108,13 @@ SELECT name FROM pragma_table_info('stock_reservations') WHERE name = 'checkout_
 
 ---
 
-### 0035 — `drop_idx_stock_reservations_order_active`
+### 0041 — `drop_idx_stock_reservations_order_active`
 
 | Property | Value |
 |---|---|
 | Depends on | (none) |
 | Milestone | M4 Inventory, Phase 1 |
-| Risk | **Medium** — removes the only active-reservation uniqueness protection until 0036 lands |
+| Risk | **Medium** — removes the only active-reservation uniqueness protection until 0042 lands |
 | Finding | RT-002 |
 
 The repository index is named `idx_stock_reservations_order_active` and is missing the `order_id IS NOT NULL` predicate. Because SQLite treats NULLs as distinct, the index matches nothing during reservation (when `order_id` is NULL) — so the constraint that was supposed to stop a double-hold on a retried checkout does nothing. The name is retired along with the shape so that no code, test, or audit check can reference the old semantics by accident.
@@ -108,14 +122,14 @@ The repository index is named `idx_stock_reservations_order_active` and is missi
 **Forward SQL**
 
 ```sql
--- db/migrations/0035_drop_idx_stock_reservations_order_active.sql
+-- db/migrations/0041_drop_idx_stock_reservations_order_active.sql
 DROP INDEX IF EXISTS idx_stock_reservations_order_active;
 ```
 
 **Rollback SQL**
 
 ```sql
--- db/migrations/rollback/0035_drop_idx_stock_reservations_order_active.rollback.sql
+-- db/migrations/rollback/0041_drop_idx_stock_reservations_order_active.rollback.sql
 CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_reservations_order_active
   ON stock_reservations(order_id, variant_id)
   WHERE status = 'active';
@@ -124,8 +138,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_stock_reservations_order_active
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0035_drop_idx_stock_reservations_order_active.preflight.sql
--- Returns a row if 0036 has already created the replacement, which would mean
+-- db/migrations/preflight/0041_drop_idx_stock_reservations_order_active.preflight.sql
+-- Returns a row if 0042 has already created the replacement, which would mean
 -- this migration is being applied out of order.
 SELECT name FROM sqlite_master
 WHERE type = 'index' AND name = 'idx_stock_res_order_variant_active';
@@ -139,11 +153,11 @@ WHERE type = 'index' AND name = 'idx_stock_res_order_variant_active';
 
 ---
 
-### 0036 — `create_idx_stock_res_order_variant_active`
+### 0042 — `create_idx_stock_res_order_variant_active`
 
 | Property | Value |
 |---|---|
-| Depends on | 0034, 0035 |
+| Depends on | 0041 (old index dropped first; 0041–0043 applied in one window) |
 | Milestone | M4 Inventory, Phase 1 |
 | Risk | **Medium** — uniqueness evaluated against existing rows |
 | Finding | RT-002 |
@@ -151,7 +165,7 @@ WHERE type = 'index' AND name = 'idx_stock_res_order_variant_active';
 **Forward SQL**
 
 ```sql
--- db/migrations/0036_create_idx_stock_res_order_variant_active.sql
+-- db/migrations/0042_create_idx_stock_res_order_variant_active.sql
 CREATE UNIQUE INDEX idx_stock_res_order_variant_active
   ON stock_reservations(order_id, variant_id)
   WHERE status = 'active' AND order_id IS NOT NULL;
@@ -160,14 +174,14 @@ CREATE UNIQUE INDEX idx_stock_res_order_variant_active
 **Rollback SQL**
 
 ```sql
--- db/migrations/rollback/0036_create_idx_stock_res_order_variant_active.rollback.sql
+-- db/migrations/rollback/0042_create_idx_stock_res_order_variant_active.rollback.sql
 DROP INDEX IF EXISTS idx_stock_res_order_variant_active;
 ```
 
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0036_create_idx_stock_res_order_variant_active.preflight.sql
+-- db/migrations/preflight/0042_create_idx_stock_res_order_variant_active.preflight.sql
 -- Returns one row per duplicate that would abort the CREATE UNIQUE INDEX.
 -- Correct grain: (order_id, variant_id), not order_id alone. The V7 pre-flight
 -- grouped by order_id only and therefore passed on any dataset with no
@@ -190,11 +204,11 @@ If this returns rows, the Cluster 2 Owner resolves each duplicate (release all b
 
 ---
 
-### 0037 — `create_idx_stock_res_checkout_variant_active`
+### 0043 — `create_idx_stock_res_checkout_variant_active`
 
 | Property | Value |
 |---|---|
-| Depends on | 0034 |
+| Depends on | 0040 (checkout_id column must exist) |
 | Milestone | M4 Inventory, Phase 1 |
 | Risk | **Medium** — uniqueness evaluated against existing rows (all of which have `checkout_id IS NULL`, so the predicate matches nothing historically) |
 | Finding | RT-002 |
@@ -204,7 +218,7 @@ This is the index that actually prevents a double-hold on a retried checkout, be
 **Forward SQL**
 
 ```sql
--- db/migrations/0037_create_idx_stock_res_checkout_variant_active.sql
+-- db/migrations/0043_create_idx_stock_res_checkout_variant_active.sql
 CREATE UNIQUE INDEX idx_stock_res_checkout_variant_active
   ON stock_reservations(checkout_id, variant_id)
   WHERE status = 'active';
@@ -213,14 +227,14 @@ CREATE UNIQUE INDEX idx_stock_res_checkout_variant_active
 **Rollback SQL**
 
 ```sql
--- db/migrations/rollback/0037_create_idx_stock_res_checkout_variant_active.rollback.sql
+-- db/migrations/rollback/0043_create_idx_stock_res_checkout_variant_active.rollback.sql
 DROP INDEX IF EXISTS idx_stock_res_checkout_variant_active;
 ```
 
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0037_create_idx_stock_res_checkout_variant_active.preflight.sql
+-- db/migrations/preflight/0043_create_idx_stock_res_checkout_variant_active.preflight.sql
 SELECT checkout_id, variant_id, COUNT(*) AS active_rows
 FROM stock_reservations
 WHERE status = 'active' AND checkout_id IS NOT NULL
@@ -236,7 +250,7 @@ HAVING COUNT(*) > 1;
 
 ---
 
-### 0038 — `orders_add_reservation_expires_at`
+### 0044 — `orders_add_reservation_expires_at`
 
 | Property | Value |
 |---|---|
@@ -248,14 +262,14 @@ HAVING COUNT(*) > 1;
 **Forward SQL**
 
 ```sql
--- db/migrations/0038_orders_add_reservation_expires_at.sql
+-- db/migrations/0044_orders_add_reservation_expires_at.sql
 ALTER TABLE orders ADD COLUMN reservation_expires_at TEXT;
 ```
 
 **Rollback SQL**
 
 ```sql
--- db/migrations/rollback/0038_orders_add_reservation_expires_at.rollback.sql
+-- db/migrations/rollback/0044_orders_add_reservation_expires_at.rollback.sql
 -- ROLLBACK_EXCEPTION: column reservation_expires_at left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
@@ -263,7 +277,7 @@ SELECT 1 WHERE 0;
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0038_orders_add_reservation_expires_at.preflight.sql
+-- db/migrations/preflight/0044_orders_add_reservation_expires_at.preflight.sql
 SELECT name FROM pragma_table_info('orders') WHERE name = 'reservation_expires_at';
 ```
 
@@ -277,24 +291,24 @@ SELECT name FROM pragma_table_info('orders') WHERE name = 'reservation_expires_a
 
 ## 2. Order and Payment Correctness
 
-### 0039 — `orders_add_payment_status`
+### 0045 — `orders_add_payment_status`
 
 Risk **Low**. Finding F-05. Milestone M3, Phase 1.
 
 ```sql
--- db/migrations/0039_orders_add_payment_status.sql
+-- db/migrations/0045_orders_add_payment_status.sql
 ALTER TABLE orders ADD COLUMN payment_status TEXT NOT NULL DEFAULT 'unpaid'
   CHECK (payment_status IN ('unpaid','partially_paid','paid','refunded','partially_refunded'));
 ```
 
 ```sql
--- db/migrations/rollback/0039_orders_add_payment_status.rollback.sql
+-- db/migrations/rollback/0045_orders_add_payment_status.rollback.sql
 -- ROLLBACK_EXCEPTION: column payment_status left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0039_orders_add_payment_status.preflight.sql
+-- db/migrations/preflight/0045_orders_add_payment_status.preflight.sql
 SELECT name FROM pragma_table_info('orders') WHERE name = 'payment_status';
 ```
 
@@ -302,23 +316,23 @@ Assertions: the column defaults to `'unpaid'` on every existing row; an insert w
 
 ---
 
-### 0040 — `orders_add_fraud_score`
+### 0046 — `orders_add_fraud_score`
 
 Risk **Low**. Finding: Section 4 of the review (required by Section 11.2 step 3, never in the schema). Milestone M10, Phase 2.
 
 ```sql
--- db/migrations/0040_orders_add_fraud_score.sql
+-- db/migrations/0046_orders_add_fraud_score.sql
 ALTER TABLE orders ADD COLUMN fraud_score INTEGER CHECK (fraud_score BETWEEN 0 AND 100);
 ```
 
 ```sql
--- db/migrations/rollback/0040_orders_add_fraud_score.rollback.sql
+-- db/migrations/rollback/0046_orders_add_fraud_score.rollback.sql
 -- ROLLBACK_EXCEPTION: column fraud_score left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0040_orders_add_fraud_score.preflight.sql
+-- db/migrations/preflight/0046_orders_add_fraud_score.preflight.sql
 SELECT name FROM pragma_table_info('orders') WHERE name = 'fraud_score';
 ```
 
@@ -326,24 +340,24 @@ Assertions: `fraud_score = 101` fails; NULL is permitted (POS and pre-FraudBD or
 
 ---
 
-### 0041 — `orders_add_fraud_source`
+### 0047 — `orders_add_fraud_source`
 
 Risk **Low**. Finding: Section 4. Milestone M10, Phase 2.
 
 ```sql
--- db/migrations/0041_orders_add_fraud_source.sql
+-- db/migrations/0047_orders_add_fraud_source.sql
 ALTER TABLE orders ADD COLUMN fraud_source TEXT
   CHECK (fraud_source IN ('fraudbd','circuit_open_fallback','fraud_check_failed','client_error','manual'));
 ```
 
 ```sql
--- db/migrations/rollback/0041_orders_add_fraud_source.rollback.sql
+-- db/migrations/rollback/0047_orders_add_fraud_source.rollback.sql
 -- ROLLBACK_EXCEPTION: column fraud_source left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0041_orders_add_fraud_source.preflight.sql
+-- db/migrations/preflight/0047_orders_add_fraud_source.preflight.sql
 SELECT name FROM pragma_table_info('orders') WHERE name = 'fraud_source';
 ```
 
@@ -351,23 +365,23 @@ Assertions: the four values used by Sections 11.2 and 37 all insert; an unknown 
 
 ---
 
-### 0042 — `orders_add_created_by_staff_id`
+### 0048 — `orders_add_created_by_staff_id`
 
 Risk **Low** (nullable, no FK — see the note below). Finding: Section 4 (Staff `orders.cancel` is scoped to "Own orders" with no column recording ownership). Milestone M5, Phase 1.
 
 ```sql
--- db/migrations/0042_orders_add_created_by_staff_id.sql
+-- db/migrations/0048_orders_add_created_by_staff_id.sql
 ALTER TABLE orders ADD COLUMN created_by_staff_id TEXT;
 ```
 
 ```sql
--- db/migrations/rollback/0042_orders_add_created_by_staff_id.rollback.sql
+-- db/migrations/rollback/0048_orders_add_created_by_staff_id.rollback.sql
 -- ROLLBACK_EXCEPTION: column created_by_staff_id left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0042_orders_add_created_by_staff_id.preflight.sql
+-- db/migrations/preflight/0048_orders_add_created_by_staff_id.preflight.sql
 SELECT name FROM pragma_table_info('orders') WHERE name = 'created_by_staff_id';
 ```
 
@@ -375,23 +389,23 @@ SELECT name FROM pragma_table_info('orders') WHERE name = 'created_by_staff_id';
 
 ---
 
-### 0043 — `orders_add_staff_override`
+### 0049 — `orders_add_staff_override`
 
 Risk **Low**. Finding: Section 4 (referenced by Section 14.3, never in the schema). Milestone M5, Phase 1.
 
 ```sql
--- db/migrations/0043_orders_add_staff_override.sql
+-- db/migrations/0049_orders_add_staff_override.sql
 ALTER TABLE orders ADD COLUMN staff_override INTEGER NOT NULL DEFAULT 0 CHECK (staff_override IN (0,1));
 ```
 
 ```sql
--- db/migrations/rollback/0043_orders_add_staff_override.rollback.sql
+-- db/migrations/rollback/0049_orders_add_staff_override.rollback.sql
 -- ROLLBACK_EXCEPTION: column staff_override left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0043_orders_add_staff_override.preflight.sql
+-- db/migrations/preflight/0049_orders_add_staff_override.preflight.sql
 SELECT name FROM pragma_table_info('orders') WHERE name = 'staff_override';
 ```
 
@@ -399,25 +413,25 @@ Assertions: defaults to 0; `staff_override = 2` fails; an override order also ha
 
 ---
 
-### 0044 — `payment_events_add_provider`
+### 0050 — `payment_events_add_provider`
 
 Risk **Low**. Finding F-01. Milestone M3, Phase 1.
 
 The repository `payment_events` table has `id`, `payment_id`, `invoice_id`, `event_type`, `status`, `raw_payload`, `created_at` and `UNIQUE(invoice_id, event_type, status)`. It has no provider identity at all, so provider-level replay protection is impossible without these two columns.
 
 ```sql
--- db/migrations/0044_payment_events_add_provider.sql
+-- db/migrations/0050_payment_events_add_provider.sql
 ALTER TABLE payment_events ADD COLUMN provider TEXT;
 ```
 
 ```sql
--- db/migrations/rollback/0044_payment_events_add_provider.rollback.sql
+-- db/migrations/rollback/0050_payment_events_add_provider.rollback.sql
 -- ROLLBACK_EXCEPTION: column provider left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0044_payment_events_add_provider.preflight.sql
+-- db/migrations/preflight/0050_payment_events_add_provider.preflight.sql
 SELECT name FROM pragma_table_info('payment_events') WHERE name = 'provider';
 ```
 
@@ -425,23 +439,23 @@ Assertions: the column exists; historical rows are NULL.
 
 ---
 
-### 0045 — `payment_events_add_provider_event_id`
+### 0051 — `payment_events_add_provider_event_id`
 
 Risk **Low**. Finding F-01. Milestone M3, Phase 1.
 
 ```sql
--- db/migrations/0045_payment_events_add_provider_event_id.sql
+-- db/migrations/0051_payment_events_add_provider_event_id.sql
 ALTER TABLE payment_events ADD COLUMN provider_event_id TEXT;
 ```
 
 ```sql
--- db/migrations/rollback/0045_payment_events_add_provider_event_id.rollback.sql
+-- db/migrations/rollback/0051_payment_events_add_provider_event_id.rollback.sql
 -- ROLLBACK_EXCEPTION: column provider_event_id left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0045_payment_events_add_provider_event_id.preflight.sql
+-- db/migrations/preflight/0051_payment_events_add_provider_event_id.preflight.sql
 SELECT name FROM pragma_table_info('payment_events') WHERE name = 'provider_event_id';
 ```
 
@@ -449,11 +463,11 @@ Assertions: the column exists; historical rows are NULL.
 
 ---
 
-### 0046 — `create_idx_payment_events_provider_event`
+### 0052 — `create_idx_payment_events_provider_event`
 
 | Property | Value |
 |---|---|
-| Depends on | 0044, 0045 |
+| Depends on | 0050, 0051 (provider + provider_event_id columns) |
 | Milestone | M3 Payment, Phase 1 |
 | Risk | **High** — adds uniqueness over a populated table |
 | Finding | F-01 — the single most important missing constraint in the plan |
@@ -463,7 +477,7 @@ Historical rows have `provider IS NULL` and `provider_event_id IS NULL`. The par
 **Forward SQL**
 
 ```sql
--- db/migrations/0046_create_idx_payment_events_provider_event.sql
+-- db/migrations/0052_create_idx_payment_events_provider_event.sql
 CREATE UNIQUE INDEX idx_payment_events_provider_event
   ON payment_events(provider, provider_event_id)
   WHERE provider IS NOT NULL AND provider_event_id IS NOT NULL;
@@ -472,14 +486,14 @@ CREATE UNIQUE INDEX idx_payment_events_provider_event
 **Rollback SQL**
 
 ```sql
--- db/migrations/rollback/0046_create_idx_payment_events_provider_event.rollback.sql
+-- db/migrations/rollback/0052_create_idx_payment_events_provider_event.rollback.sql
 DROP INDEX IF EXISTS idx_payment_events_provider_event;
 ```
 
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0046_create_idx_payment_events_provider_event.preflight.sql
+-- db/migrations/preflight/0052_create_idx_payment_events_provider_event.preflight.sql
 SELECT provider, provider_event_id, COUNT(*) AS duplicate_rows
 FROM payment_events
 WHERE provider IS NOT NULL AND provider_event_id IS NOT NULL
@@ -496,12 +510,12 @@ HAVING COUNT(*) > 1;
 
 ---
 
-### 0047 — `create_payment_transactions`
+### 0053 — `create_payment_transactions`
 
 Risk **Low** (new table; FK to `orders` is declared at create time, which SQLite supports). Findings F-03, RV8-001. Milestone M3, Phase 1.
 
 ```sql
--- db/migrations/0047_create_payment_transactions.sql
+-- db/migrations/0053_create_payment_transactions.sql
 CREATE TABLE payment_transactions (
   transaction_id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
@@ -518,12 +532,12 @@ CREATE TABLE payment_transactions (
 ```
 
 ```sql
--- db/migrations/rollback/0047_create_payment_transactions.rollback.sql
+-- db/migrations/rollback/0053_create_payment_transactions.rollback.sql
 DROP TABLE IF EXISTS payment_transactions;
 ```
 
 ```sql
--- db/migrations/preflight/0047_create_payment_transactions.preflight.sql
+-- db/migrations/preflight/0053_create_payment_transactions.preflight.sql
 -- Returns a row if the table already exists, AND asserts the FK target has the
 -- shape this migration assumes (M-06: never assume the referenced schema).
 SELECT 'table_exists' AS problem FROM sqlite_master WHERE type='table' AND name='payment_transactions'
@@ -538,12 +552,12 @@ Assertions: `amount_paisa = 0` fails; an unknown `direction` fails; deleting an 
 
 ## 3. Coupons, VAT, Cart
 
-### 0048 — `create_coupon_redemptions`
+### 0054 — `create_coupon_redemptions`
 
 Risk **Low**. Finding RT-007. Milestone M2, Phase 1. The table is named in Section 6.1 but does not exist in the repository.
 
 ```sql
--- db/migrations/0048_create_coupon_redemptions.sql
+-- db/migrations/0054_create_coupon_redemptions.sql
 CREATE TABLE coupon_redemptions (
   redemption_id TEXT PRIMARY KEY,
   coupon_id TEXT NOT NULL,
@@ -554,12 +568,12 @@ CREATE TABLE coupon_redemptions (
 ```
 
 ```sql
--- db/migrations/rollback/0048_create_coupon_redemptions.rollback.sql
+-- db/migrations/rollback/0054_create_coupon_redemptions.rollback.sql
 DROP TABLE IF EXISTS coupon_redemptions;
 ```
 
 ```sql
--- db/migrations/preflight/0048_create_coupon_redemptions.preflight.sql
+-- db/migrations/preflight/0054_create_coupon_redemptions.preflight.sql
 SELECT name FROM sqlite_master WHERE type='table' AND name='coupon_redemptions';
 ```
 
@@ -567,23 +581,23 @@ Assertions: a negative discount fails; the row is written in the same D1 batch a
 
 ---
 
-### 0049 — `create_idx_coupon_redemptions_coupon_order`
+### 0055 — `create_idx_coupon_redemptions_coupon_order`
 
-Risk **Low** (new empty table). Finding RT-007. Depends on 0048.
+Risk **Low** (new empty table). Finding RT-007. Depends on 0054 (coupon_redemptions table).
 
 ```sql
--- db/migrations/0049_create_idx_coupon_redemptions_coupon_order.sql
+-- db/migrations/0055_create_idx_coupon_redemptions_coupon_order.sql
 CREATE UNIQUE INDEX idx_coupon_redemptions_coupon_order
   ON coupon_redemptions(coupon_id, order_id);
 ```
 
 ```sql
--- db/migrations/rollback/0049_create_idx_coupon_redemptions_coupon_order.rollback.sql
+-- db/migrations/rollback/0055_create_idx_coupon_redemptions_coupon_order.rollback.sql
 DROP INDEX IF EXISTS idx_coupon_redemptions_coupon_order;
 ```
 
 ```sql
--- db/migrations/preflight/0049_create_idx_coupon_redemptions_coupon_order.preflight.sql
+-- db/migrations/preflight/0055_create_idx_coupon_redemptions_coupon_order.preflight.sql
 SELECT coupon_id, order_id, COUNT(*) AS duplicate_rows
 FROM coupon_redemptions
 GROUP BY coupon_id, order_id
@@ -594,12 +608,12 @@ Assertions: the same coupon cannot be redeemed twice against one order; the same
 
 ---
 
-### 0050 — `create_tax_rates`
+### 0056 — `create_tax_rates`
 
 Risk **Low**. Finding C-09, F-06. Milestone M2, Phase 1.
 
 ```sql
--- db/migrations/0050_create_tax_rates.sql
+-- db/migrations/0056_create_tax_rates.sql
 CREATE TABLE tax_rates (
   tax_rate_id TEXT PRIMARY KEY,
   rate_percent INTEGER NOT NULL CHECK (rate_percent >= 0 AND rate_percent <= 100),
@@ -611,12 +625,12 @@ CREATE TABLE tax_rates (
 ```
 
 ```sql
--- db/migrations/rollback/0050_create_tax_rates.rollback.sql
+-- db/migrations/rollback/0056_create_tax_rates.rollback.sql
 DROP TABLE IF EXISTS tax_rates;
 ```
 
 ```sql
--- db/migrations/preflight/0050_create_tax_rates.preflight.sql
+-- db/migrations/preflight/0056_create_tax_rates.preflight.sql
 SELECT name FROM sqlite_master WHERE type='table' AND name='tax_rates';
 ```
 
@@ -624,23 +638,23 @@ Assertions: `rate_percent = 101` fails; an unknown `applies_to` fails; an open-e
 
 ---
 
-### 0051 — `seed_tax_rates`
+### 0057 — `seed_tax_rates`
 
-Risk **Low**. Finding C-09. Depends on 0050. Seed data is its own numbered migration (M-04): if a `CREATE` succeeds and a seed `INSERT` fails inside one file, the reader caches an empty config and silently enforces nothing.
+Risk **Low**. Finding C-09. Depends on 0056 (tax_rates table). Seed data is its own numbered migration (M-04): if a `CREATE` succeeds and a seed `INSERT` fails inside one file, the reader caches an empty config and silently enforces nothing.
 
 ```sql
--- db/migrations/0051_seed_tax_rates.sql
+-- db/migrations/0057_seed_tax_rates.sql
 INSERT INTO tax_rates (tax_rate_id, rate_percent, applies_to, effective_from, effective_to, created_at)
 VALUES ('tax_goods_launch', 0, 'goods', '2026-01-01T00:00:00Z', NULL, datetime('now'));
 ```
 
 ```sql
--- db/migrations/rollback/0051_seed_tax_rates.rollback.sql
+-- db/migrations/rollback/0057_seed_tax_rates.rollback.sql
 DELETE FROM tax_rates WHERE tax_rate_id = 'tax_goods_launch';
 ```
 
 ```sql
--- db/migrations/preflight/0051_seed_tax_rates.preflight.sql
+-- db/migrations/preflight/0057_seed_tax_rates.preflight.sql
 SELECT tax_rate_id FROM tax_rates WHERE tax_rate_id = 'tax_goods_launch';
 ```
 
@@ -648,23 +662,23 @@ The launch rate is `0`, matching the V7 default. A `delivery` row is **not** see
 
 ---
 
-### 0052 — `cart_activity_add_cart_version`
+### 0058 — `cart_activity_add_cart_version`
 
 Risk **Low**. Finding CF-04. Milestone M9, Phase 2.
 
 ```sql
--- db/migrations/0052_cart_activity_add_cart_version.sql
+-- db/migrations/0058_cart_activity_add_cart_version.sql
 ALTER TABLE cart_activity ADD COLUMN cart_version INTEGER NOT NULL DEFAULT 0;
 ```
 
 ```sql
--- db/migrations/rollback/0052_cart_activity_add_cart_version.rollback.sql
+-- db/migrations/rollback/0058_cart_activity_add_cart_version.rollback.sql
 -- ROLLBACK_EXCEPTION: column cart_version left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0052_cart_activity_add_cart_version.preflight.sql
+-- db/migrations/preflight/0058_cart_activity_add_cart_version.preflight.sql
 SELECT name FROM pragma_table_info('cart_activity') WHERE name = 'cart_version';
 ```
 
@@ -674,12 +688,12 @@ Assertions: existing rows default to 0, so the first versioned write from either
 
 ## 4. Operations, Courier, POS, Supply Chain
 
-### 0053 — `create_courier_shipments`
+### 0059 — `create_courier_shipments`
 
 Risk **Low**. Finding F-03. Milestone M10, Phase 2.
 
 ```sql
--- db/migrations/0053_create_courier_shipments.sql
+-- db/migrations/0059_create_courier_shipments.sql
 CREATE TABLE courier_shipments (
   shipment_id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
@@ -694,12 +708,12 @@ CREATE TABLE courier_shipments (
 ```
 
 ```sql
--- db/migrations/rollback/0053_create_courier_shipments.rollback.sql
+-- db/migrations/rollback/0059_create_courier_shipments.rollback.sql
 DROP TABLE IF EXISTS courier_shipments;
 ```
 
 ```sql
--- db/migrations/preflight/0053_create_courier_shipments.preflight.sql
+-- db/migrations/preflight/0059_create_courier_shipments.preflight.sql
 SELECT 'table_exists' AS problem FROM sqlite_master WHERE type='table' AND name='courier_shipments'
 UNION ALL
 SELECT 'orders_pk_not_id' AS problem
@@ -710,12 +724,12 @@ Assertions: negative COD amounts fail; an unknown courier fails; `cod_collected_
 
 ---
 
-### 0054 — `create_courier_cod_remittance`
+### 0060 — `create_courier_cod_remittance`
 
 Risk **Low**. Finding F-03. Milestone M10, Phase 2.
 
 ```sql
--- db/migrations/0054_create_courier_cod_remittance.sql
+-- db/migrations/0060_create_courier_cod_remittance.sql
 CREATE TABLE courier_cod_remittance (
   remittance_id TEXT PRIMARY KEY,
   courier TEXT NOT NULL,
@@ -730,12 +744,12 @@ CREATE TABLE courier_cod_remittance (
 ```
 
 ```sql
--- db/migrations/rollback/0054_create_courier_cod_remittance.rollback.sql
+-- db/migrations/rollback/0060_create_courier_cod_remittance.rollback.sql
 DROP TABLE IF EXISTS courier_cod_remittance;
 ```
 
 ```sql
--- db/migrations/preflight/0054_create_courier_cod_remittance.preflight.sql
+-- db/migrations/preflight/0060_create_courier_cod_remittance.preflight.sql
 SELECT name FROM sqlite_master WHERE type='table' AND name='courier_cod_remittance';
 ```
 
@@ -743,12 +757,12 @@ Assertions: a shortfall (`received < expected`) inserts and is reportable; negat
 
 ---
 
-### 0055 — `create_pos_cash_drawer_sessions`
+### 0061 — `create_pos_cash_drawer_sessions`
 
 Risk **Low**. Finding F-09. Milestone M11, Phase 2.
 
 ```sql
--- db/migrations/0055_create_pos_cash_drawer_sessions.sql
+-- db/migrations/0061_create_pos_cash_drawer_sessions.sql
 CREATE TABLE pos_cash_drawer_sessions (
   drawer_session_id TEXT PRIMARY KEY,
   opened_by_staff_id TEXT NOT NULL,
@@ -764,12 +778,12 @@ CREATE TABLE pos_cash_drawer_sessions (
 ```
 
 ```sql
--- db/migrations/rollback/0055_create_pos_cash_drawer_sessions.rollback.sql
+-- db/migrations/rollback/0061_create_pos_cash_drawer_sessions.rollback.sql
 DROP TABLE IF EXISTS pos_cash_drawer_sessions;
 ```
 
 ```sql
--- db/migrations/preflight/0055_create_pos_cash_drawer_sessions.preflight.sql
+-- db/migrations/preflight/0061_create_pos_cash_drawer_sessions.preflight.sql
 SELECT name FROM sqlite_master WHERE type='table' AND name='pos_cash_drawer_sessions';
 ```
 
@@ -777,12 +791,12 @@ Assertions: an open session has NULL close fields; `variance_paisa = counted - e
 
 ---
 
-### 0056 — `create_suppliers`
+### 0062 — `create_suppliers`
 
 Risk **Low**. Finding RT-003 / Section 8. Milestone M4, Phase 1.
 
 ```sql
--- db/migrations/0056_create_suppliers.sql
+-- db/migrations/0062_create_suppliers.sql
 CREATE TABLE suppliers (
   supplier_id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
@@ -794,23 +808,23 @@ CREATE TABLE suppliers (
 ```
 
 ```sql
--- db/migrations/rollback/0056_create_suppliers.rollback.sql
+-- db/migrations/rollback/0062_create_suppliers.rollback.sql
 DROP TABLE IF EXISTS suppliers;
 ```
 
 ```sql
--- db/migrations/preflight/0056_create_suppliers.preflight.sql
+-- db/migrations/preflight/0062_create_suppliers.preflight.sql
 SELECT name FROM sqlite_master WHERE type='table' AND name='suppliers';
 ```
 
 ---
 
-### 0057 — `create_purchase_orders`
+### 0063 — `create_purchase_orders`
 
-Risk **Low**. Depends on 0056. Finding RT-003 / Section 8.
+Risk **Low**. Depends on 0062 (suppliers table). Finding RT-003 / Section 8.
 
 ```sql
--- db/migrations/0057_create_purchase_orders.sql
+-- db/migrations/0063_create_purchase_orders.sql
 CREATE TABLE purchase_orders (
   purchase_order_id TEXT PRIMARY KEY,
   supplier_id TEXT NOT NULL REFERENCES suppliers(supplier_id) ON DELETE RESTRICT,
@@ -823,12 +837,12 @@ CREATE TABLE purchase_orders (
 ```
 
 ```sql
--- db/migrations/rollback/0057_create_purchase_orders.rollback.sql
+-- db/migrations/rollback/0063_create_purchase_orders.rollback.sql
 DROP TABLE IF EXISTS purchase_orders;
 ```
 
 ```sql
--- db/migrations/preflight/0057_create_purchase_orders.preflight.sql
+-- db/migrations/preflight/0063_create_purchase_orders.preflight.sql
 SELECT 'table_exists' AS problem FROM sqlite_master WHERE type='table' AND name='purchase_orders'
 UNION ALL
 SELECT 'suppliers_missing' AS problem
@@ -839,12 +853,12 @@ Assertions: an order referencing a non-existent supplier fails; an unknown statu
 
 ---
 
-### 0058 — `create_goods_receipts`
+### 0064 — `create_goods_receipts`
 
-Risk **Low**. Depends on 0057. Finding RT-003.
+Risk **Low**. Depends on 0063 (purchase_orders table). Finding RT-003.
 
 ```sql
--- db/migrations/0058_create_goods_receipts.sql
+-- db/migrations/0064_create_goods_receipts.sql
 CREATE TABLE goods_receipts (
   goods_receipt_id TEXT PRIMARY KEY,
   purchase_order_id TEXT REFERENCES purchase_orders(purchase_order_id) ON DELETE RESTRICT,
@@ -858,12 +872,12 @@ CREATE TABLE goods_receipts (
 ```
 
 ```sql
--- db/migrations/rollback/0058_create_goods_receipts.rollback.sql
+-- db/migrations/rollback/0064_create_goods_receipts.rollback.sql
 DROP TABLE IF EXISTS goods_receipts;
 ```
 
 ```sql
--- db/migrations/preflight/0058_create_goods_receipts.preflight.sql
+-- db/migrations/preflight/0064_create_goods_receipts.preflight.sql
 SELECT 'table_exists' AS problem FROM sqlite_master WHERE type='table' AND name='goods_receipts'
 UNION ALL
 SELECT 'purchase_orders_missing' AS problem
@@ -874,23 +888,23 @@ Assertions: `quantity = 0` fails; `adjustment_id` matches the `adjustStock()` id
 
 ---
 
-### 0059 — `return_requests_add_restocked_at`
+### 0065 — `return_requests_add_restocked_at`
 
 Risk **Low**. Finding C-06. Milestone M10, Phase 2. The repository table is `return_requests`.
 
 ```sql
--- db/migrations/0059_return_requests_add_restocked_at.sql
+-- db/migrations/0065_return_requests_add_restocked_at.sql
 ALTER TABLE return_requests ADD COLUMN restocked_at TEXT;
 ```
 
 ```sql
--- db/migrations/rollback/0059_return_requests_add_restocked_at.rollback.sql
+-- db/migrations/rollback/0065_return_requests_add_restocked_at.rollback.sql
 -- ROLLBACK_EXCEPTION: column restocked_at left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0059_return_requests_add_restocked_at.preflight.sql
+-- db/migrations/preflight/0065_return_requests_add_restocked_at.preflight.sql
 SELECT 'column_exists' AS problem FROM pragma_table_info('return_requests') WHERE name='restocked_at'
 UNION ALL
 SELECT 'return_requests_missing' AS problem
@@ -901,23 +915,23 @@ Assertions: an approved resaleable return sets `restocked_at` and produces a `st
 
 ---
 
-### 0060 — `product_variants_add_cost_paisa`
+### 0066 — `product_variants_add_cost_paisa`
 
 Risk **Low**. Finding: Section 8 (COGS is uncomputable without it). Milestone M4, Phase 1 — added now because backfilling cost onto historical stock later is guesswork.
 
 ```sql
--- db/migrations/0060_product_variants_add_cost_paisa.sql
+-- db/migrations/0066_product_variants_add_cost_paisa.sql
 ALTER TABLE product_variants ADD COLUMN cost_paisa INTEGER CHECK (cost_paisa >= 0);
 ```
 
 ```sql
--- db/migrations/rollback/0060_product_variants_add_cost_paisa.rollback.sql
+-- db/migrations/rollback/0066_product_variants_add_cost_paisa.rollback.sql
 -- ROLLBACK_EXCEPTION: column cost_paisa left in place; harmless and idempotent.
 SELECT 1 WHERE 0;
 ```
 
 ```sql
--- db/migrations/preflight/0060_product_variants_add_cost_paisa.preflight.sql
+-- db/migrations/preflight/0066_product_variants_add_cost_paisa.preflight.sql
 SELECT name FROM pragma_table_info('product_variants') WHERE name = 'cost_paisa';
 ```
 
@@ -925,12 +939,12 @@ Assertions: negative cost fails; NULL is permitted for variants with unknown his
 
 ---
 
-### 0061 — `create_trg_refund_cap`
+### 0067 — `create_trg_refund_cap`
 
 Risk **Medium** — a trigger changes write behaviour on a live table. Finding F-03. Milestone M10, Phase 2.
 
 ```sql
--- db/migrations/0061_create_trg_refund_cap.sql
+-- db/migrations/0067_create_trg_refund_cap.sql
 CREATE TRIGGER trg_refund_cap
 AFTER INSERT ON refunds
 FOR EACH ROW
@@ -945,14 +959,14 @@ END;
 ```
 
 ```sql
--- db/migrations/rollback/0061_create_trg_refund_cap.rollback.sql
+-- db/migrations/rollback/0067_create_trg_refund_cap.rollback.sql
 DROP TRIGGER IF EXISTS trg_refund_cap;
 ```
 
 **Pre-flight** (zero rows = safe) — this one matters: if production already contains an over-refunded order, the trigger will abort the next legitimate refund on it.
 
 ```sql
--- db/migrations/preflight/0061_create_trg_refund_cap.preflight.sql
+-- db/migrations/preflight/0067_create_trg_refund_cap.preflight.sql
 SELECT o.id AS order_id,
        o.advance_paisa,
        SUM(r.refund_paisa) AS refunded_paisa
@@ -968,19 +982,19 @@ Assertions: a refund totalling exactly `advance_paisa` succeeds; one paisa more 
 
 ---
 
-### 0062 — `drop_csrf_nonces`
+### 0068 — `drop_csrf_nonces`
 
 Risk **Medium** — drops a table. Finding S-10. Milestone M6, Phase 2.
 
 Section 18.3 now specifies a single stateless HMAC-signed double-submit token. The `csrf_nonces` table has no reader and no writer.
 
 ```sql
--- db/migrations/0062_drop_csrf_nonces.sql
+-- db/migrations/0068_drop_csrf_nonces.sql
 DROP TABLE IF EXISTS csrf_nonces;
 ```
 
 ```sql
--- db/migrations/rollback/0062_drop_csrf_nonces.rollback.sql
+-- db/migrations/rollback/0068_drop_csrf_nonces.rollback.sql
 -- ROLLBACK_EXCEPTION: re-creating the table does NOT restore its rows.
 -- The table was unused by V8 code paths; schema parity is sufficient.
 CREATE TABLE IF NOT EXISTS csrf_nonces (
@@ -994,7 +1008,7 @@ CREATE TABLE IF NOT EXISTS csrf_nonces (
 **Pre-flight** (zero rows = safe)
 
 ```sql
--- db/migrations/preflight/0062_drop_csrf_nonces.preflight.sql
+-- db/migrations/preflight/0068_drop_csrf_nonces.preflight.sql
 -- Returns rows if the table still holds live nonces, which would mean some code
 -- path is still writing to it. Resolve that before dropping.
 SELECT COUNT(*) AS live_nonces FROM csrf_nonces
@@ -1006,119 +1020,72 @@ Assertions: after apply, the table is absent and CSRF validation still passes en
 
 ---
 
-### 0063 — `invoices_add_idempotency_key`
+### No migration needed — `invoices.idempotency_key` already exists (RR-03)
 
-Risk **Low** (nullable additive column). Finding RV8-002. Milestone M11, Phase 2.
-
-```sql
--- db/migrations/0063_invoices_add_idempotency_key.sql
-ALTER TABLE invoices ADD COLUMN idempotency_key TEXT;
-```
-
-```sql
--- db/migrations/rollback/0063_invoices_add_idempotency_key.rollback.sql
--- ROLLBACK_EXCEPTION: SQLite cannot drop columns in place; leave nullable column present.
-SELECT 1 WHERE 0;
-```
-
-```sql
--- db/migrations/preflight/0063_invoices_add_idempotency_key.preflight.sql
-SELECT name FROM pragma_table_info('invoices') WHERE name = 'idempotency_key';
-```
-
-Assertions: column is nullable; existing rows remain valid; a repeated POS attempt can reuse the same key.
+`db/migrations/0016_invoices.sql:28` already declares `idempotency_key TEXT UNIQUE`. A standard SQLite `UNIQUE` constraint treats NULLs as distinct, which is exactly the behaviour a partial `WHERE idempotency_key IS NOT NULL` index would add — so no new column and no new index are needed. The two migrations originally drafted for this (`invoices_add_idempotency_key`, `create_idx_invoices_idempotency_key`) are **withdrawn**; RV8-002's POS idempotency fix (Section 11.3, Guardrail #16, test #23, drift D-43) is implemented entirely against the existing column.
 
 ---
 
-### 0064 — `create_idx_invoices_idempotency_key`
+### No migration needed — `site_settings` table already exists (RR-04)
 
-Risk **Low** (partial unique index on nullable new column). Finding RV8-002. Milestone M11, Phase 2.
-
-```sql
--- db/migrations/0064_create_idx_invoices_idempotency_key.sql
-CREATE UNIQUE INDEX idx_invoices_idempotency_key ON invoices(idempotency_key) WHERE idempotency_key IS NOT NULL;
-```
-
-```sql
--- db/migrations/rollback/0064_create_idx_invoices_idempotency_key.rollback.sql
-DROP INDEX IF EXISTS idx_invoices_idempotency_key;
-```
-
-```sql
--- db/migrations/preflight/0064_create_idx_invoices_idempotency_key.preflight.sql
-SELECT idempotency_key, COUNT(*) AS c
-FROM invoices
-WHERE idempotency_key IS NOT NULL
-GROUP BY idempotency_key
-HAVING COUNT(*) > 1;
-```
-
-Assertions: duplicate non-NULL `idempotency_key` fails; multiple NULL rows remain valid; retry with same key returns existing invoice.
+`db/migrations/0001_initial_v6_8a_schema.sql` already declares `site_settings(key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '', type TEXT, label TEXT, description TEXT, group_name TEXT, sort_order INTEGER, created_at TEXT, updated_at TEXT)`, and `0037_site_settings_seed.sql` seeds store-profile rows into it. `CREATE TABLE site_settings` in this plan's original draft would fail against a live database. The table is reused as-is; only the seed migration below is needed, using the existing `value` column (plain text, not JSON) and the repo's established `INSERT OR IGNORE` idempotent-seed style.
 
 ---
 
-### 0065 — `create_site_settings`
+### 0069 — `seed_site_settings_commerce_defaults`
 
-Risk **Low** (new table). Finding RV8-006. Milestone M3/M10, Phase 1–2.
+Risk **Low** (idempotent seed insert into an existing table). Finding RV8-006. Milestone M3/M10, Phase 1–2.
 
 ```sql
--- db/migrations/0065_create_site_settings.sql
-CREATE TABLE site_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by_staff_id TEXT REFERENCES staff_users(staff_id));
+-- db/migrations/0069_seed_site_settings_commerce_defaults.sql
+INSERT OR IGNORE INTO site_settings (key, value, type, label, description, group_name, sort_order, created_at, updated_at)
+VALUES
+  ('commerce.max_cod_value_paisa', '500000', 'number', 'Max COD Order Value (paisa)', 'COD is refused above this order total; BDT 5,000 default', 'Commerce', 100, datetime('now'), datetime('now')),
+  ('commerce.cod_orders_per_phone_24h', '2', 'number', 'COD Orders / Phone / 24h', 'Max COD orders from one normalized phone in a rolling 24 hours', 'Commerce', 101, datetime('now'), datetime('now')),
+  ('commerce.cod_orders_per_address_24h', '3', 'number', 'COD Orders / Address / 24h', 'Max COD orders to one address hash in a rolling 24 hours', 'Commerce', 102, datetime('now'), datetime('now')),
+  ('commerce.return_window_days', '7', 'number', 'Return Window (days)', 'Days after delivery a return may be created without a staff override', 'Commerce', 103, datetime('now'), datetime('now'));
 ```
 
 ```sql
--- db/migrations/rollback/0065_create_site_settings.rollback.sql
-DROP TABLE IF EXISTS site_settings;
+-- db/migrations/rollback/0069_seed_site_settings_commerce_defaults.rollback.sql
+DELETE FROM site_settings WHERE key IN (
+  'commerce.max_cod_value_paisa',
+  'commerce.cod_orders_per_phone_24h',
+  'commerce.cod_orders_per_address_24h',
+  'commerce.return_window_days'
+);
 ```
 
 ```sql
--- db/migrations/preflight/0065_create_site_settings.preflight.sql
-SELECT 'table_exists' AS problem FROM sqlite_master WHERE type='table' AND name='site_settings';
+-- db/migrations/preflight/0069_seed_site_settings_commerce_defaults.preflight.sql
+SELECT key FROM site_settings WHERE key IN (
+  'commerce.max_cod_value_paisa',
+  'commerce.cod_orders_per_phone_24h',
+  'commerce.cod_orders_per_address_24h',
+  'commerce.return_window_days'
+);
 ```
 
-Assertions: table exists; keys are unique; Owner-editable values are stored as JSON text.
+Assertions: all four rows insert with `type = 'number'`; `INSERT OR IGNORE` makes a re-run a no-op rather than a constraint failure; the checkout/returns services read and parse these as integers; the Owner can edit them from the existing staff settings screen with no new UI.
 
 ---
 
-### 0066 — `seed_site_settings`
-
-Risk **Low** (idempotent seed insert). Finding RV8-006. Milestone M3/M10, Phase 1–2.
-
-```sql
--- db/migrations/0066_seed_site_settings.sql
-INSERT INTO site_settings (key, value_json, updated_at, updated_by_staff_id) VALUES ('MAX_COD_VALUE_PAISA','500000',datetime('now'),NULL), ('COD_ORDERS_PER_PHONE_24H','2',datetime('now'),NULL), ('COD_ORDERS_PER_ADDRESS_24H','3',datetime('now'),NULL), ('RETURN_WINDOW_DAYS','7',datetime('now'),NULL);
-```
-
-```sql
--- db/migrations/rollback/0066_seed_site_settings.rollback.sql
-DELETE FROM site_settings WHERE key IN ('MAX_COD_VALUE_PAISA','COD_ORDERS_PER_PHONE_24H','COD_ORDERS_PER_ADDRESS_24H','RETURN_WINDOW_DAYS');
-```
-
-```sql
--- db/migrations/preflight/0066_seed_site_settings.preflight.sql
-SELECT key FROM site_settings WHERE key IN ('MAX_COD_VALUE_PAISA','COD_ORDERS_PER_PHONE_24H','COD_ORDERS_PER_ADDRESS_24H','RETURN_WINDOW_DAYS');
-```
-
-Assertions: all four rows insert; repeated reads come through the `site_settings` accessor; defaults are owner-editable after seed.
-
----
-
-### 0067 — `seed_ai_budget_limits_imagify`
+### 0070 — `seed_ai_budget_limits_imagify`
 
 Risk **Low** (idempotent seed insert into existing table). Finding C-14. Milestone M7, Phase 2.
 
 ```sql
--- db/migrations/0067_seed_ai_budget_limits_imagify.sql
+-- db/migrations/0070_seed_ai_budget_limits_imagify.sql
 INSERT OR IGNORE INTO ai_budget_limits (provider, daily_limit_usd_cents, monthly_limit_usd_cents, soft_alert_percent, hard_block_percent, owner_override, updated_at, updated_by_staff_id) VALUES ('imagify', 200, 2000, 80, 100, 0, datetime('now'), NULL);
 ```
 
 ```sql
--- db/migrations/rollback/0067_seed_ai_budget_limits_imagify.rollback.sql
+-- db/migrations/rollback/0070_seed_ai_budget_limits_imagify.rollback.sql
 DELETE FROM ai_budget_limits WHERE provider = 'imagify';
 ```
 
 ```sql
--- db/migrations/preflight/0067_seed_ai_budget_limits_imagify.preflight.sql
+-- db/migrations/preflight/0070_seed_ai_budget_limits_imagify.preflight.sql
 SELECT provider FROM ai_budget_limits WHERE provider = 'imagify';
 ```
 
@@ -1126,22 +1093,22 @@ Assertions: Imagify defaults seed once; existing providers are untouched; owner 
 
 ---
 
-### 0068 — `drop_variants_view`
+### 0071 — `drop_variants_view`
 
 Risk **Low** (compatibility-view removal; rollback recreates). Finding C-15. Milestone M10/M12, Phase 2.
 
 ```sql
--- db/migrations/0068_drop_variants_view.sql
+-- db/migrations/0071_drop_variants_view.sql
 DROP VIEW IF EXISTS variants;
 ```
 
 ```sql
--- db/migrations/rollback/0068_drop_variants_view.rollback.sql
+-- db/migrations/rollback/0071_drop_variants_view.rollback.sql
 CREATE VIEW variants AS SELECT * FROM product_variants;
 ```
 
 ```sql
--- db/migrations/preflight/0068_drop_variants_view.preflight.sql
+-- db/migrations/preflight/0071_drop_variants_view.preflight.sql
 SELECT 1 WHERE 0;
 ```
 
@@ -1151,20 +1118,20 @@ Assertions: the compatibility view is absent after apply; rollback recreates it;
 
 ## 5. Risk Summary Against a Non-Empty Production Database
 
-V7 marked its additive migrations "Low — additive table, no existing data touched" and exempted them from the soak. That classification assumed an empty database. This is a live system with migrations already applied through `0033` and a `variants` compatibility view left over from an earlier schema. Every rating below is against real data.
+V7 marked its additive migrations "Low — additive table, no existing data touched" and exempted them from the soak. That classification assumed an empty database. This is a live system with migrations already applied through `0039` and a `variants` compatibility view left over from an earlier schema. Every rating below is against real data.
 
 | Migration | V7-style rating | V8 rating | Why it changed |
 |---|---|---|---|
-| 0034 | Low | Low | Genuinely additive and nullable |
-| 0035 | — | **Medium** | Removes the only uniqueness protection until 0036 lands |
-| 0036 | Medium | **Medium** | Uniqueness over live rows; pre-flight is at the correct `(order_id, variant_id)` grain now |
-| 0037 | — | **Medium** | Uniqueness over live rows, though the predicate excludes all historical rows |
-| 0039 | Low | Low | `NOT NULL DEFAULT` backfills cleanly |
-| 0042 | Low | Low **only because no FK is declared** | An FK to `staff_users` would have required a table rebuild, and `staff_users`' primary key shape was never confirmed in V7 (M-06) |
-| 0046 | Low | **High** | Uniqueness over a populated table; requires the duplicate pre-flight and Owner sign-off |
-| 0047, 0053, 0057, 0058 | Low | Low, **with a schema-shape assertion in the pre-flight** | Each declares an FK; the pre-flight asserts the referenced table and primary key exist in the assumed shape before the migration runs |
-| 0061 | — | **Medium** | Changes write behaviour on a live table; an existing over-refunded order would block a legitimate refund |
-| 0062 | — | **Medium** | Drops a table; the rollback restores the schema but not the rows |
+| 0040 | Low | Low | Genuinely additive and nullable |
+| 0041 | — | **Medium** | Removes the only uniqueness protection until 0042 lands |
+| 0042 | Medium | **Medium** | Uniqueness over live rows; pre-flight is at the correct `(order_id, variant_id)` grain now |
+| 0043 | — | **Medium** | Uniqueness over live rows, though the predicate excludes all historical rows |
+| 0045 | Low | Low | `NOT NULL DEFAULT` backfills cleanly |
+| 0048 | Low | Low **only because no FK is declared** | An FK to `staff_users` would have required a table rebuild, and `staff_users`' primary key shape was never confirmed in V7 (M-06) |
+| 0052 | Low | **High** | Uniqueness over a populated table; requires the duplicate pre-flight and Owner sign-off |
+| 0053, 0059, 0063, 0064 | Low | Low, **with a schema-shape assertion in the pre-flight** | Each declares an FK; the pre-flight asserts the referenced table and primary key exist in the assumed shape before the migration runs |
+| 0067 | — | **Medium** | Changes write behaviour on a live table; an existing over-refunded order would block a legitimate refund |
+| 0068 | — | **Medium** | Drops a table; the rollback restores the schema but not the rows |
 
 **Migration `0025_create_api_audit_logs` (already applied) is irreversible in practice (M-05).** Section 5 of the Master Plan lists `api_audit_logs` as the persistence layer for `ProviderHealthDO` circuit state. `DROP TABLE api_audit_logs` is a correct schema rollback but destroys every breaker transition record. It MUST be marked irreversible once FraudBD is live, and reversing it requires an explicit Owner decision, not a script run.
 

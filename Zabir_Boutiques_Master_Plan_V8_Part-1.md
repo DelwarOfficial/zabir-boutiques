@@ -85,7 +85,7 @@ Every implementation, prompt, ticket, PR, and agent instruction must follow thes
 | Buy Now session binding | The Buy Now session is bound to the `__Host-bn_bind` `HttpOnly; Secure; SameSite=Lax; Path=/` cookie secret, never to `Origin` or `User-Agent`. The companion session cookie is `__Host-bn_sid`. `sid` MUST NOT appear in any URL. The `Origin` check applies to state-changing POSTs only. The `__Host-` prefix is mandatory because browsers reject such cookies when a subdomain or `Domain` attribute tries to set them. | Browsers do not send `Origin` on top-level GET navigation; the V7 rule returned 403 on the first page load of the primary conversion path, and the prefix mechanically blocks sibling-subdomain cookie tossing (RT-005, S-02, RV8-003). |
 | AI budget object ID | `BudgetCounterDO` object ID is `budget:{provider}` and nothing else. One object holds both the daily and the monthly bucket. | Three competing ID formats in V7 meant the budget was never actually enforced (C-04, C-05). |
 | Payment event idempotency | `payment_events` carries `UNIQUE(provider, provider_event_id)`, and `payment_transactions` carries `payment_event_id` with `UNIQUE(payment_event_id, direction)`. A replayed webhook MUST fail the event insert or the settled-money ledger insert, never create a second credit. | Direct double-credit path in V7, including queue redelivery after the webhook is accepted (F-01, RV8-001). |
-| Migration numbering | Migration numbers are the real next free numbers in `db/migrations/`. The repository is at `0033`; V8 migrations start at `0034`. Every migration file contains **exactly one statement**. There is no "plan number to repo number" mapping. | D1 migrations are not transactional and CI gate 35.4 #6 requires exact monotonic numbering (RT-010, M-01, M-04). |
+| Migration numbering | Migration numbers are the real next free numbers in `db/migrations/`. The repository head is `0039`; V8 migrations start at `0040`. Every migration file contains **exactly one statement**. There is no "plan number to repo number" mapping. | D1 migrations are not transactional and CI gate 35.4 #6 requires exact monotonic numbering (RT-010, M-01, M-04). |
 | Abandoned cart detection | D1 `cart_activity` is the searchable index. CartDO writes to it via alarm (durable) and via the `cart-activity` queue (batched). A cart is **abandoned** when `last_cart_update_at` is older than 24 hours (SQL: `< datetime('now', '-24 hours')`), `abandoned_email_sent_at IS NULL`, and `converted_order_id IS NULL`. Cron queries D1, deduplicates on `customer_email`, and enqueues emails. | Durable Objects and KV cannot be globally queried for old carts. The 24h window plus email dedup prevents spam and false positives. |
 | FraudBD | Checkout-time fraud decision is a direct HTTP call with 1.5s timeout and circuit breaker. Queue is used only for post-checkout audit/enrichment. | Queue-based async work cannot block checkout and return a score reliably. |
 | COD threshold | “Items” means total unit quantity: `SUM(quantity)`, not distinct line count. COD is allowed only when `total_quantity <= 2` unless staff override is allowed by RBAC. | Prevents risk bypass using one variant with high quantity. |
@@ -490,7 +490,7 @@ Required table groups:
    - `product_images`
    - `product_tags`
    - `inventory_items`
-   - compatibility view: `variants` — **read-only**. SQLite views cannot be written to; any code path that writes to `variants` fails at runtime. It exists because this is an existing production system (migrations are already at `0033`), and older code referenced `variants` before the table was renamed to `product_variants`. New code MUST target `product_variants`. The view is scheduled for deletion once no reference remains (CF-12).
+   - compatibility view: `variants` — **read-only**. SQLite views cannot be written to; any code path that writes to `variants` fails at runtime. It exists because this is an existing production system (migrations are already at `0039`), and older code referenced `variants` before the table was renamed to `product_variants`. New code MUST target `product_variants`. The view is scheduled for deletion once no reference remains (CF-12).
 
 2. Cart and checkout
    - `cart_activity` — MUST carry `cart_version INTEGER NOT NULL DEFAULT 0` (CF-04)
@@ -526,7 +526,7 @@ Required table groups:
    - `staff_permissions`
    - `staff_sessions`
    - `audit_log`
-   - `csrf_nonces` — retired by migration 0062 (§18.3); kept here only as a retirement note, not a required live artifact
+   - `csrf_nonces` — retired by migration 0068 (§18.3); kept here only as a retirement note, not a required live artifact
    - `otp_secrets` — Owner TOTP 2FA secrets (encrypted at rest, one active row per Owner, supports backup codes). Required by Section 18.1 ("Owner role requires TOTP 2FA") and previously missing.
    - `api_audit_logs` — External API audit trail and `ProviderHealthDO` circuit breaker state transitions. One row per external call (FraudBD, UddoktaPay, SSLCommerz, DeepSeek, Imagify, email, courier). Indexed by `provider`, `operation`, `circuit_state`, `created_at`. Required by Sections 2.4 / 2.5 / 11.2 and previously missing.
 
@@ -538,14 +538,14 @@ Required table groups:
    - `ai_generation_log`
    - `backup_log`
    - `ai_budget_limits` — Persistent configuration for `BudgetCounterDO` (daily/monthly limits per provider, soft-alert threshold, hard-block threshold, Owner override flag). Required by Section 24.2 and previously missing. The DO holds the live counter; this table is the durable source of truth for the configured limits so limits survive DO eviction and can be edited by the Owner without redeploying.
-   - `site_settings` — Owner-editable operational defaults (`MAX_COD_VALUE_PAISA`, COD velocity caps, `RETURN_WINDOW_DAYS`) read by checkout and returns without a redeploy (RV8-006)
+   - `site_settings` — **already exists** (`0001_initial_v6_8a_schema.sql`, seeded by `0037_site_settings_seed.sql`); V8 adds rows, not a table: `MAX_COD_VALUE_PAISA`, COD velocity caps, `RETURN_WINDOW_DAYS`, read by checkout and returns without a redeploy (RV8-006, RR-04)
 
 #### Schema Sketches (SQLite syntax)
 
 ```sql
 -- otp_secrets: Owner TOTP 2FA
 CREATE TABLE otp_secrets (
-  staff_id TEXT PRIMARY KEY REFERENCES staff_users(staff_id),
+  staff_id TEXT PRIMARY KEY REFERENCES staff_users(id),
   secret_cipher BLOB NOT NULL,           -- AES-GCM encrypted TOTP secret
   backup_codes_hash TEXT NOT NULL,       -- bcrypt hash of comma-separated backup codes
   enabled_at TEXT NOT NULL,
@@ -583,17 +583,12 @@ CREATE TABLE ai_budget_limits (
   hard_block_percent INTEGER NOT NULL DEFAULT 100, -- 0-100
   owner_override BOOLEAN NOT NULL DEFAULT 0,
   updated_at TEXT NOT NULL,
-  updated_by_staff_id TEXT REFERENCES staff_users(staff_id)
+  updated_by_staff_id TEXT REFERENCES staff_users(id)
 );
 
--- site_settings: Owner-editable operational defaults
-CREATE TABLE site_settings (
-  key TEXT PRIMARY KEY,
-  value_json TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  updated_by_staff_id TEXT REFERENCES staff_users(staff_id)
-);
 ```
+
+**No new table for operational defaults (RR-04).** `site_settings` already exists (`db/migrations/0001_initial_v6_8a_schema.sql`, seeded by `0037_site_settings_seed.sql`) with shape `key TEXT PRIMARY KEY, value TEXT, type TEXT, label TEXT, description TEXT, group_name TEXT, sort_order INTEGER, created_at TEXT, updated_at TEXT` — a generic staff-editable key/value store, already wired to the staff dashboard. `MAX_COD_VALUE_PAISA`, `COD_ORDERS_PER_PHONE_24H`, `COD_ORDERS_PER_ADDRESS_24H`, and `RETURN_WINDOW_DAYS` (RV8-006) are seeded into it as ordinary rows (`type = 'number'`, `group_name = 'Commerce'`), read as text and parsed to integer by the checkout/returns services. No `value_json` column, no new table.
 
 #### V8 Schema Additions (SQLite syntax)
 
@@ -1695,7 +1690,7 @@ What this means:
 - The `release_requested_at` stamp prevents double-release between overlapping cron ticks, and it is load-bearing — cron single-instancing MUST NOT be assumed (CF-06).
 - If `release()` succeeds at the DO level but the D1 stamp fails, the next run sees `reserved = 0` at the DO and marks the row stale; the reconciliation cron flags it and staff repair it through the paths in Section 12.2.
 
-The retired index name `idx_stock_reservations_order_active` MUST NOT appear in any migration, code path, test, or audit check. It is dropped by migration 0035 and recorded in `V8_CHANGELOG.md` as a retired artifact.
+The retired index name `idx_stock_reservations_order_active` MUST NOT appear in any migration, code path, test, or audit check. It is dropped by migration 0041 and recorded in `V8_CHANGELOG.md` as a retired artifact.
 
 The 15-minute window applies **only** to orphaned reservations with no order. Reservations attached to an order are governed by `orders.reservation_expires_at` (60 minutes). The 1-hour cron cadence means the worst-case orphan lifetime is ~1h15m and the worst-case attached-reservation lifetime is ~2h.
 

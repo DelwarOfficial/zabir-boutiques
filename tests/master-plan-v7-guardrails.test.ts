@@ -92,7 +92,11 @@ describe('Master Plan V7 commerce guardrails', () => {
 
   it('CartDO arms the inactivity alarm and persists cart_activity in alarm', () => {
     const cartDo = read('src/do/cart-do.ts');
-    expect(cartDo).toContain('setAlarm(now + FIVE_MIN_MS)');
+    // V8 §6.8: mutations arm persist via armAlarm('persist'); the persist fire
+    // hands off to 'cleanup' and never re-arms 'persist'. The old V7 literal
+    // `setAlarm(now + FIVE_MIN_MS)` was removed by the V8 §6.8 refactor.
+    expect(cartDo).toContain("armAlarm('persist')");
+    expect(cartDo).toContain("armAlarm('cleanup')");
     expect(cartDo).toContain('INSERT INTO cart_activity');
   });
 

@@ -53,7 +53,7 @@ No CI token may hold write scope on production. A check whose token is missing F
 
 ### 26.3 Migration Rules
 
-- Numbered SQL migrations, numbered against the **real repository state**. The repository is at `0033`; the next free number is `0034`.
+- Numbered SQL migrations, numbered against the **real repository state**. The repository head is `0039`; the next free number is `0040`.
 - **One statement per migration file.** D1 migrations are not transactional, so a multi-statement file can half-apply and leave a state that the schema-diff script accepts but the code does not expect (M-04).
 - SQLite/D1 syntax only.
 - Every migration has a rollback file. No exceptions.
@@ -480,7 +480,7 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | Server-side VAT computation | Included in checkout Step 8 (Section 11.1) by the single rule in Section 11.7: rate from the D1 `tax_rates` table, post-discount taxable base, half-up rounding, largest-remainder line allocation. `VAT_RATE_PERCENT` is retired. |
 | Email adapter contract | Included, mirrors payment adapter pattern (Section 2.3, 17.1) |
 | Guardrail enforcement protocol | Included and rescoped to a 2–4 engineer team — four clusters, a CI audit checklist, waivers, amendments, and a monthly Owner dashboard review (Section 34) |
-| D1 migration sequencing | Included — single-statement migrations numbered from `0034` against the real repository head, each with forward SQL, rollback SQL, a zero-row pre-flight query, test fixtures, and risk re-rated against a non-empty production database (Section 35 and `V8_MIGRATION_PLAN.md`) |
+| D1 migration sequencing | Included — single-statement migrations numbered from `0040` against the real repository head, each with forward SQL, rollback SQL, a zero-row pre-flight query, test fixtures, and risk re-rated against a non-empty production database (Section 35 and `V8_MIGRATION_PLAN.md`) |
 | Cost of goods sold / accounting export / general ledger | **Not included.** Out of scope for launch; see the classification table in Section 29.4 and DECISION REQUIRED (D-05). |
 | Customer accounts | **Not included.** Guest-only pending DECISION REQUIRED (D-01). `mergeCart()` is declared NOT IMPLEMENTED rather than shipped. |
 | TypeScript contract stubs | Included — `src/lib/contracts/` with interfaces for all 7 DOs + EmailProvider; implementations MUST use `implements` (Section 36) |
@@ -685,7 +685,7 @@ The protocol is supported by three pieces of tooling, all of which must be in pl
 | File location | `db/migrations/{NNNN}_{short_slug}.sql` |
 | Rollback file | `db/migrations/rollback/{NNNN}_{short_slug}.rollback.sql` (mandatory for every migration) |
 | Pre-flight file | `db/migrations/preflight/{NNNN}_{short_slug}.preflight.sql` (mandatory for every migration) |
-| Numbering | Zero-padded 4-digit, monotonically increasing, never reused, **numbered against the real repository head**. The repository head is `0033`; V8 migrations run `0034` upward. |
+| Numbering | Zero-padded 4-digit, monotonically increasing, never reused, **numbered against the real repository head**. The repository head is `0039`; V8 migrations run `0040` upward. |
 | Statements per file | **Exactly one.** |
 | Test fixture | `db/migrations/tests/{NNNN}_{short_slug}.test.ts` — runs against D1 local in CI before merge |
 | Status field | Every applied migration is recorded in `_migrations`: `(id, applied_at, sha256, rollback_sha256)` |
@@ -704,63 +704,62 @@ The full sequence with SQL is in `V8_MIGRATION_PLAN.md`. Summary, in dependency 
 
 | # | Slug | Delivers | Finding | Risk (non-empty prod) |
 |---|---|---|---|---|
-| 0034 | `stock_reservations_add_checkout_id` | `stock_reservations.checkout_id` | RT-002 | Low |
-| 0035 | `drop_idx_stock_reservations_order_active` | Drops the wrong-grain index | RT-002 | Medium |
-| 0036 | `create_idx_stock_res_order_variant_active` | `(order_id, variant_id) WHERE status='active' AND order_id IS NOT NULL` | RT-002 | Medium |
-| 0037 | `create_idx_stock_res_checkout_variant_active` | `(checkout_id, variant_id) WHERE status='active'` | RT-002 | Medium |
-| 0038 | `orders_add_reservation_expires_at` | `orders.reservation_expires_at` | RT-001, F-02 | Low |
-| 0039 | `orders_add_payment_status` | `orders.payment_status` | F-05 | Low |
-| 0040 | `orders_add_fraud_score` | `orders.fraud_score` | Section 4 | Low |
-| 0041 | `orders_add_fraud_source` | `orders.fraud_source` | Section 4 | Low |
-| 0042 | `orders_add_created_by_staff_id` | `orders.created_by_staff_id` | Section 4 | Low |
-| 0043 | `orders_add_staff_override` | `orders.staff_override` | Section 4 | Low |
-| 0044 | `payment_events_add_provider` | `payment_events.provider` | F-01 | Low |
-| 0045 | `payment_events_add_provider_event_id` | `payment_events.provider_event_id` | F-01 | Low |
-| 0046 | `create_idx_payment_events_provider_event` | `UNIQUE(provider, provider_event_id)` | F-01 | **High** |
-| 0047 | `create_payment_transactions` | Settled-money ledger + `payment_event_id` uniqueness | F-03, RV8-001 | Low |
-| 0048 | `create_coupon_redemptions` | Redemption table | RT-007 | Low |
-| 0049 | `create_idx_coupon_redemptions_coupon_order` | `UNIQUE(coupon_id, order_id)` | RT-007 | Low |
-| 0050 | `create_tax_rates` | Effective-dated VAT | C-09 | Low |
-| 0051 | `seed_tax_rates` | Seed row(s) — separate file, per M-04 | C-09 | Low |
-| 0052 | `cart_activity_add_cart_version` | `cart_activity.cart_version` | CF-04 | Low |
-| 0053 | `create_courier_shipments` | COD parcel tracking | F-03 | Low |
-| 0054 | `create_courier_cod_remittance` | COD remittance | F-03 | Low |
-| 0055 | `create_pos_cash_drawer_sessions` | Z-report | F-09 | Low |
-| 0056 | `create_suppliers` | Supply chain | RT-003 | Low |
-| 0057 | `create_purchase_orders` | Supply chain | RT-003 | Low |
-| 0058 | `create_goods_receipts` | Supply chain | RT-003 | Low |
-| 0059 | `return_requests_add_restocked_at` | Restock timestamp | C-06 | Low |
-| 0060 | `product_variants_add_cost_paisa` | COGS groundwork | Section 8 | Low |
-| 0061 | `create_trg_refund_cap` | Refund-cap trigger | F-03 | Medium |
-| 0062 | `drop_csrf_nonces` | Retires the unused CSRF table | S-10 | Medium |
-| 0063 | `invoices_add_idempotency_key` | `invoices.idempotency_key` | RV8-002 | Low |
-| 0064 | `create_idx_invoices_idempotency_key` | Partial unique replay guard on POS invoices | RV8-002 | Low |
-| 0065 | `create_site_settings` | Owner-editable operational settings | RV8-006 | Low |
-| 0066 | `seed_site_settings` | Seed COD / return-window defaults | RV8-006 | Low |
-| 0067 | `seed_ai_budget_limits_imagify` | `imagify` budget defaults | C-14 | Low |
-| 0068 | `drop_variants_view` | Remove compatibility view after code is clean | C-15 | Low |
+| 0040 | `stock_reservations_add_checkout_id` | `stock_reservations.checkout_id` | RT-002 | Low |
+| 0041 | `drop_idx_stock_reservations_order_active` | Drops the wrong-grain index | RT-002 | Medium |
+| 0042 | `create_idx_stock_res_order_variant_active` | `(order_id, variant_id) WHERE status='active' AND order_id IS NOT NULL` | RT-002 | Medium |
+| 0043 | `create_idx_stock_res_checkout_variant_active` | `(checkout_id, variant_id) WHERE status='active'` | RT-002 | Medium |
+| 0044 | `orders_add_reservation_expires_at` | `orders.reservation_expires_at` | RT-001, F-02 | Low |
+| 0045 | `orders_add_payment_status` | `orders.payment_status` | F-05 | Low |
+| 0046 | `orders_add_fraud_score` | `orders.fraud_score` | Section 4 | Low |
+| 0047 | `orders_add_fraud_source` | `orders.fraud_source` | Section 4 | Low |
+| 0048 | `orders_add_created_by_staff_id` | `orders.created_by_staff_id` | Section 4 | Low |
+| 0049 | `orders_add_staff_override` | `orders.staff_override` | Section 4 | Low |
+| 0050 | `payment_events_add_provider` | `payment_events.provider` | F-01 | Low |
+| 0051 | `payment_events_add_provider_event_id` | `payment_events.provider_event_id` | F-01 | Low |
+| 0052 | `create_idx_payment_events_provider_event` | `UNIQUE(provider, provider_event_id)` | F-01 | **High** |
+| 0053 | `create_payment_transactions` | Settled-money ledger + `payment_event_id` uniqueness | F-03, RV8-001 | Low |
+| 0054 | `create_coupon_redemptions` | Redemption table | RT-007 | Low |
+| 0055 | `create_idx_coupon_redemptions_coupon_order` | `UNIQUE(coupon_id, order_id)` | RT-007 | Low |
+| 0056 | `create_tax_rates` | Effective-dated VAT | C-09 | Low |
+| 0057 | `seed_tax_rates` | Seed row(s) — separate file, per M-04 | C-09 | Low |
+| 0058 | `cart_activity_add_cart_version` | `cart_activity.cart_version` | CF-04 | Low |
+| 0059 | `create_courier_shipments` | COD parcel tracking | F-03 | Low |
+| 0060 | `create_courier_cod_remittance` | COD remittance | F-03 | Low |
+| 0061 | `create_pos_cash_drawer_sessions` | Z-report | F-09 | Low |
+| 0062 | `create_suppliers` | Supply chain | RT-003 | Low |
+| 0063 | `create_purchase_orders` | Supply chain | RT-003 | Low |
+| 0064 | `create_goods_receipts` | Supply chain | RT-003 | Low |
+| 0065 | `return_requests_add_restocked_at` | Restock timestamp | C-06 | Low |
+| 0066 | `product_variants_add_cost_paisa` | COGS groundwork | Section 8 | Low |
+| 0067 | `create_trg_refund_cap` | Refund-cap trigger | F-03 | Medium |
+| 0068 | `drop_csrf_nonces` | Retires the unused CSRF table | S-10 | Medium |
+| — | *(withdrawn — see note)* | `invoices.idempotency_key` already exists in `db/migrations/0016_invoices.sql` as `UNIQUE`; no migration needed. RV8-002's POS replay guard implements against the existing column (RR-03). | RV8-002 | — |
+| 0069 | `create_site_settings` | Owner-editable operational settings | RV8-006 | Low |
+| 0070 | `seed_site_settings` | Seed COD / return-window defaults | RV8-006 | Low |
+| 0070 | `seed_ai_budget_limits_imagify` | `imagify` budget defaults | C-14 | Low |
+| 0071 | `drop_variants_view` | Remove compatibility view after code is clean | C-15 | Low |
 
-Migrations `0035`–`0037` MUST be applied as a set in a single maintenance window: between `0035` and `0036` the table has no uniqueness protection at all.
+Migrations `0041`–`0043` MUST be applied as a set in a single maintenance window: between `0041` and `0042` the table has no uniqueness protection at all.
 
 ### 35.3 Sequencing and Milestone Mapping
 
 | Migrations | Milestone | Phase | Blocking |
 |---|---|---|---|
-| 0034–0038 | M4 Inventory | Phase 1 | Reservation lifecycle and cleanup cron. **These are the P0 set — nothing ships before them.** |
-| 0039–0043 | M2/M5 | Phase 1 | Order state machine, staff order ownership, fraud fields |
-| 0044–0047 | M3 Payment | Phase 1 | Webhook idempotency and the money ledger |
-| 0063–0064 | M11 POS | Phase 2 | POS sale retry idempotency |
-| 0065–0066 | M2 Checkout / M10 Returns | Phase 1–2 | Owner-editable COD and return-window settings |
-| 0067 | M7 Observability | Phase 2 | Imagify budget defaults |
-| 0068 | M10/M12 cleanup | Phase 2 | Retire the `variants` compatibility view |
-| 0048–0049 | M2 Checkout | Phase 1 | Coupon redemption inside the order batch |
-| 0050–0051 | M2 Checkout | Phase 1 | VAT computation |
-| 0052 | M9 Email | Phase 2 | Abandoned-cart projection correctness |
-| 0053–0055 | M10/M11 | Phase 2 | COD remittance, Z-report |
-| 0056–0058 | M4/M10 | Phase 1–2 | Goods receipt path |
-| 0059–0060 | M10 | Phase 2 | Return restock, COGS groundwork |
-| 0061 | M10 | Phase 2 | Refund cap |
-| 0062 | M6 Security | Phase 2 | CSRF simplification |
+| 0040–0044 | M4 Inventory | Phase 1 | Reservation lifecycle and cleanup cron. **These are the P0 set — nothing ships before them.** |
+| 0045–0049 | M2/M5 | Phase 1 | Order state machine, staff order ownership, fraud fields |
+| 0050–0053 | M3 Payment | Phase 1 | Webhook idempotency and the money ledger |
+| 0054–0055 | M2 Checkout | Phase 1 | Coupon redemption inside the order batch |
+| 0056–0057 | M2 Checkout | Phase 1 | VAT computation |
+| 0058 | M9 Email | Phase 2 | Abandoned-cart projection correctness |
+| 0059–0061 | M10/M11 | Phase 2 | COD remittance, Z-report |
+| 0062–0064 | M4/M10 | Phase 1–2 | Goods receipt path |
+| 0065–0066 | M10 | Phase 2 | Return restock, COGS groundwork |
+| 0067 | M10 | Phase 2 | Refund cap |
+| 0068 | M6 Security | Phase 2 | CSRF simplification |
+| — | M11 POS | Phase 2 | POS sale retry idempotency — no migration; `invoices.idempotency_key` already exists (RR-03) |
+| 0069–0070 | M2 Checkout / M10 Returns | Phase 1–2 | Owner-editable COD and return-window settings |
+| 0070 | M7 Observability | Phase 2 | Imagify budget defaults |
+| 0071 | M10/M12 cleanup | Phase 2 | Retire the `variants` compatibility view |
 
 ### 35.4 Migration CI Gate
 
@@ -2001,7 +2000,7 @@ Run the audit when any of the following is true:
 
 ### 38.2 Drift Findings Catalog
 
-The findings below are the known drift patterns (45 codes, D-01 to D-45). Each has a stable finding code (`D-NN`) for tracking in `docs/audit/`. New drift patterns discovered in the wild are added here with a new code.
+The findings below are the known drift patterns (46 codes, D-01 to D-46). Each has a stable finding code (`D-NN`) for tracking in `docs/audit/`. New drift patterns discovered in the wild are added here with a new code.
 
 | Code | Finding | Detection method | Fix |
 |---|---|---|---|
@@ -2027,8 +2026,8 @@ The findings below are the known drift patterns (45 codes, D-01 to D-45). Each h
 | D-20 | Browser-supplied VAT accepted | `rg "vat" src/pages/checkout*` and check request parsing | Strip VAT from any client-supplied data; always recompute server-side. |
 | D-21 | Reservation cleanup cron schedule ≠ hourly | `wrangler.toml` cron config | Set `crons = ["0 * * * *"]` for the reservation-cleanup worker. |
 | D-22 | Reservation cleanup query releases live orders' reservations | Code review of the cron handler plus `cron-never-releases-live-order.test.ts` | The query MUST join `orders` and release only orphans (`order_id IS NULL AND created_at < datetime('now','-15 minutes')`) or cancelled orders. Reconciliation, not cleanup cron, owns attached-order expiry. A bare 15-minute filter is a **P0 oversell defect** (RT-001, RV8-005). |
-| D-23 | Wrong reservation index shape, or the retired index still present | D1 `PRAGMA index_list('stock_reservations')` plus `rg "idx_stock_reservations_order_active"` | Both `idx_stock_res_order_variant_active` and `idx_stock_res_checkout_variant_active` must exist; the retired name must return zero hits outside the changelog. Apply 0035–0037 (RT-002). |
-| D-24 | `stock_reservations` missing `release_requested_at` or `checkout_id` | D1 schema introspection | Apply migration 0034 and the existing `release_requested_at` migration. |
+| D-23 | Wrong reservation index shape, or the retired index still present | D1 `PRAGMA index_list('stock_reservations')` plus `rg "idx_stock_reservations_order_active"` | Both `idx_stock_res_order_variant_active` and `idx_stock_res_checkout_variant_active` must exist; the retired name must return zero hits outside the changelog. Apply 0041–0043 (RT-002). |
+| D-24 | `stock_reservations` missing `release_requested_at` or `checkout_id` | D1 schema introspection | Apply migration 0040 and the existing `release_requested_at` migration. |
 | D-25 | Missing any table from the Section 6.1 list | D1 schema introspection | Apply the migration named for it in `V8_MIGRATION_PLAN.md`. |
 | D-26 | `cart-activity` queue not wired up | `wrangler.toml` queues config | Add the queue binding. Confirm `CartDO` publishes to it on every mutation. |
 | D-27 | Abandoned cart cron query missing `customer_email` dedup | Code review of `src/cron/abandoned-cart.ts` | Add the `ROW_NUMBER() OVER (PARTITION BY customer_email)` window per Section 17.3. |
@@ -2044,7 +2043,7 @@ The findings below are the known drift patterns (45 codes, D-01 to D-45). Each h
 | D-37 | Migration missing a pre-flight file, or a pre-flight that cannot return zero rows (e.g. a bare `PRAGMA`) | `ls db/migrations/preflight/` plus a parse check for `PRAGMA` as the only statement | Write a `SELECT` that returns zero rows when it is safe to apply (M-03). |
 | D-38 | `VariantInventoryDO` missing `adjustStock` or `restoreFromSnapshot` | TypeScript type check against `src/lib/contracts/variant-inventory-do.ts` | Add the methods per Section 11.3 / 36.2. Without `adjustStock` there is no legal way to load opening stock or restock a return (RT-003). P0. |
 | D-39 | `BudgetCounterDO` object ID in any format other than `budget:{provider}` | `rg "idFromName\('budget:"` and `rg "idFromName\(.*deepseek"` | Use `budget:{provider}` at every call site (C-04, C-05). P0 — a mismatch means the budget is silently unenforced. |
-| D-40 | `payment_events` missing `UNIQUE(provider, provider_event_id)`, or a webhook handler that ignores the uniqueness violation | `PRAGMA index_list('payment_events')` plus `payment-webhook-replay.test.ts` | Apply migration 0046 and treat a violation as a replay (F-01). P0 — this is a direct double-credit path. |
+| D-40 | `payment_events` missing `UNIQUE(provider, provider_event_id)`, or a webhook handler that ignores the uniqueness violation | `PRAGMA index_list('payment_events')` plus `payment-webhook-replay.test.ts` | Apply migration 0052 and treat a violation as a replay (F-01). P0 — this is a direct double-credit path. |
 | D-41 | A Durable Object arming more than one alarm, or an alarm handler with no `alarm_purpose` branch where the object has multiple deadlines | Code review of `src/durable-objects/*.ts` plus `rg "setAlarm"` | One alarm per object; store `alarm_purpose` (RT-006, CF-01). P0 for `CartDO`. |
 | D-42 | `payment_transactions` missing `payment_event_id` or `UNIQUE(payment_event_id, direction)`, or a queue consumer that does not treat the violation as a replay | `PRAGMA table_info('payment_transactions')` + `PRAGMA index_list('payment_transactions')` + `payment-ledger-replay.test.ts` | Add `payment_event_id`, add the unique constraint, and treat violation as replay. P0. |
 | D-43 | POS sale path without idempotency — `directSale` not idempotent on `(invoice_id, variant_id)` or `/api/staff/invoices` missing the `idempotency_key` unique handling | Code review of POS flow + `pos-sale-retry-idempotency.test.ts` | Add `directSale` replay semantics and `invoices.idempotency_key` unique replay handling. P0. |

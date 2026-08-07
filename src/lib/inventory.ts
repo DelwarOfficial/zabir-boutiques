@@ -300,3 +300,76 @@ export async function confirmReservedVariants(
   }
   return { ok: false, failedVariantId: items[failedIndex].variantId };
 }
+
+/**
+ * Confirm all active reservations attached to an order in a single atomic
+ * D1 batch, optionally embedding caller-supplied statements (order status
+ * flip, history row) so the whole transition is atomic. Stock mutation is
+ * routed exclusively through this library helper (the sanctioned D1 layer
+ * that also syncs VariantInventoryDO state) — route handlers MUST NOT touch
+ * inventory_items directly (V8 Guardrail #17 / drift code D-41).
+ *
+ * Returns:
+ *   - { ok: true, items } — reservations confirmed, DO state synced.
+ *   - { ok: false, reason: 'no_active_reservations' } — nothing to confirm.
+ *   - { ok: false, reason: 'deduct_failed', failedVariantId } — D1 guard
+ *     rejected a deduction (should not happen post-reserve; indicates drift).
+ */
+export async function confirmReservationsForOrder(
+  env: Env,
+  orderId: string,
+  now: string,
+  extraStmts: D1PreparedStatement[] = [],
+): Promise<
+  | { ok: true; items: ReservableItem[] }
+  | { ok: false; reason: 'no_active_reservations' | 'deduct_failed'; failedVariantId?: string }
+> {
+  const db = env.DB;
+  const res = await db
+    .prepare(
+      `SELECT id, variant_id, quantity FROM stock_reservations
+       WHERE order_id = ?1 AND status = 'active'`,
+    )
+    .bind(orderId)
+    .all<{ id: string; variant_id: string; quantity: number }>();
+  const rows = res.results ?? [];
+  if (rows.length === 0) return { ok: false, reason: 'no_active_reservations' };
+
+  const items: ReservableItem[] = rows.map((r) => ({
+    variantId: r.variant_id,
+    qty: r.quantity,
+    reservationId: r.id,
+  }));
+
+  const inventoryStmtIndex: number[] = [];
+  const stmts: D1PreparedStatement[] = [];
+  for (const item of items) {
+    inventoryStmtIndex.push(stmts.length);
+    stmts.push(
+      db.prepare(
+        `UPDATE inventory_items
+         SET reserved_quantity = reserved_quantity - ?1,
+             quantity = quantity - ?1,
+             updated_at = ?3
+         WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`,
+      ).bind(item.qty, item.variantId, now),
+    );
+    stmts.push(
+      db.prepare(
+        `UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2
+         WHERE id = ?1 AND status = 'active'`,
+      ).bind(item.reservationId!, now),
+    );
+  }
+  stmts.push(...extraStmts);
+
+  const results = await db.batch(stmts, { atomic: true });
+  const failedIndex = inventoryStmtIndex.findIndex(
+    (i) => results[i]?.meta.changes !== 1,
+  );
+  if (failedIndex !== -1) {
+    return { ok: false, reason: 'deduct_failed', failedVariantId: items[failedIndex].variantId };
+  }
+  await syncConfirmedReservationsDoState(env, items);
+  return { ok: true, items };
+}

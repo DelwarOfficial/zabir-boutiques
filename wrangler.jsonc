@@ -89,7 +89,8 @@
       { "name": "WAF_RULES", "class_name": "WafRules" },
       { "name": "CART_DO", "class_name": "CartDO" },
       { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-      { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+      { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" },
+      { "name": "INVOICE_COUNTER_DO", "class_name": "InvoiceCounterDO" }
     ]
   },
 
@@ -100,7 +101,8 @@
   "migrations": [
     { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
     { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-    { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
+    { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] },
+    { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] }
   ],
 
   // ── Queues ─────────────────────────────────────────────────────────
@@ -169,13 +171,15 @@
           { "name": "WAF_RULES", "class_name": "WafRules" },
           { "name": "CART_DO", "class_name": "CartDO" },
           { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" },
+          { "name": "INVOICE_COUNTER_DO", "class_name": "InvoiceCounterDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
         { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-        { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
+        { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] },
+        { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] }
       ],
       "queues": {
         "producers": [
@@ -228,13 +232,15 @@
           { "name": "WAF_RULES", "class_name": "WafRules" },
           { "name": "CART_DO", "class_name": "CartDO" },
           { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
-          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" }
+          { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" },
+          { "name": "INVOICE_COUNTER_DO", "class_name": "InvoiceCounterDO" }
         ]
       },
       "migrations": [
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
         { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
-        { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] }
+        { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] },
+        { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] }
       ],
       "queues": {
         "producers": [

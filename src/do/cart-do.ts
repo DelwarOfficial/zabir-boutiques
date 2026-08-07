@@ -22,11 +22,18 @@ export interface CartDOState {
   cart_version: number;
   last_mutation_at: string;
   last_persisted_at?: string;
-  five_min_alarm_at?: number;
-  thirty_day_alarm_at?: number;
-  soft_alarm_active: boolean;
   last_d1_write_seq: number;
 }
+
+/**
+ * V8 Section 6.8 — a Durable Object has exactly one alarm. CartDO stores
+ * `alarm_purpose` in DO storage and branches on it in `alarm()`:
+ *   - 'persist': upsert cart_activity, then armAlarm('cleanup'). NEVER re-arm 'persist'.
+ *   - 'cleanup': final cart_activity write, then deleteAll().
+ * DO storage is already durable across restart/eviction; the alarm keeps the
+ * D1 projection fresh, it is NOT a durability mechanism (RT-006, C-02).
+ */
+export type AlarmPurpose = 'persist' | 'cleanup';
 
 const FIVE_MIN_MS = 5 * 60 * 1000;
 const THIRTY_DAY_MS = 30 * 24 * 60 * 60 * 1000;
@@ -54,7 +61,6 @@ export class CartDO implements DurableObject, CartDOContract {
       items: [],
       cart_version: 0,
       last_mutation_at: new Date().toISOString(),
-      soft_alarm_active: false,
       last_d1_write_seq: 0,
     };
     return this.cart;
@@ -65,31 +71,38 @@ export class CartDO implements DurableObject, CartDOContract {
     await this.state.storage.put('cart', this.cart);
   }
 
-  private async persistMutation(cart: CartDOState, isNewCart: boolean): Promise<void> {
+  private async persistMutation(cart: CartDOState, _isNewCart: boolean): Promise<void> {
     await this.persist();
     await this.publishActivity(cart);
-    await this.armAlarms(cart, isNewCart);
+    // V8 §6.8: every mutation arms 'persist' (now + 5 min), superseding any
+    // pending 'cleanup'. The persist fire hands off to 'cleanup'; it MUST NOT
+    // re-arm itself.
+    await this.armAlarm('persist');
   }
 
-  private async armAlarms(cart: CartDOState, isNewCart: boolean): Promise<void> {
-    const now = Date.now();
-    cart.five_min_alarm_at = now + FIVE_MIN_MS;
-    if (isNewCart || !cart.thirty_day_alarm_at) {
-      cart.thirty_day_alarm_at = now + THIRTY_DAY_MS;
-    }
-    cart.soft_alarm_active = true;
-    await this.state.storage.setAlarm(now + FIVE_MIN_MS);
+  /**
+   * V8 §6.8 canonical single-alarm armer. Stores `alarm_purpose` in DO storage
+   * and sets the one alarm slot. Called by every mutation with 'persist' and
+   * by the persist fire with 'cleanup'.
+   */
+  async armAlarm(purpose: AlarmPurpose): Promise<void> {
+    const delayMs = purpose === 'persist' ? FIVE_MIN_MS : THIRTY_DAY_MS;
+    await this.state.storage.put('alarm_purpose', purpose);
+    await this.state.storage.setAlarm(Date.now() + delayMs);
   }
 
+  /**
+   * Safety net: if a cart with items has somehow lost its alarm (e.g. after
+   * DO eviction with no subsequent mutation), re-arm 'persist' once on read so
+   * the D1 projection does not go stale. This is not a re-arm loop — the persist
+   * fire hands off to 'cleanup' and does not re-arm 'persist' (RT-006).
+   */
   private async reArmIfNeeded(): Promise<void> {
     const cart = await this.ensureLoaded();
     if (cart.items.length === 0) return;
     const existingAlarm = await this.state.storage.getAlarm();
     if (existingAlarm === null) {
-      const now = Date.now();
-      cart.five_min_alarm_at = now + FIVE_MIN_MS;
-      cart.soft_alarm_active = true;
-      await this.state.storage.setAlarm(now + FIVE_MIN_MS);
+      await this.armAlarm('persist');
       await this.persist();
     }
   }
@@ -313,31 +326,27 @@ export class CartDO implements DurableObject, CartDOContract {
 
   async alarm(): Promise<void> {
     const cart = await this.ensureLoaded();
-    const now = Date.now();
+    const purpose = await this.state.storage.get<AlarmPurpose>('alarm_purpose');
 
-    cart.soft_alarm_active = false;
-
+    // Empty cart: nothing to project, clean up immediately.
     if (cart.items.length === 0) {
       await this.state.storage.deleteAll();
       return;
     }
 
-    if (cart.thirty_day_alarm_at && now >= cart.thirty_day_alarm_at) {
+    if (purpose === 'cleanup') {
+      // Final projection write + queue flush, then delete the DO.
       await this.upsertCartActivity(cart, 'lifecycle_cleanup');
       await this.publishActivity(cart);
       await this.state.storage.deleteAll();
       return;
     }
 
+    // 'persist' (or unset legacy state): upsert cart_activity, then hand off
+    // to the long 'cleanup' timer. MUST NOT re-arm 'persist' — re-arming would
+    // wake an abandoned cart ~8,640x/month and destroy the cost posture (RT-006).
     await this.upsertCartActivity(cart, 'alarm');
-
-    if (cart.five_min_alarm_at) {
-      const nextAlarm = now + FIVE_MIN_MS;
-      cart.five_min_alarm_at = nextAlarm;
-      cart.soft_alarm_active = true;
-      await this.state.storage.setAlarm(nextAlarm);
-      await this.persist();
-    }
+    await this.armAlarm('cleanup');
   }
 
   private async upsertCartActivity(cart: CartDOState, writeSource: 'alarm' | 'lifecycle_cleanup' | 'manual_repair'): Promise<void> {

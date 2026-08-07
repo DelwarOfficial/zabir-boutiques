@@ -80,25 +80,86 @@ function findLine(content: string, needle: string): number | undefined {
   return content.slice(0, idx).split('\n').length;
 }
 
-/** Section 3.4 static routes that must opt in with prerender = true. */
+// ── Waiver support (V8 §34.7) ──────────────────────────────────────────────
+// The CI job reads docs/audit/waivers.md; a finding with an active, in-scope
+// waiver reports WAIVED instead of FAIL. An expired waiver waives nothing, so
+// the findings it covered become active again and fail CI (§34.7 step 4).
+interface Waiver {
+  id: string;
+  code: string;
+  expires: string; // YYYY-MM-DD
+  files: Set<string>;
+  reason?: string;
+}
+
+function loadWaivers(): Waiver[] {
+  const path = resolve('docs/audit/waivers.md');
+  if (!existsSync(path)) return [];
+  const content = readFileSync(path, 'utf8');
+  const waivers: Waiver[] = [];
+  const blocks = content.split(/^## /m).slice(1);
+  for (const block of blocks) {
+    const idMatch = block.match(/^(W-\d{4}-\d{2})/);
+    if (!idMatch) continue;
+    const codeMatch = block.match(/^-\s*code:\s*(D-\d+)/m);
+    const expiresMatch = block.match(/^-\s*expires:\s*(\d{4}-\d{2}-\d{2})/m);
+    if (!codeMatch || !expiresMatch) continue;
+    const files = new Set<string>();
+    const filesSection = block.match(/^- files:\s*\n((?:[ \t]+-[ \t].+\n?)+)/m);
+    if (filesSection) {
+      for (const line of filesSection[1].split('\n')) {
+        const m = line.match(/^\s+-\s+(.+)/);
+        if (m) files.add(m[1].trim().replaceAll('\\', '/'));
+      }
+    }
+    const reasonMatch = block.match(/^-\s*reason:\s*(.+)$/m);
+    waivers.push({
+      id: idMatch[1],
+      code: codeMatch[1],
+      expires: expiresMatch[1],
+      files,
+      reason: reasonMatch?.[1],
+    });
+  }
+  return waivers;
+}
+
+function todayIsoDate(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function findActiveWaiver(finding: Finding, waivers: Waiver[]): Waiver | undefined {
+  const today = todayIsoDate();
+  return waivers.find((w) => {
+    if (w.code !== finding.code) return false;
+    if (w.expires < today) return false; // expired → waives nothing
+    if (w.files.size === 0) return true; // blanket scope for that code
+    return w.files.has(finding.file);
+  });
+}
+
+interface WaivedFinding extends Finding {
+  waiverId: string;
+}
+
+/**
+ * V8 Section 3.3 — exactly five static legal/info routes opt in with
+ * `export const prerender = true`. Catalog routes (`/`, `/products/[slug]`,
+ * `/categories/[slug]`, `/collections/[slug]`, `/blog/[slug]`) are on-demand
+ * rendered (RT-009) and MUST NOT prerender — those are caught by the
+ * "dynamic route must not set prerender" branch below. `sitemap.xml.ts` and
+ * `robots.txt.ts` are dynamic routes that read R2/D1 per request, not static.
+ */
 const STATIC_PRERENDER_ROUTES = [
-  'src/pages/index.astro',
-  'src/pages/products/[slug].astro',
-  'src/pages/categories/[slug].astro',
-  'src/pages/collections/[slug].astro',
-  'src/pages/blog/[slug].astro',
   'src/pages/about.astro',
   'src/pages/privacy.astro',
   'src/pages/terms.astro',
   'src/pages/return-policy.astro',
   'src/pages/size-guide.astro',
-  'src/pages/sitemap.xml.ts',
-  'src/pages/robots.txt.ts',
 ];
 
 function isStaticPrerenderRoute(normalized: string): boolean {
-  if (STATIC_PRERENDER_ROUTES.includes(normalized)) return true;
-  return /^src\/pages\/(products|categories|collections|blog)\/\[slug\]\.astro$/.test(normalized);
+  return STATIC_PRERENDER_ROUTES.includes(normalized);
 }
 
 function prerenderRouteChecks(): Finding[] {
@@ -150,9 +211,12 @@ const checks: Check[] = [
   { code: 'D-02', severity: 'P1', fix: 'Delete the line. See Section 38.2 D-02.', run: () => withMeta({ code: 'D-02', severity: 'P1', fix: 'Delete the line. See Section 38.2 D-02.' }, runRg('prerender\\s*=\\s*false', ['src/pages/', '--glob', '!**/*.md'])) },
   { code: 'D-03', severity: 'P1', fix: 'Static routes need prerender = true; dynamic routes must omit it. See Section 3.4 / 38.2 D-03.', run: () => prerenderRouteChecks() },
   { code: 'D-04', severity: 'P0', fix: 'Replace with abandoned_email_sent_at. See Section 38.2 D-04.', run: () => withMeta({ code: 'D-04', severity: 'P0', fix: 'Replace with abandoned_email_sent_at. See Section 38.2 D-04.' }, runRg('abandoned_1h_sent_at|abandoned_24h_sent_at', ['-t', 'ts', '-t', 'sql', '-t', 'md'])) },
-  { code: 'D-05', severity: 'P1', fix: 'Ensure every CartDO mutation arms the 5-minute alarm. See Section 38.2 D-05.', run: () => {
+  { code: 'D-05', severity: 'P1', fix: 'Every CartDO mutation must arm the persist alarm via armAlarm(\'persist\'). See V8 §6.8 / 38.2 D-05.', run: () => {
     const content = read('src/do/cart-do.ts');
-    return content.includes('setAlarm(Date.now() + 5 * 60 * 1000)') ? [] : [makeFinding('D-05', 'P1', 'src/do/cart-do.ts', 'CartDO mutation path does not arm the 5-minute alarm.', 'Ensure every CartDO mutation arms the 5-minute alarm. See Section 38.2 D-05.')];
+    // V8 §6.8: mutations route through persistMutation → armAlarm('persist').
+    // The old literal `setAlarm(Date.now() + 5 * 60 * 1000)` is gone; the
+    // canonical armer is armAlarm(purpose) which stores alarm_purpose + setAlarm.
+    return content.includes("armAlarm('persist')") ? [] : [makeFinding('D-05', 'P1', 'src/do/cart-do.ts', 'CartDO mutation path does not arm the persist alarm.', "Ensure every CartDO mutation arms the persist alarm via armAlarm('persist'). See V8 §6.8.")];
   } },
   { code: 'D-06', severity: 'P1', fix: 'Keep cart_activity writes out of CartDO mutation methods. See Section 38.2 D-06.', run: () => {
     const content = read('src/do/cart-do.ts');
@@ -261,9 +325,14 @@ const checks: Check[] = [
   } },
   { code: 'D-32', severity: 'P1', fix: 'Ensure staff routes have RBAC middleware and Cloudflare Access. See Section 38.2 D-32.', run: () => {
     const routes = listFiles('src/pages/api/staff', (file) => ['.ts', '.tsx'].includes(extname(file)));
+    // V8 Section 18.2 — pre-auth routes live outside the Access perimeter
+    // (login, logout, session, forgot-password, reset-password). They cannot
+    // call requireAuth because no session exists yet; they rely on Turnstile
+    // + rate limiting instead. Do not flag them as missing RBAC.
+    const PRE_AUTH = ['/login.ts', '/logout.ts', '/session.ts', '/forgot-password.ts', '/reset-password.ts'];
     return routes.flatMap((file) => {
       const normalized = rel(file);
-      if (normalized.endsWith('/login.ts') || normalized.endsWith('/logout.ts')) return [];
+      if (PRE_AUTH.some((suffix) => normalized.endsWith(suffix))) return [];
       const content = read(file);
       return /requireAuth|requirePermission|RbacError/.test(content) ? [] : [makeFinding('D-32', 'P1', rel(file), 'Staff API route appears to be missing RBAC middleware.', 'Ensure staff routes have RBAC middleware and Cloudflare Access. See Section 38.2 D-32.')];
     });
@@ -274,14 +343,19 @@ const checks: Check[] = [
     const rollbackMatches = readdirSync(resolve('db/migrations/rollback')).some((name) => name.startsWith(`${base}_`) || name.startsWith(`${base}_rollback_`));
     return rollbackMatches ? [] : [makeFinding('D-35', 'P0', `db/migrations/${base}_*.sql`, 'Migration is missing a matching rollback file.', 'Add rollback files for every migration. See Section 38.2 D-35.')];
   }) },
-  // ── Guardrail 6: CartDO two-stage alarm lifecycle ─────────────────
-  { code: 'D-36', severity: 'P0', fix: 'Implement soft_alarm_active, five_min_alarm_at, thirty_day_alarm_at. See Master Plan Guardrail #6.', run: () => {
+  // ── Guardrail 6 (V8 §6.8): CartDO single-alarm persist→cleanup handoff ──
+  { code: 'D-36', severity: 'P0', fix: 'Implement V8 §6.8 handoff: single alarm_purpose in storage, persist fire arms cleanup, alarm() never re-arms persist. See RT-006.', run: () => {
     const content = read('src/do/cart-do.ts');
-    const hasSoftAlarm = content.includes('soft_alarm_active');
-    const hasFiveMin = content.includes('five_min_alarm_at');
-    const hasThirtyDay = content.includes('thirty_day_alarm_at');
-    const hasReArm = content.includes('reArmIfNeeded');
-    return hasSoftAlarm && hasFiveMin && hasThirtyDay && hasReArm ? [] : [makeFinding('D-36', 'P0', 'src/do/cart-do.ts', 'CartDO missing two-stage alarm lifecycle (soft_alarm_active, five_min/thirty_day_alarm_at, re-arm).', 'Implement two-stage alarm lifecycle per Guardrail #6.')];
+    const hasArmAlarm = /async\s+armAlarm\s*\(\s*purpose/.test(content);
+    const hasAlarmPurposeKey = content.includes("'alarm_purpose'") || content.includes('"alarm_purpose"');
+    const hasHandoff = content.includes("armAlarm('cleanup')") || content.includes('armAlarm("cleanup")');
+    // The re-arm bug: alarm() body calls setAlarm() directly (re-arming persist
+    // every 5 min forever). The V8 handoff calls armAlarm('cleanup') instead.
+    const alarmStart = content.indexOf('async alarm()');
+    const alarmBlock = alarmStart >= 0 ? content.slice(alarmStart, alarmStart + 1000) : '';
+    const reArmsPersist = /setAlarm\s*\(/.test(alarmBlock);
+    const ok = hasArmAlarm && hasAlarmPurposeKey && hasHandoff && !reArmsPersist;
+    return ok ? [] : [makeFinding('D-36', 'P0', 'src/do/cart-do.ts', 'CartDO alarm lifecycle does not match V8 §6.8 persist→cleanup handoff (single alarm_purpose, no re-arm of persist).', 'Implement V8 §6.8: store alarm_purpose, persist fire arms cleanup, alarm() never re-arms persist. See RT-006.')];
   } },
   // ── Guardrail 7: CartDO guarded D1 upsert with last_d1_write_seq ──
   { code: 'D-37', severity: 'P0', fix: 'Add last_d1_write_seq + monotonic guarded upsert. See Master Plan Guardrail #7.', run: () => {
@@ -350,18 +424,22 @@ function parseArgs(): { scope: string; output: string } {
   return { scope, output: output || resolve('docs/audit', `drift-${date}-${scope}.md`) };
 }
 
-function renderReport(scope: string, findings: Finding[]): string {
+function renderReport(scope: string, active: Finding[], waived: WaivedFinding[]): string {
   const bySeverity = {
-    P0: findings.filter((f) => f.severity === 'P0'),
-    P1: findings.filter((f) => f.severity === 'P1'),
-    P2: findings.filter((f) => f.severity === 'P2'),
-    P3: findings.filter((f) => f.severity === 'P3'),
+    P0: active.filter((f) => f.severity === 'P0'),
+    P1: active.filter((f) => f.severity === 'P1'),
+    P2: active.filter((f) => f.severity === 'P2'),
+    P3: active.filter((f) => f.severity === 'P3'),
   };
-  const date = new Date().toISOString().slice(0, 10);
-  const section = (severity: Severity) => bySeverity[severity].map((f) => `- [${f.code}] ${f.file}${f.line ? `:${f.line}` : ''} — ${f.snippet}\n  - Fix: ${f.fix}`).join('\n') || '(none)';
+  const date = todayIsoDate();
+  const section = (findings: Finding[]) => findings.map((f) => `- [${f.code}] ${f.file}${f.line ? `:${f.line}` : ''} — ${f.snippet}\n  - Fix: ${f.fix}`).join('\n') || '(none)';
+  const waivedSection = waived.length === 0
+    ? '(none)'
+    : waived.map((f) => `- [${f.code}] ${f.file}${f.line ? `:${f.line}` : ''} — ${f.snippet}\n  - WAIVED by ${f.waiverId} (expires on review)`).join('\n');
   return `# Drift Audit — ${date} — scope: ${scope}
 
-- Total findings: ${findings.length}
+- Active findings: ${active.length}
+- Waived findings: ${waived.length}
 - P0 (blocks merge): ${bySeverity.P0.length}
 - P1 (fix before next release): ${bySeverity.P1.length}
 - P2 (fix in normal workflow): ${bySeverity.P2.length}
@@ -369,19 +447,23 @@ function renderReport(scope: string, findings: Finding[]): string {
 
 ## P0 findings
 
-${section('P0')}
+${section(bySeverity.P0)}
 
 ## P1 findings
 
-${section('P1')}
+${section(bySeverity.P1)}
 
 ## P2 findings
 
-${section('P2')}
+${section(bySeverity.P2)}
 
 ## P3 findings
 
-${section('P3')}
+${section(bySeverity.P3)}
+
+## Waived findings (not blocking; tracked in docs/audit/waivers.md)
+
+${waivedSection}
 `;
 }
 
@@ -392,15 +474,23 @@ function main() {
     console.error('Implement all checks from Master Plan Guardrails before running this script.');
     process.exit(2);
   }
-  const findings = checks.flatMap((check) => check.run());
+  const allFindings = checks.flatMap((check) => check.run());
+  const waivers = loadWaivers();
+  const active: Finding[] = [];
+  const waived: WaivedFinding[] = [];
+  for (const finding of allFindings) {
+    const w = findActiveWaiver(finding, waivers);
+    if (w) waived.push({ ...finding, waiverId: w.id });
+    else active.push(finding);
+  }
   mkdirSync(dirname(output), { recursive: true });
-  writeFileSync(output, renderReport(scope, findings));
+  writeFileSync(output, renderReport(scope, active, waived));
   console.log(`Drift audit written to ${output}`);
-  const p0 = findings.filter((f) => f.severity === 'P0').length;
-  const p1 = findings.filter((f) => f.severity === 'P1').length;
-  const p2 = findings.filter((f) => f.severity === 'P2').length;
-  const p3 = findings.filter((f) => f.severity === 'P3').length;
-  console.log(`P0: ${p0}, P1: ${p1}, P2: ${p2}, P3: ${p3}`);
+  const p0 = active.filter((f) => f.severity === 'P0').length;
+  const p1 = active.filter((f) => f.severity === 'P1').length;
+  const p2 = active.filter((f) => f.severity === 'P2').length;
+  const p3 = active.filter((f) => f.severity === 'P3').length;
+  console.log(`Active — P0: ${p0}, P1: ${p1}, P2: ${p2}, P3: ${p3}; Waived: ${waived.length}`);
   if (p0 > 0) process.exit(1);
 }
 

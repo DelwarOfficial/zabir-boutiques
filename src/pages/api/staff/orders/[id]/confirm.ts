@@ -3,7 +3,7 @@ import { getEnv } from '../../../../../lib/env';
 import { nowSql } from '../../../../../lib/dates';
 import { requireAuth, requirePermission, canConfirmOrder, RbacError } from '../../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
-import { syncConfirmedReservationsDoState } from '../../../../../lib/inventory';
+import { confirmReservationsForOrder } from '../../../../../lib/inventory';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -85,67 +85,53 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: true, status: order.status, alreadyConfirmed: true }, { status: 200 });
   }
 
-  // For 'pending_review' / 'pending_payment' the confirmation
-  // unconditionally deducts stock from the active reservations and
-  // advances the order. The status guard `status = ?3` ensures a
-  // concurrent request cannot double-deduct.
+  // For 'pending_review' / 'pending_payment' the confirmation deducts stock
+  // from the active reservations and advances the order. The status guard
+  // `status = ?3` ensures a concurrent request cannot double-deduct. Stock
+  // mutation is routed exclusively through confirmReservationsForOrder (the
+  // sanctioned D1 layer + DO sync) — route handlers MUST NOT touch
+  // inventory_items directly (V8 Guardrail #17, drift D-41). The order-status
+  // flip + history row are embedded in the same atomic batch so the whole
+  // transition commits together.
   if (order.status === 'pending_review' || order.status === 'pending_payment') {
-    const reservations = await env.DB.prepare(
-      `SELECT id, variant_id, quantity FROM stock_reservations
-       WHERE order_id = ?1 AND status = 'active'`
-    ).bind(orderId).all<{ id: string; variant_id: string; quantity: number }>();
+    const orderUpdate = env.DB.prepare(
+      `UPDATE orders SET status = 'staff_confirmed', updated_at = ?2
+       WHERE id = ?1 AND status = ?3`,
+    ).bind(orderId, now, order.status);
+    const historyInsert = env.DB.prepare(
+      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
+       VALUES (?1, ?2, ?3, 'staff_confirmed', ?4, ?5)`,
+    ).bind(crypto.randomUUID(), orderId, order.status, user.id, now);
 
-    const resRows = reservations.results ?? [];
+    const confirmResult = await confirmReservationsForOrder(
+      env as unknown as Parameters<typeof confirmReservationsForOrder>[0],
+      orderId,
+      now,
+      [orderUpdate, historyInsert],
+    );
 
-    // If there are no active reservations the order is in a stale
-    // state: reservations expired and were released. Confirm must
-    // fail closed — staff should not "confirm" an order whose stock
-    // has been re-allocated. This is the P0-005 audit fix: the
-    // previous code happily flipped the order to staff_confirmed even
-    // when the reservations had evaporated.
-    if (resRows.length === 0) {
+    if (!confirmResult.ok) {
+      if (confirmResult.reason === 'no_active_reservations') {
+        return Response.json(
+          {
+            ok: false,
+            code: 'NO_ACTIVE_RESERVATIONS',
+            error: 'Order has no active stock reservations. Customer should re-checkout.',
+          },
+          { status: 409 },
+        );
+      }
+      // deduct_failed — D1 guard rejected a deduction. Should not happen
+      // post-reserve; indicates DO/D1 drift. Surface as a conflict.
       return Response.json(
         {
           ok: false,
-          code: 'NO_ACTIVE_RESERVATIONS',
-          error: 'Order has no active stock reservations. Customer should re-checkout.',
+          code: 'DEDUCT_FAILED',
+          error: `Stock deduction failed for variant ${confirmResult.failedVariantId}.`,
         },
         { status: 409 },
       );
     }
-
-    const deductStmts = resRows.map(r =>
-      env.DB.prepare(
-        `UPDATE inventory_items
-         SET reserved_quantity = reserved_quantity - ?1,
-             quantity = quantity - ?1,
-             updated_at = ?3
-         WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
-      ).bind(r.quantity, r.variant_id, now)
-    );
-    const confirmStmts = resRows.map(r =>
-      env.DB.prepare(
-        `UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1 AND status = 'active'`
-      ).bind(r.id, now)
-    );
-    const orderUpdate = env.DB.prepare(
-      `UPDATE orders SET status = 'staff_confirmed', updated_at = ?2
-       WHERE id = ?1 AND status = ?3`
-    ).bind(orderId, now, order.status);
-    const historyInsert = env.DB.prepare(
-      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, created_at)
-       VALUES (?1, ?2, ?3, 'staff_confirmed', ?4, ?5)`
-    ).bind(crypto.randomUUID(), orderId, order.status, user.id, now);
-
-    // Atomic batch: deduct + confirm reservations + order status +
-    // history row. If any statement returns 0 changes (status guard
-    // fails, reservation already confirmed), the whole batch rolls
-    // back. A retry returns 200 alreadyConfirmed (idempotent).
-    await env.DB.batch([...deductStmts, ...confirmStmts, orderUpdate, historyInsert], { atomic: true });
-    await syncConfirmedReservationsDoState(
-      env as unknown as Parameters<typeof syncConfirmedReservationsDoState>[0],
-      resRows.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
-    );
   } else {
     // 'payment_verified' / 'paid_over_allocated' confirmations: the
     // webhook already deducted stock. We only flip the status. The

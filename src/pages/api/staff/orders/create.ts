@@ -12,7 +12,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertStaffAccess, isOwnerTier, RbacError } from '../../../../lib/rbac';
 import { normalizeBangladeshPhone } from '../../../../lib/phone';
-import { reserveVariants, releaseReservedVariants, syncConfirmedReservationsDoState } from '../../../../lib/inventory';
+import { reserveVariants, releaseReservedVariants, confirmReservationsForOrder } from '../../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../../lib/orders';
 import { loadVariantSnapshots, calculateAuthoritativeSubtotal, calculateDeliveryPaisa, resolveShippingZone, type CheckoutCartItem } from '../../../../lib/checkout-pricing';
 import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../../../lib/money';
@@ -201,27 +201,20 @@ export async function POST(context: APIContext): Promise<Response> {
       `UPDATE orders SET created_by = ?2, order_channel = ?3, advance_paisa = ?4, balance_paisa = ?5 WHERE id = ?1`
     ).bind(orderId, user.id, channel, prepayment.advancePaisa, prepayment.balancePaisa).run();
 
-    // For in-store: immediately confirm reservations (deduct stock)
+    // For in-store: immediately confirm reservations (deduct stock). Routed
+    // through the library helper (sanctioned D1 layer + DO sync) so the route
+    // never touches inventory_items directly (V8 Guardrail #17, drift D-41).
     if (isInStore) {
-      const reservations = await env.DB.prepare(
-        `SELECT id, variant_id, quantity FROM stock_reservations WHERE order_id = ?1 AND status = 'active'`
-      ).bind(orderId).all<{ id: string; variant_id: string; quantity: number }>();
-
-      if (reservations.results && reservations.results.length > 0) {
-        const deductStmts = reservations.results.map(r =>
-          env.DB.prepare(
-            `UPDATE inventory_items SET reserved_quantity = reserved_quantity - ?1, quantity = quantity - ?1, updated_at = ?3
-             WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`
-          ).bind(r.quantity, r.variant_id, now)
-        );
-        const confirmStmts = reservations.results.map(r =>
-          env.DB.prepare(`UPDATE stock_reservations SET status = 'confirmed', updated_at = ?2 WHERE id = ?1 AND status = 'active'`).bind(r.id, now)
-        );
-        await env.DB.batch([...deductStmts, ...confirmStmts], { atomic: true });
-        await syncConfirmedReservationsDoState(
-          env as unknown as Parameters<typeof syncConfirmedReservationsDoState>[0],
-          reservations.results.map((r) => ({ variantId: r.variant_id, qty: r.quantity, reservationId: r.id })),
-        );
+      const confirmResult = await confirmReservationsForOrder(
+        env as unknown as Parameters<typeof confirmReservationsForOrder>[0],
+        orderId,
+        now,
+      );
+      if (!confirmResult.ok && confirmResult.reason === 'deduct_failed') {
+        // Reservations existed but the D1 guard rejected the deduction —
+        // indicates DO/D1 drift. Surface as an error so staff do not see a
+        // paid in-store order with un-deducted stock.
+        throw new Error(`in_store confirm deduct_failed variant=${confirmResult.failedVariantId}`);
       }
 
       // In-store orders are paid at the counter; mark payment_status='paid'

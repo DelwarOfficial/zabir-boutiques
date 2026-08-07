@@ -63,6 +63,7 @@ declare global {
       CART_DO: DurableObjectNamespace;
       DIRECT_CHECKOUT_DO: DurableObjectNamespace;
       PROVIDER_HEALTH_DO: DurableObjectNamespace;
+      INVOICE_COUNTER_DO: DurableObjectNamespace;
       PAYMENT_WEBHOOKS: Queue;
       ORDER_EMAILS: Queue;
       IMAGE_PROCESSING: Queue;
