@@ -38,7 +38,7 @@ if (!totpEnabled) {
     </div>
 
     {totpEnabled ? (
-      <!-- Already enabled -->
+      /* Already enabled */
       <div style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.5rem;text-align:center;">
         <div style="font-size:2.5rem;margin-bottom:0.75rem;">&#9989;</div>
         <h2 style="margin:0 0 0.5rem;font-size:1.1rem;color:var(--success);">2FA is active</h2>
@@ -46,7 +46,7 @@ if (!totpEnabled) {
         <button id="disable-btn" class="btn-ghost" style="color:var(--error);border:1px solid rgba(220,38,38,0.2);padding:0.5rem 1.25rem;border-radius:8px;cursor:pointer;font-size:0.8rem;background:transparent;">Disable 2FA</button>
       </div>
     ) : (
-      <!-- Enrollment flow -->
+      /* Enrollment flow */
       <div id="step-setup" class="step-view">
         <div style="background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.5rem;">
 
