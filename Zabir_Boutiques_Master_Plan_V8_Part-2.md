@@ -85,7 +85,7 @@ V7's 6-hour RPO was unnecessarily poor for a Cloudflare-native system (M-08). D1
 - **D1 Time Travel** is always on. The restore procedure targets a timestamp, not a dump file, whenever the incident is within the 30-day window.
 - Cron triggers the D1 export worker every 6 hours; the export lands in R2 `zabir-backups`.
 - **Durable Object snapshot cron (hourly, mandatory — RT-004).** A cron walks every active variant, calls `VariantInventoryDO.getAvailability()`, and writes a JSONL snapshot to R2 at `backups/do/{env}/{yyyy}/{mm}/{dd}/{timestamp}-variant-inventory.jsonl`, one line per variant: `{ variant_id, stock, reserved, sold, snapshot_id, captured_at }`. Restoring D1 without this leaves every DO holding counters from a later point in time — items show sold out that are in stock, and orphaned reservations have no D1 row so the cleanup cron can never find them. They would be locked forever.
-- `BudgetCounterDO` and `ProviderHealthDO` state is **not** snapshotted: both are reconstructible (`ai_budget_limits` config plus a conservative zeroed counter; a closed circuit). `CartDO` and `IdempotencyDO` are **not** snapshotted: carts are recoverable by the customer and idempotency keys expire within 24 hours. This exclusion is deliberate and stated so nobody assumes a gap.
+- `BudgetCounterDO` and `ProviderHealthDO` state is **not** snapshotted: both are reconstructible (`ai_budget_limits` config plus a conservative zeroed counter; a closed circuit). `CartDO` and `IdempotencyDO` are **not** snapshotted: carts are recoverable by the customer and idempotency keys expire within 2 hours. This exclusion is deliberate and stated so nobody assumes a gap.
 - Metadata includes timestamp, migration version (highest applied `_migrations` id), row counts, checksum, and the matching DO snapshot id.
 - Weekly restore to staging validates the backup **and** the DO/D1 parity assertion.
 - Alert on backup failure, on DO snapshot failure, and on any snapshot whose variant count differs from the D1 active-variant count by more than 1%.
@@ -252,15 +252,17 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
 9. Buy Now submit must use the same secure checkout engine as normal checkout.
 10. Never create an order before successful reservation.
 11. If D1 order write fails after reservation, immediately release all reservations.
-12. Cleanup cron is only a safety net, not primary rollback. It runs **hourly** (`0 * * * *`) and releases a reservation **only** when the reservation is orphaned (`order_id IS NULL AND created_at < datetime('now','-15 minutes')`), or its order is `cancelled`, or its order's `reservation_expires_at` has passed. A reservation belonging to a live order — including `pending_review` and awaiting-payment orders — MUST NOT be released. The `release_requested_at` compare-and-set stamp is load-bearing; cron single-instancing MUST NOT be assumed. Full spec in Section 12.3.
+12. Cleanup cron is only a safety net, not primary rollback. It runs **hourly** (`0 * * * *`) and releases a reservation **only** when the reservation is orphaned (`order_id IS NULL AND created_at < datetime('now','-15 minutes')`) or its order is `cancelled`. A reservation belonging to a live order — including `pending_review` and awaiting-payment orders — MUST NOT be released. Reconciliation owns the attached-order expiry path because it cancels and releases atomically. The `release_requested_at` compare-and-set stamp is load-bearing; cron single-instancing MUST NOT be assumed. Full spec in Section 12.3.
    > Amended V8: corrected per RT-001, F-02, CF-06. The V7 rule released stock from live orders after 15 minutes and was a direct oversell path.
+   > Amended V8.1: corrected per RV8-005 — the cron releases only orphaned reservations and reservations of cancelled orders; attached-order expiry is owned by reconciliation, which cancels and releases atomically.
 13. Short-lived Durable Objects must use alarm-based cleanup, with **exactly one alarm per object** and an `alarm_purpose` value stored in DO storage when more than one deadline is needed. See Guardrail #45.
    > Amended V8: clarified per RT-006 and CF-01.
 14. FraudBD direct checkout call timeout is 1.5 seconds with **zero retries** during checkout. The circuit breaker opens after 5 failures / 60s, stays open for 5 minutes, and uses fallback score `50` (forces `pending_review`). A 4xx response is not a breaker failure but still yields fallback score `50`. While the circuit is open, **COD is hard-blocked** and prepayment is required. A `pending_review` order MUST NOT reach `processing` without an explicit staff action recorded in `audit_log`. Retries happen ONLY in the `fraud-audit` queue (3s timeout, 1 retry, 2s backoff). Full spec in Section 11.2.
    > Amended V8: strengthened per S-05 and C-10.
 15. COD quantity rule uses `SUM(quantity)` and is not sufficient on its own. COD additionally requires `total_paisa <= MAX_COD_VALUE_PAISA` and passing the per-phone and per-address 24-hour COD velocity limits, all enforced server-side at Section 11.1 step 11.
    > Amended V8: strengthened per S-04. A quantity-only cap let one BDT 60,000 piece qualify for COD while three pairs of socks did not, and nothing stopped five two-item COD orders in five minutes from the same phone.
-16. POS does not use checkout reservation, but POS stock deduction must pass through `VariantInventoryDO.directSale()`. If `directSale()` succeeds but the D1 invoice write fails, POS MUST call `VariantInventoryDO.reverseDirectSale()`, log a P1 audit event, and return an error to the POS UI. Full contract in Section 11.3.
+16. POS does not use checkout reservation, but POS stock deduction must pass through `VariantInventoryDO.directSale()`. `directSale()` is idempotent on `(invoice_id, variant_id)`, and POS invoice creation is idempotent on `invoices.idempotency_key`. If `directSale()` succeeds but the D1 invoice write fails, POS MUST call `VariantInventoryDO.reverseDirectSale()`, log a P1 audit event, and return an error to the POS UI. Full contract in Section 11.3.
+   > Amended V8.1: strengthened per RV8-002 — directSale() is idempotent on (invoice_id, variant_id) and POS invoice creation is idempotent on invoices.idempotency_key.
 17. POS must never write inventory directly to D1. No channel may: the only writers of `stock` are `VariantInventoryDO.adjustStock()` and `restoreFromSnapshot()`, and the only writers of `sold` are `confirm()`, `directSale()`, and `reverseDirectSale()`.
    > Amended V8: clarified per RT-003. V7 forbade direct writes without providing any legal alternative, which made returns and opening stock impossible.
 18. Staff-assisted phone/Messenger/WhatsApp orders use checkout pipeline.
@@ -294,8 +296,9 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
    > Amended V8: strengthened per Section 10 of the review.
 38. **(New) D1 schema completeness:** the `otp_secrets`, `api_audit_logs`, and `ai_budget_limits` tables MUST exist (Section 6.1). `otp_secrets` is required for Owner TOTP 2FA (Section 18.1). `api_audit_logs` is required for `ProviderHealthDO` circuit breaker state and external API audit (Sections 2.4, 2.5, 11.2). `ai_budget_limits` is required for `BudgetCounterDO` durable config (Section 24.2).
 39. **(New) Abandoned cart definition:** a cart is abandoned when `last_cart_update_at` is older than 24 hours (SQL: `< datetime('now', '-24 hours')`), `abandoned_email_sent_at IS NULL`, `converted_order_id IS NULL`, `consent_status = 'allowed'`, and `customer_email IS NOT NULL`. Cron deduplicates on `customer_email` via `ROW_NUMBER()` window. Full SQL pseudocode in Section 17.3.
-40. **Buy Now session binding:** `DirectCheckoutSessionDO.session_id = HMAC(secret, timestamp + random)`, and the session is bound to an `HttpOnly; Secure; SameSite=Lax` cookie secret (`bn_bind`) whose SHA-256 must match the stored `binding_hash`. `Origin` is checked on state-changing POSTs only. The User-Agent hash check is deleted. No session identifier appears in any URL. A failed check on a GET renders a fresh page; it MUST NOT 403 and MUST NOT delete the DO. The DO is deleted immediately after the order is successfully created. Full contract in Section 10.6.
+40. **Buy Now session binding:** `DirectCheckoutSessionDO.session_id = HMAC(secret, timestamp + random)`, and the session is bound to the `__Host-bn_bind` `HttpOnly; Secure; SameSite=Lax; Path=/` cookie secret whose SHA-256 must match the stored `binding_hash`. The companion session cookie is `__Host-bn_sid`. `Origin` is checked on state-changing POSTs only. The User-Agent hash check is deleted. No session identifier appears in any URL. A failed check on a GET renders a fresh page; it MUST NOT 403 and MUST NOT delete the DO. The DO is deleted immediately after the order is successfully created. Full contract in Section 10.6.
    > Amended V8: corrected per RT-005 and S-02. The V7 rule returned 403 on the first page load of the primary conversion path, because browsers do not send `Origin` on same-origin top-level GET navigation.
+   > Amended V8.1: the cookies are `__Host-bn_sid` and `__Host-bn_bind`. The `__Host-` prefix is mandatory: `Secure`, `Path=/`, no `Domain`, no subdomain-set cookie accepted.
 41. **VAT server-side computation:** VAT is computed server-side by the single rule in Section 11.7 — rate from the D1 `tax_rates` table read in the same read as pricing, taxable base `subtotal_paisa - discount_paisa`, half-up integer rounding, largest-remainder per-line allocation such that `SUM(order_items.vat_paisa) = orders.vat_paisa`. POS uses the same rule. The browser must never supply VAT, enforced by a `.strict()` request schema.
    > Amended V8: corrected per F-06 and C-09. `VAT_RATE_PERCENT` is retired; a KV-sourced rate meant two orders seconds apart could carry different VAT on a legally binding invoice.
 42. **BudgetCounterDO contract:** DeepSeek has a hard daily limit of $5.00 USD (UTC). Staff actions MUST call `canUseDeepSeek()` before the call and `recordUsage()` after success. If `canUseDeepSeek()` times out, fall back to Workers AI — never block the staff action — subject to the hourly Workers AI fallback cap in Section 24.2, because Workers AI overage is billed, not blocked.
@@ -305,10 +308,12 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
 44. **(New, closes RT-003) Stock entry and exit:** `VariantInventoryDO.adjustStock()` is the only way `stock` ever changes, in any channel, for any reason (return restock, goods receipt, stocktake, damage, theft, correction). It writes a `stock_adjustments` row and an `audit_log` entry and is idempotent on `adjustment_id`. A negative `delta` requires `approved_by_staff_id != staff_id`. Sales never touch `stock`; all sales increment `sold`.
 45. **(New, closes RT-006) One alarm per Durable Object:** a Durable Object has exactly one alarm and `setAlarm()` overwrites any pending alarm. Any DO needing more than one deadline MUST store `alarm_purpose` in DO storage and branch on it in `alarm()`. `CartDO`'s `'persist'` alarm MUST hand off to `'cleanup'` and MUST NOT re-arm itself. DO storage is durable across restart and eviction; no alarm may be justified as a durability mechanism.
 46. **(New, closes F-01) Payment event uniqueness:** `payment_events` carries `UNIQUE(provider, provider_event_id)`. The webhook handler treats a uniqueness violation as a replay: return 200, do not enqueue, do not credit. Every settled amount is additionally recorded in `payment_transactions`.
+   > Amended V8.1: `payment_transactions` additionally carries `payment_event_id` with `UNIQUE(payment_event_id, direction)`. The queue consumer treats a violation there as a replay no-op: ack, stop, no second ledger row, no second `payment_status` write, no second email.
 47. **(New, closes RT-004) Durable Object state is part of disaster recovery:** an hourly cron snapshots every active variant's `{stock, reserved, sold}` to R2 alongside the D1 backup, `VariantInventoryDO.restoreFromSnapshot()` exists and is env-gated by `DR_RESTORE_ENABLED`, D1 Time Travel is the primary D1 recovery mechanism, restores happen in place with no binding change, and every restore drill asserts DO/D1 stock parity — not only row counts.
 48. **(New, closes RT-010) Migration discipline:** every migration file contains exactly one statement, is numbered exactly one greater than the highest number in `db/migrations/`, has a rollback file, and has a pre-flight query that returns zero rows when safe. There is no mapping between "plan numbers" and "repo numbers" — a mapping table is exactly the drift this document exists to prevent. Risk is classified against a non-empty production database.
 49. **(New, closes C-04 / C-05) BudgetCounterDO object ID:** the object ID is `budget:{provider}` document-wide. One object holds both the daily and the monthly bucket and rolls them on UTC boundaries. No other format may appear in prose, code, or tests.
-50. **(New, closes RT-001 / F-02) Reservation window outlasts the payment window:** every order carries `reservation_expires_at = created_at + 60 minutes`, which is strictly greater than the 30-minute payment window plus the 15-minute reconciliation interval. No code path releases a reservation attached to an order that is not cancelled and not past `reservation_expires_at`.
+50. **(New, closes RT-001 / F-02) Reservation window outlasts the payment window:** every order carries `reservation_expires_at = created_at + 60 minutes`, which is strictly greater than the 30-minute payment window plus the 15-minute reconciliation interval. No code path releases a reservation attached to an order that is not cancelled.
+   > Amended V8.1: clarified per RV8-005 — no code path releases a reservation attached to an order that is not cancelled; the expiry-based release branch was removed from the cleanup cron.
 
 ---
 
@@ -340,12 +345,13 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] Reservation release exists on every failure branch.
 - [ ] `stock_reservations` has a `checkout_id` column and BOTH partial unique indexes: `idx_stock_res_order_variant_active` on `(order_id, variant_id) WHERE status='active' AND order_id IS NOT NULL`, and `idx_stock_res_checkout_variant_active` on `(checkout_id, variant_id) WHERE status='active'`.
 - [ ] The name `idx_stock_reservations_order_active` appears nowhere in code, migrations, tests, or docs.
-- [ ] Reservation cleanup cron runs hourly and releases only orphaned reservations, reservations of cancelled orders, and reservations past `orders.reservation_expires_at`.
+- [ ] Reservation cleanup cron runs hourly and releases only orphaned reservations and reservations of cancelled orders.
 - [ ] `orders.reservation_expires_at` is written on every order-creation path and equals `created_at + 60 minutes`.
 - [ ] `VariantInventoryDO` exposes `adjustStock()`; it is the only writer of `stock`. Negative deltas require a different approver.
 - [ ] `VariantInventoryDO` exposes `restoreFromSnapshot()`, gated by `DR_RESTORE_ENABLED`.
 - [ ] Every Durable Object arms at most one alarm and stores `alarm_purpose` when it has more than one deadline. CartDO's `'persist'` alarm hands off to `'cleanup'`.
 - [ ] `payment_events` has `UNIQUE(provider, provider_event_id)`; the webhook handler treats a violation as a replay.
+- [ ] `payment_transactions` has `payment_event_id` and `UNIQUE(payment_event_id, direction)`; the queue consumer treats a violation as a replay no-op.
 - [ ] `coupon_redemptions` is written inside the order-creation D1 batch, never at coupon validation, and has `UNIQUE(coupon_id, order_id)`.
 - [ ] `BudgetCounterDO` object ID is `budget:{provider}` at every call site.
 - [ ] Both `cart_activity` writers carry `cart_version` and use the version-conditional upsert.
@@ -354,16 +360,17 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] Abandoned cart definition: `last_cart_update_at` older than 24h (SQL `< datetime('now', '-24 hours')`), `abandoned_email_sent_at IS NULL`, `converted_order_id IS NULL`, `consent_status = 'allowed'`, deduplicated on `customer_email`.
 - [ ] POS uses invoice ledger, not online orders.
 - [ ] POS stock deduction uses `VariantInventoryDO.directSale()`.
+- [ ] POS retries with the same idempotency key never double-deduct stock or duplicate an invoice.
 - [ ] POS D1 invoice write failure calls `VariantInventoryDO.reverseDirectSale()` + logs P1 audit event.
 - [ ] Browser uploads original image only; variants are queue/API generated.
 - [ ] Short-lived Durable Objects use alarm cleanup.
 - [ ] CartDO publishes `cart-activity` queue messages instead of synchronous D1 writes.
-- [ ] CartDO has a 5-minute inactivity alarm that persists state to D1 `cart_activity` (durability path).
-- [ ] Resend is default email provider; Cloudflare Email Sending is optional.
+- [ ] CartDO has a 5-minute inactivity alarm that persists state to D1 `cart_activity` (projection-freshness path — DO storage is already durable).
+- [ ] Resend is default email provider; Cloudflare Email Sending is not an approved outbound fallback at launch.
 - [ ] Email adapter follows the same pattern as payments: `src/lib/integrations/email/{provider}/`, interface `sendEmail(request): Promise<SendResponse>`, swapped via `EMAIL_PROVIDER` env var.
 - [ ] FraudBD checkout timeout is 1.5 seconds with zero retries and pending_review fallback.
 - [ ] Buy Now does not mutate normal cart. DirectCheckoutSessionDO has ZERO interaction with CartDO.
-- [ ] Buy Now `session_id = HMAC(secret, timestamp + random)`, bound by the `bn_bind` HttpOnly cookie secret. No `sid` in any URL. `Origin` checked on POSTs only. No User-Agent check anywhere. A normal top-level GET never returns 403.
+- [ ] Buy Now `session_id = HMAC(secret, timestamp + random)`, bound by the `__Host-bn_bind` HttpOnly cookie secret. Cookies are `__Host-bn_sid` / `__Host-bn_bind` with `Secure`, `Path=/`, no `Domain`. No `sid` in any URL. `Origin` checked on POSTs only. No User-Agent check anywhere. A normal top-level GET never returns 403.
 - [ ] DirectCheckoutSessionDO is deleted immediately after the order is successfully created.
 - [ ] Buy Now submit uses secure checkout engine.
 - [ ] Checkout Step 8 computes VAT by the Section 11.7 rule: rate from D1 `tax_rates`, base `subtotal - discount`, half-up rounding, largest-remainder line allocation. `VAT_RATE_PERCENT` appears nowhere.
@@ -402,7 +409,7 @@ This matrix confirms that the V8 plan includes the required business, technical,
 
 | Feature | V8 Coverage |
 |---|---|
-| Astro 6 | Included, using `output: 'server'` (universal). `output: 'static'` is FORBIDDEN anywhere in the project. Exactly five static legal/info routes opt in with `prerender = true`; catalog routes are on-demand rendered with Cache API + SWR (Section 3.3, RT-009). |
+| Astro 7.2 | Included, using `output: 'server'` (universal). `output: 'static'` is FORBIDDEN anywhere in the project. Exactly five static legal/info routes opt in with `prerender = true`; catalog routes are on-demand rendered with Cache API + SWR (Section 3.3, RT-009). |
 | Stock adjustment / receiving / restock | Included. `VariantInventoryDO.adjustStock()` with a two-person rule for negative deltas, `inventory.adjust` / `inventory.adjust.approve` RBAC, `stock_adjustments` rows, and `suppliers` / `purchase_orders` / `goods_receipts` (RT-003). |
 | Disaster recovery of Durable Object state | Included. Hourly R2 snapshot of every variant's counters, `restoreFromSnapshot()`, D1 Time Travel, in-place restore, and a DO/D1 parity assertion in every drill (RT-004). |
 | Invoice serial integrity | Included. `InvoiceCounterDO` issues `receipt_no`; `UNIQUE` on `invoices.receipt_no`; burned serials recorded rather than reused (RT-008). |
@@ -423,7 +430,7 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | DirectCheckoutSessionDO | Included for Buy Now temporary sessions. Explicit zero-interaction contract with CartDO (Section 10.6). `session_id = HMAC(secret, timestamp + random)`, HttpOnly cookie-secret binding, `Origin` on POSTs only, no `sid` in URLs, immediate delete on order success (RT-005, S-02). |
 | BudgetCounterDO | Included with full interface, object ID `budget:{provider}` holding both daily and monthly buckets, $5.00/day UTC limit, capped Workers AI fallback on DO timeout (Section 24.2, C-04/C-05, CF-08). |
 | InvoiceCounterDO | Included. `invoice-counter:{YYYYMMDD}`, `nextInvoiceNumber()` (Section 15.5, RT-008). |
-| IdempotencyDO | Included, with a defined interface in Section 36.9 (claim / complete / replay) — V7 named the file but never specified the contract. |
+| IdempotencyDO | Included, with a defined interface in Section 36.7a (claim / complete / replay) and 2-hour completed-response retention — V7 named the file but never specified the contract. |
 | Queues | Included with corrected fraud queue role |
 | UddoktaPay | Included as primary payment provider adapter with verify/reconcile flow |
 | SSLCommerz fallback | Included |
@@ -455,7 +462,7 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | Image variants | Included with queue/API-generated variants; browser uploads original only |
 | Imagify API | Included as optional image optimization adapter with queue retry and fallback |
 | Resend email | Included as default transactional provider. Email adapter follows the SAME pattern as payments: `src/lib/integrations/email/{provider}/`, interface `sendEmail(request): Promise<SendResponse>`, swapped via `EMAIL_PROVIDER` env var (Section 17.1). |
-| Cart activity queue | Included for batched D1 `cart_activity` updates. Coexists with mandatory 5-minute alarm-based persistence for durability (Section 6.3). |
+| Cart activity queue | Included for batched D1 `cart_activity` updates. Coexists with the mandatory 5-minute alarm-based projection refresh (Section 6.3) — DO storage is already durable; the alarm is a projection-freshness mechanism, not a durability mechanism. |
 | Abandoned cart emails | Included with real detection mechanism. 24h definition, `abandoned_email_sent_at` / `converted_order_id` guards, `customer_email` deduplication via `ROW_NUMBER()` window, full SQL pseudocode (Section 17.3). |
 | Inventory reconciliation | Included |
 | Flash sale strategy | Included |
@@ -478,8 +485,8 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | Customer accounts | **Not included.** Guest-only pending DECISION REQUIRED (D-01). `mergeCart()` is declared NOT IMPLEMENTED rather than shipped. |
 | TypeScript contract stubs | Included — `src/lib/contracts/` with interfaces for all 7 DOs + EmailProvider; implementations MUST use `implements` (Section 36) |
 | FraudBD circuit breaker test suite | Included — 25-test matrix (CB-01 to CB-25) covering all Section 11.2 rules, with fixtures and CI integration (Section 37) |
-| Mandatory test matrix | Included — 18 tests covering every P0/P1 path, with `reservation-oversell-concurrency.test.ts` as test #1 (Section 37.0) |
-| Drift audit playbook | Included — 41 finding codes (D-01 to D-41), `audit-drift.ts` script, CI integration, V8 landing one-time audit (Section 38) |
+| Mandatory test matrix | Included — 27 tests covering every P0/P1 path, with `reservation-oversell-concurrency.test.ts` as test #1 (Section 37.0) |
+| Drift audit playbook | Included — 46 finding codes (D-01 to D-46), `audit-drift.ts` script, CI integration, V8 landing one-time audit (Section 38) |
 
 ---
 
@@ -573,7 +580,7 @@ The checklist runs as a CI job (`guardrail-audit.yml`) on **every PR** and on ev
 | 18 | No PII in logs | `redaction.test.ts` (chokepoint proof) **plus** a lint rule banning direct log-sink writes outside `src/lib/observability/`; the 7-day staging log scan runs nightly using `CF_LOGS_READ_TOKEN` (Section 26.2) | Test passes, lint clean, scan returns zero findings. A missing token FAILS the check |
 | 19 | All staff routes behind Zero Trust, with `/staff/login` excluded | Cloudflare Access config audit via `CF_ACCESS_READ_TOKEN` (Section 26.2) | All `/staff/*` and `/api/staff/*` paths covered except the login endpoints; break-glass rule absent or expired |
 | 20 | All webhooks verify HMAC | Code path audit | No webhook handler without `verifyHmac()` call |
-| 21 | Reservation cleanup cron never releases a live order's reservation | Unit test | `reservation-cron-pending-review.test.ts` passes |
+| 21 | Reservation cleanup cron never releases a live order's reservation | Unit test | `cron-never-releases-live-order.test.ts` passes |
 | 22 | Reservation window outlasts the payment window | Unit test | `reservation-window-outlasts-payment.test.ts` passes for every order-creation path |
 | 23 | `VariantInventoryDO` exposes `adjustStock` and `restoreFromSnapshot` | TypeScript type check | Both present with the Section 11.3 signatures; negative-delta approval rule tested |
 | 24 | `payment_events` has `UNIQUE(provider, provider_event_id)` | D1 `PRAGMA index_list('payment_events')` + `payment-webhook-replay.test.ts` | Index present and unique; three identical signed events produce one credit |
@@ -585,6 +592,8 @@ The checklist runs as a CI job (`guardrail-audit.yml`) on **every PR** and on ev
 | 30 | POS invoice serials are DO-issued and unique | Test | `pos-invoice-number-concurrency.test.ts` passes; `invoices.receipt_no` is UNIQUE |
 | 31 | Mushak/VAT report field mapping signed off | `[MANUAL CHECK]` — **Owner**, with the VAT consultant | Signed note in `docs/audit/` before VAT is switched on |
 | 32 | Accessibility criteria that cannot be automated | `[MANUAL CHECK]` — **Cluster 3 Owner (Security & Privacy)** | axe-core clean, plus a signed pass on focus order, alt-text meaningfulness, and error-message clarity |
+| 33 | POS sale creation is idempotent | `pos-sale-retry-idempotency.test.ts` passes + D1 `PRAGMA index_list('invoices')` | Same idempotency key returns existing invoice; second `directSale` is `replayed: true`; unique index present |
+| 34 | `site_settings` exists and is seeded | D1 introspection + seed assertion | Table exists; launch defaults present for COD ceiling, COD velocity, and return window |
 
 ### 34.5 Release Record
 
@@ -594,7 +603,7 @@ The CI job is the record. Each production deploy attaches the `guardrail-audit.y
 # Release — {YYYY-MM-DD} — {git-sha}
 
 - Deployed by: {name}
-- Guardrail audit CI run: {link}   (checks 1–30, all automated)
+- Guardrail audit CI run: {link}   (checks 1–30 and 33–34 automated)
 - Manual check #31 (Mushak/VAT mapping): {Owner initials} {date} — or N/A, VAT not enabled
 - Manual check #32 (non-automatable a11y): {Cluster 3 Owner initials} {date}
 - Waivers in effect: (none) OR W-{YYYY}-{NN}, expires {date}
@@ -605,7 +614,7 @@ Four lines and a CI link. V7's full 20-row transcription table is deleted — co
 
 ### 34.6 Incident Response for Guardrail Violations
 
-When a guardrail is violated in production (whether or not it caused customer impact), the response follows the standard incident severity matrix with one addition: a **Guardrial Violation (GV)** tag is attached to the incident for trend analysis.
+When a guardrail is violated in production (whether or not it caused customer impact), the response follows the standard incident severity matrix with one addition: a **Guardrail Violation (GV)** tag is attached to the incident for trend analysis.
 
 | Severity | Trigger | Response | Post-incident |
 |---|---|---|---|
@@ -708,7 +717,7 @@ The full sequence with SQL is in `V8_MIGRATION_PLAN.md`. Summary, in dependency 
 | 0044 | `payment_events_add_provider` | `payment_events.provider` | F-01 | Low |
 | 0045 | `payment_events_add_provider_event_id` | `payment_events.provider_event_id` | F-01 | Low |
 | 0046 | `create_idx_payment_events_provider_event` | `UNIQUE(provider, provider_event_id)` | F-01 | **High** |
-| 0047 | `create_payment_transactions` | Settled-money ledger | F-03 | Low |
+| 0047 | `create_payment_transactions` | Settled-money ledger + `payment_event_id` uniqueness | F-03, RV8-001 | Low |
 | 0048 | `create_coupon_redemptions` | Redemption table | RT-007 | Low |
 | 0049 | `create_idx_coupon_redemptions_coupon_order` | `UNIQUE(coupon_id, order_id)` | RT-007 | Low |
 | 0050 | `create_tax_rates` | Effective-dated VAT | C-09 | Low |
@@ -724,6 +733,12 @@ The full sequence with SQL is in `V8_MIGRATION_PLAN.md`. Summary, in dependency 
 | 0060 | `product_variants_add_cost_paisa` | COGS groundwork | Section 8 | Low |
 | 0061 | `create_trg_refund_cap` | Refund-cap trigger | F-03 | Medium |
 | 0062 | `drop_csrf_nonces` | Retires the unused CSRF table | S-10 | Medium |
+| 0063 | `invoices_add_idempotency_key` | `invoices.idempotency_key` | RV8-002 | Low |
+| 0064 | `create_idx_invoices_idempotency_key` | Partial unique replay guard on POS invoices | RV8-002 | Low |
+| 0065 | `create_site_settings` | Owner-editable operational settings | RV8-006 | Low |
+| 0066 | `seed_site_settings` | Seed COD / return-window defaults | RV8-006 | Low |
+| 0067 | `seed_ai_budget_limits_imagify` | `imagify` budget defaults | C-14 | Low |
+| 0068 | `drop_variants_view` | Remove compatibility view after code is clean | C-15 | Low |
 
 Migrations `0035`–`0037` MUST be applied as a set in a single maintenance window: between `0035` and `0036` the table has no uniqueness protection at all.
 
@@ -734,6 +749,10 @@ Migrations `0035`–`0037` MUST be applied as a set in a single maintenance wind
 | 0034–0038 | M4 Inventory | Phase 1 | Reservation lifecycle and cleanup cron. **These are the P0 set — nothing ships before them.** |
 | 0039–0043 | M2/M5 | Phase 1 | Order state machine, staff order ownership, fraud fields |
 | 0044–0047 | M3 Payment | Phase 1 | Webhook idempotency and the money ledger |
+| 0063–0064 | M11 POS | Phase 2 | POS sale retry idempotency |
+| 0065–0066 | M2 Checkout / M10 Returns | Phase 1–2 | Owner-editable COD and return-window settings |
+| 0067 | M7 Observability | Phase 2 | Imagify budget defaults |
+| 0068 | M10/M12 cleanup | Phase 2 | Retire the `variants` compatibility view |
 | 0048–0049 | M2 Checkout | Phase 1 | Coupon redemption inside the order batch |
 | 0050–0051 | M2 Checkout | Phase 1 | VAT computation |
 | 0052 | M9 Email | Phase 2 | Abandoned-cart projection correctness |
@@ -1178,7 +1197,7 @@ export type EmailProviderFactory = (env: Env) => EmailProvider;
  *   - On successful order creation, the DO is deleted immediately.
  *
  * Session binding (RT-005, S-02):
- *   - Bound to sha256(bn_bind cookie secret), NOT to Origin or User-Agent.
+ *   - Bound to sha256(__Host-bn_bind cookie secret), NOT to Origin or User-Agent.
  *   - Origin is verified by the ROUTE HANDLER on state-changing POSTs only,
  *     never on GET. Browsers omit Origin on same-origin top-level GET
  *     navigation, so a GET-time check 403s the first page load.
@@ -1198,14 +1217,14 @@ export interface DirectCheckoutSessionState {
   source_page: string;
   utm_params?: Record<string, string>;
   form_draft?: Record<string, string>;
-  binding_hash: string; // sha256(bn_bind cookie secret) — the ONLY binding
+  binding_hash: string; // sha256(__Host-bn_bind cookie secret) — the ONLY binding
   order_id?: string; // set on successful order creation, triggers immediate delete
 }
 
 export interface DirectCheckoutSessionDO {
   /**
    * Create a new session. Generates session_id as HMAC(secret, timestamp + random)
-   * and a binding_secret the caller returns as the bn_bind HttpOnly cookie.
+   * and a binding_secret the caller returns as the __Host-bn_bind HttpOnly cookie.
    * Stores only sha256(binding_secret). Arms a 30-minute alarm.
    */
   create(input: {
@@ -1246,7 +1265,7 @@ export interface DirectCheckoutSessionDO {
   /**
    * Mark the session as converted (order created). Sets state.order_id and
    * IMMEDIATELY deletes all DO storage. The alarm is cancelled.
-   * Verifies Origin and User-Agent hash.
+   * Verifies sha256(binding_secret) against the stored binding_hash.
    *
    * Return type is `Promise<{ deleted: true }>` (always true on success) — the
    * boolean is not optional because the prose contract says deletion is
@@ -1655,12 +1674,12 @@ Every test below is mandatory. A PR touching the named area cannot merge while i
 | 6 | `return-restock.test.ts` | Approving a return increases `getAvailability().stock` by exactly the returned quantity and writes a `stock_adjustments` row. A negative adjustment with `approved_by_staff_id === staff_id` is rejected | RT-003 |
 | 7 | `dr-do-d1-parity.test.ts` | Restore D1 from a snapshot, restore DO counters from the matching R2 snapshot, then assert per-variant DO/D1 stock parity — not row counts | RT-004 |
 | 8 | `buy-now-no-origin-header.test.ts` | A top-level GET with no `Origin` header returns 200 and the session survives; the DO is not deleted | RT-005 |
-| 9 | `buy-now-session-fixation.test.ts` | A request carrying a valid `bn_sid` but a wrong or absent `bn_bind` cannot read `form_draft`; a POST from a foreign `Origin` is rejected | RT-005, S-02 |
+| 9 | `buy-now-session-fixation.test.ts` | A request carrying a valid `__Host-bn_sid` but a wrong or absent `__Host-bn_bind` cannot read `form_draft`; a POST from a foreign `Origin` is rejected | RT-005, S-02 |
 | 10 | `cart-do-alarm-handoff.test.ts` | After the persist alarm fires, `getAlarm()` returns a timestamp ~30 days out, not ~5 minutes | RT-006 |
 | 11 | `coupon-rollback.test.ts` | Force `INSUFFICIENT_STOCK` after coupon validation: `coupon_redemptions` has zero rows and remaining usage is unchanged | RT-007 |
 | 12 | `pos-invoice-number-concurrency.test.ts` | 20 concurrent `directSale` + invoice creations produce 20 distinct sequential serials | RT-008 |
 | 13 | `catalog-publish-latency.test.ts` | Publish a product through the staff API; the public URL returns 200 with the new content within 60 seconds | RT-009 |
-| 14 | `payment-webhook-replay.test.ts` | Deliver the same signed event three times: one `payment_events` row, one `payment_transactions` row, one credit | F-01 |
+| 14 | `payment-webhook-replay.test.ts` | Deliver the same signed event three times: one `payment_events` row, one `payment_transactions` row, one credit, including a simulated consumer crash-and-redeliver between the ledger write and the ack | F-01, RV8-001 |
 | 15 | `idempotency-stuck-claim.test.ts` | Kill the Worker between claim and complete; a retry with the same key resolves deterministically once `claim_ttl_seconds` elapses | Missing entirely in V7 |
 | 16 | `cart-activity-out-of-order-upsert.test.ts` | Deliver queue messages B then A: `cart_activity` does not regress and `last_cart_update_at` never moves backwards | CF-04 |
 | 17 | `cod-split-order-velocity.test.ts` | Five sequential 2-item COD orders from one phone: the velocity rule blocks. A single order above `MAX_COD_VALUE_PAISA` is refused COD | S-04 |
@@ -1669,6 +1688,11 @@ Every test below is mandatory. A PR touching the named area cannot merge while i
 | 20 | `migration-single-statement.test.ts` | Every file in `db/migrations/` contains exactly one statement, has a rollback file, and has a pre-flight file whose query returns zero rows against staging | M-04, M-03 |
 | 21 | `redaction.test.ts` | A fixture containing `+8801XXXXXXXXX`, a Dhaka address, and an API key passes through every log sink with no leak | S-12 |
 | 22 | `forged-totals.test.ts` | A checkout body carrying `total_paisa`, `vat_paisa`, `discount_paisa`, or `delivery_paisa` is rejected by the `.strict()` schema; server values win | Guardrails #3, #4 |
+| 23 | `pos-sale-retry-idempotency.test.ts` | `directSale` + invoice write succeed, response lost, retry with the same idempotency key: exactly one invoice, one serial, one stock deduction; second `directSale` returns `replayed: true` | RV8-002 |
+| 24 | `buy-now-host-cookie-tossing.test.ts` | A request presenting session cookies without the `__Host-` prefix is ignored; a simulated subdomain-set cookie cannot read `form_draft`; cookie attributes assert `Secure`, `Path=/`, no `Domain`, `SameSite=Lax` | RV8-003 |
+| 25 | `cron-never-releases-live-order.test.ts` | An order past `reservation_expires_at` but not cancelled survives the cleanup cron; reconciliation cancels it and releases atomically | RV8-005, C-12 |
+| 26 | `payment-after-cancellation-refund.test.ts` | Provider confirms payment after local cancellation: order stays cancelled, refund is initiated, refund ledger row written, P1 alert raised | RV8-008 |
+| 27 | `prepay-split-rounding.test.ts` | Odd `total_paisa` values split as `advance_paisa = floor(total_paisa / 2)` and `balance_paisa = total_paisa - advance_paisa`; invariant holds | C-10 |
 
 Guardrails #3 and #4 were previously unenforceable ("never move pricing authority to the browser" is semantic and no lint can detect it). Test #22 plus a `.strict()` Zod schema makes them mechanical: the assertion is that the schema rejects unknown keys.
 
@@ -1977,7 +2001,7 @@ Run the audit when any of the following is true:
 
 ### 38.2 Drift Findings Catalog
 
-The findings below are the known drift patterns (41 codes, D-01 to D-41). Each has a stable finding code (`D-NN`) for tracking in `docs/audit/`. New drift patterns discovered in the wild are added here with a new code.
+The findings below are the known drift patterns (45 codes, D-01 to D-45). Each has a stable finding code (`D-NN`) for tracking in `docs/audit/`. New drift patterns discovered in the wild are added here with a new code.
 
 | Code | Finding | Detection method | Fix |
 |---|---|---|---|
@@ -1997,12 +2021,12 @@ The findings below are the known drift patterns (41 codes, D-01 to D-41). Each h
 | D-14 | Email adapter that doesn't `implements EmailProvider` | `rg "class.*Adapter" src/lib/integrations/email/` | Add `implements EmailProvider` and ensure method signature matches. |
 | D-15 | `BudgetCounterDO` class missing `canUseDeepSeek` or `recordUsage` | `rg "class BudgetCounterDO" -A 30 src/durable-objects/` | Add both methods per Section 24.2 / 36.3. |
 | D-16 | DeepSeek call that doesn't pre-flight `canUseDeepSeek()` | `rg "deepseek.*generate" src/lib/ai/` and trace callers | Add the pre-flight check. If `false`, return 429 with "Budget limit reached". |
-| D-17 | `DirectCheckoutSessionDO` binding drift: any `user_agent_hash` reference, an `Origin` check on a GET path, or a `sid` in a URL | `rg "user_agent_hash\|[?&]sid="` plus code review of `get`, `updateFormDraft`, `markConvertedAndDelete` | Bind on `sha256(bn_bind)` only. `Origin` on POSTs only. No session id in any URL. A GET must never 403 (RT-005, S-02). |
+| D-17 | `DirectCheckoutSessionDO` binding drift: any `user_agent_hash` reference, an `Origin` check on a GET path, a `sid` in a URL, or stale contract docstrings claiming User-Agent binding | `rg "user_agent_hash\|[?&]sid=" src/ src/lib/contracts/` plus code review of `get`, `updateFormDraft`, `markConvertedAndDelete` | Bind on `sha256(__Host-bn_bind)` only. `Origin` on POSTs only. No session id in any URL. A GET must never 403 (RT-005, S-02, RV8-009). |
 | D-18 | `DirectCheckoutSessionDO` not deleted after order creation | Code review of the checkout flow | Call `markConvertedAndDelete` immediately after D1 order write succeeds. |
 | D-19 | VAT computed from the wrong base, the wrong source, or without line allocation | `rg "VAT_RATE_PERCENT"` plus `vat-discount-rounding.test.ts` | Rate from D1 `tax_rates`; base `subtotal − discount`; half-up integer rounding; largest-remainder line allocation. Any `VAT_RATE_PERCENT` hit outside the changelog is a P0 (F-06, C-09). |
 | D-20 | Browser-supplied VAT accepted | `rg "vat" src/pages/checkout*` and check request parsing | Strip VAT from any client-supplied data; always recompute server-side. |
 | D-21 | Reservation cleanup cron schedule ≠ hourly | `wrangler.toml` cron config | Set `crons = ["0 * * * *"]` for the reservation-cleanup worker. |
-| D-22 | Reservation cleanup query releases live orders' reservations | Code review of the cron handler plus `reservation-cron-pending-review.test.ts` | The query MUST join `orders` and release only orphans (`order_id IS NULL AND created_at < datetime('now','-15 minutes')`), cancelled orders, or orders past `reservation_expires_at`. A bare 15-minute filter is a **P0 oversell defect** (RT-001). |
+| D-22 | Reservation cleanup query releases live orders' reservations | Code review of the cron handler plus `cron-never-releases-live-order.test.ts` | The query MUST join `orders` and release only orphans (`order_id IS NULL AND created_at < datetime('now','-15 minutes')`) or cancelled orders. Reconciliation, not cleanup cron, owns attached-order expiry. A bare 15-minute filter is a **P0 oversell defect** (RT-001, RV8-005). |
 | D-23 | Wrong reservation index shape, or the retired index still present | D1 `PRAGMA index_list('stock_reservations')` plus `rg "idx_stock_reservations_order_active"` | Both `idx_stock_res_order_variant_active` and `idx_stock_res_checkout_variant_active` must exist; the retired name must return zero hits outside the changelog. Apply 0035–0037 (RT-002). |
 | D-24 | `stock_reservations` missing `release_requested_at` or `checkout_id` | D1 schema introspection | Apply migration 0034 and the existing `release_requested_at` migration. |
 | D-25 | Missing any table from the Section 6.1 list | D1 schema introspection | Apply the migration named for it in `V8_MIGRATION_PLAN.md`. |
@@ -2022,6 +2046,11 @@ The findings below are the known drift patterns (41 codes, D-01 to D-41). Each h
 | D-39 | `BudgetCounterDO` object ID in any format other than `budget:{provider}` | `rg "idFromName\('budget:"` and `rg "idFromName\(.*deepseek"` | Use `budget:{provider}` at every call site (C-04, C-05). P0 — a mismatch means the budget is silently unenforced. |
 | D-40 | `payment_events` missing `UNIQUE(provider, provider_event_id)`, or a webhook handler that ignores the uniqueness violation | `PRAGMA index_list('payment_events')` plus `payment-webhook-replay.test.ts` | Apply migration 0046 and treat a violation as a replay (F-01). P0 — this is a direct double-credit path. |
 | D-41 | A Durable Object arming more than one alarm, or an alarm handler with no `alarm_purpose` branch where the object has multiple deadlines | Code review of `src/durable-objects/*.ts` plus `rg "setAlarm"` | One alarm per object; store `alarm_purpose` (RT-006, CF-01). P0 for `CartDO`. |
+| D-42 | `payment_transactions` missing `payment_event_id` or `UNIQUE(payment_event_id, direction)`, or a queue consumer that does not treat the violation as a replay | `PRAGMA table_info('payment_transactions')` + `PRAGMA index_list('payment_transactions')` + `payment-ledger-replay.test.ts` | Add `payment_event_id`, add the unique constraint, and treat violation as replay. P0. |
+| D-43 | POS sale path without idempotency — `directSale` not idempotent on `(invoice_id, variant_id)` or `/api/staff/invoices` missing the `idempotency_key` unique handling | Code review of POS flow + `pos-sale-retry-idempotency.test.ts` | Add `directSale` replay semantics and `invoices.idempotency_key` unique replay handling. P0. |
+| D-44 | Buy Now session cookies referenced without the `__Host-` prefix | `rg "bn_sid|bn_bind" src/` | Every hit must be `__Host-bn_sid` / `__Host-bn_bind`. P1. |
+| D-45 | COD ceiling/velocity or return window read from anywhere other than `site_settings` | `rg "MAX_COD_VALUE_PAISA|COD_ORDERS_PER_PHONE_24H|RETURN_WINDOW_DAYS"` and trace through the accessor | Route every read through the `site_settings` accessor. P1. |
+| D-46 | Code still references the `variants` compatibility view | `rg "FROM variants\\b|JOIN variants\\b" src/` | Remove the reference and target `product_variants` directly. P1. |
 
 ### 38.3 Audit Execution Procedure
 
@@ -2029,7 +2058,7 @@ The findings below are the known drift patterns (41 codes, D-01 to D-41). Each h
 |---|---|---|
 | 1. Scope | Identify the PRs or branches to audit. For the nightly run, audit `main`. For pre-release, audit the release branch. For V8 landing, audit all open PRs. | Git |
 | 2. Automated scan | Run `audit-drift.ts` (in `scripts/audit/`), which executes every detection method in the table above. Output is JSON. | Node script |
-| 3. Manual review | The Cluster Owner for each affected cluster reviews the automated findings and adds any manual findings (e.g. D-08, D-17 which require code review). | GO |
+| 3. Manual review | The Cluster Owner for each affected cluster reviews the automated findings and adds any manual findings (e.g. D-08, D-17 which require code review). | Cluster Owner |
 | 4. Triage | Each finding is assigned a severity for trend tracking. On a PR, every severity blocks merge. | Cluster Owner |
 | 5. Report | Generate `docs/audit/drift-{YYYY-MM-DD}-{scope}.md` with the findings table, severities, and assignees. | CI |
 | 6. Fix loop | Each finding becomes a ticket. The ticket references the finding code (e.g. `D-04`) so trend analysis is possible. Findings of the same code in subsequent audits indicate the fix didn't stick and trigger an amendment proposal. | Engineering team |
@@ -2039,7 +2068,7 @@ The findings below are the known drift patterns (41 codes, D-01 to D-41). Each h
 
 The script is the workhorse of the audit. It lives at `scripts/audit/audit-drift.ts` and is invoked as `npx tsx scripts/audit/audit-drift.ts --scope {pr\|weekly\|release} --output docs/audit/drift-{date}.md`.
 
-**Implementation completeness note:** the skeleton below shows the script structure with only 3 of the 41 checks filled in (D-01, D-02, D-04). The production script MUST implement all 41 checks from Section 38.2. A script that ships with only 3 checks silently skips 38 drift patterns — this is worse than not running the audit at all, because it gives false confidence. The CI gate in Section 38.5 MUST verify that the script's `checks` array has exactly 41 entries before allowing the job to pass; a script with fewer entries fails CI with the error `audit-drift.ts: expected 41 checks, found N`.
+**Implementation completeness note:** the skeleton below shows the script structure with only 3 of the 46 checks filled in (D-01, D-02, D-04). The production script MUST implement all 46 checks from Section 38.2. A script that ships with only 3 checks silently skips 43 drift patterns — this is worse than not running the audit at all, because it gives false confidence. The CI gate in Section 38.5 MUST verify that the script's `checks` array has exactly 46 entries before allowing the job to pass; a script with fewer entries fails CI with the error `audit-drift.ts: expected 46 checks, found N`.
 
 The script MUST also exclude the master plan document itself (and any markdown under `docs/`) from D-01 and D-02 detection, otherwise the plan's own "FORBIDDEN" references will trip the audit. The exclusion is `--glob '!**/*.md'` for D-01 and D-02 specifically (other checks scan only `src/` so are unaffected).
 
@@ -2090,7 +2119,7 @@ const checks: Array<{
     rgGlobs: ['-t', 'ts', '-t', 'sql', '-t', 'md'],
     fix: 'Replace with abandoned_email_sent_at. See Section 38.2 D-04.',
   },
-  // ... all 41 checks ...
+  // ... all 46 checks ...
 ];
 
 function runCheck(check: typeof checks[number]): Finding[] {
@@ -2130,9 +2159,9 @@ function main() {
   mkdirSync(outDir, { recursive: true });
 
   // COMPLETENESS GATE: refuse to run if the checks array is not fully populated.
-  // The skeleton above shows only 3 checks; the production script must have all 35.
-  if (checks.length !== 41) {
-    console.error(`audit-drift.ts: expected 41 checks, found ${checks.length}.`);
+  // The skeleton above shows only 3 checks; the production script must have all 46.
+  if (checks.length !== 46) {
+    console.error(`audit-drift.ts: expected 46 checks, found ${checks.length}.`);
     console.error('Implement all checks from Section 38.2 before running this script.');
     process.exit(2);
   }

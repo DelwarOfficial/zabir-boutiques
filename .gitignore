@@ -32,6 +32,10 @@ Thumbs.db
 # environment (secrets)
 .env.local
 .env.*.local
+.dev.vars
+.dev.vars.*
+**/.dev.vars
+**/.dev.vars.*
 
 # wrangler (cloudflare) local state & generated config
 .wrangler/

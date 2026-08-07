@@ -492,26 +492,28 @@ HAVING COUNT(*) > 1;
 - Inserting the same `(provider, provider_event_id)` twice fails on the second insert.
 - Different providers may share an event id.
 - Historical rows with NULLs are unaffected and remain readable.
-- `payment-webhook-replay.test.ts`: the same signed event delivered three times yields exactly one `payment_events` row, one `payment_transactions` row, and one credit.
+- `payment-webhook-replay.test.ts`: the same signed event delivered three times yields exactly one `payment_events` row, one `payment_transactions` row, and one credit, including a simulated consumer crash-and-redeliver between the ledger write and the ack.
 
 ---
 
 ### 0047 — `create_payment_transactions`
 
-Risk **Low** (new table; FK to `orders` is declared at create time, which SQLite supports). Finding F-03. Milestone M3, Phase 1.
+Risk **Low** (new table; FK to `orders` is declared at create time, which SQLite supports). Findings F-03, RV8-001. Milestone M3, Phase 1.
 
 ```sql
 -- db/migrations/0047_create_payment_transactions.sql
 CREATE TABLE payment_transactions (
   transaction_id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES orders(id) ON DELETE RESTRICT,
+  payment_event_id TEXT NOT NULL,
   direction TEXT NOT NULL CHECK (direction IN ('capture','refund','cod_collection','cod_remittance')),
   provider TEXT NOT NULL,
   provider_reference TEXT,
   amount_paisa INTEGER NOT NULL CHECK (amount_paisa > 0),
   settled_at TEXT NOT NULL,
   recorded_by_staff_id TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  UNIQUE(payment_event_id, direction)
 );
 ```
 
@@ -530,7 +532,7 @@ SELECT 'orders_pk_not_id' AS problem
 WHERE NOT EXISTS (SELECT 1 FROM pragma_table_info('orders') WHERE name='id' AND pk=1);
 ```
 
-Assertions: `amount_paisa = 0` fails; an unknown `direction` fails; deleting an order with transactions is restricted; a capture and a refund for the same order both insert.
+Assertions: `amount_paisa = 0` fails; an unknown `direction` fails; deleting an order with transactions is restricted; a capture and a refund for the same order both insert; inserting the same `(payment_event_id, direction)` twice fails on the second insert.
 
 ---
 
@@ -1001,6 +1003,149 @@ HAVING COUNT(*) > 0;
 ```
 
 Assertions: after apply, the table is absent and CSRF validation still passes end-to-end (the mechanism is stateless); the dual-key rotation window is exercised by a test that verifies a token signed with the previous key.
+
+---
+
+### 0063 — `invoices_add_idempotency_key`
+
+Risk **Low** (nullable additive column). Finding RV8-002. Milestone M11, Phase 2.
+
+```sql
+-- db/migrations/0063_invoices_add_idempotency_key.sql
+ALTER TABLE invoices ADD COLUMN idempotency_key TEXT;
+```
+
+```sql
+-- db/migrations/rollback/0063_invoices_add_idempotency_key.rollback.sql
+-- ROLLBACK_EXCEPTION: SQLite cannot drop columns in place; leave nullable column present.
+SELECT 1 WHERE 0;
+```
+
+```sql
+-- db/migrations/preflight/0063_invoices_add_idempotency_key.preflight.sql
+SELECT name FROM pragma_table_info('invoices') WHERE name = 'idempotency_key';
+```
+
+Assertions: column is nullable; existing rows remain valid; a repeated POS attempt can reuse the same key.
+
+---
+
+### 0064 — `create_idx_invoices_idempotency_key`
+
+Risk **Low** (partial unique index on nullable new column). Finding RV8-002. Milestone M11, Phase 2.
+
+```sql
+-- db/migrations/0064_create_idx_invoices_idempotency_key.sql
+CREATE UNIQUE INDEX idx_invoices_idempotency_key ON invoices(idempotency_key) WHERE idempotency_key IS NOT NULL;
+```
+
+```sql
+-- db/migrations/rollback/0064_create_idx_invoices_idempotency_key.rollback.sql
+DROP INDEX IF EXISTS idx_invoices_idempotency_key;
+```
+
+```sql
+-- db/migrations/preflight/0064_create_idx_invoices_idempotency_key.preflight.sql
+SELECT idempotency_key, COUNT(*) AS c
+FROM invoices
+WHERE idempotency_key IS NOT NULL
+GROUP BY idempotency_key
+HAVING COUNT(*) > 1;
+```
+
+Assertions: duplicate non-NULL `idempotency_key` fails; multiple NULL rows remain valid; retry with same key returns existing invoice.
+
+---
+
+### 0065 — `create_site_settings`
+
+Risk **Low** (new table). Finding RV8-006. Milestone M3/M10, Phase 1–2.
+
+```sql
+-- db/migrations/0065_create_site_settings.sql
+CREATE TABLE site_settings (key TEXT PRIMARY KEY, value_json TEXT NOT NULL, updated_at TEXT NOT NULL, updated_by_staff_id TEXT REFERENCES staff_users(staff_id));
+```
+
+```sql
+-- db/migrations/rollback/0065_create_site_settings.rollback.sql
+DROP TABLE IF EXISTS site_settings;
+```
+
+```sql
+-- db/migrations/preflight/0065_create_site_settings.preflight.sql
+SELECT 'table_exists' AS problem FROM sqlite_master WHERE type='table' AND name='site_settings';
+```
+
+Assertions: table exists; keys are unique; Owner-editable values are stored as JSON text.
+
+---
+
+### 0066 — `seed_site_settings`
+
+Risk **Low** (idempotent seed insert). Finding RV8-006. Milestone M3/M10, Phase 1–2.
+
+```sql
+-- db/migrations/0066_seed_site_settings.sql
+INSERT INTO site_settings (key, value_json, updated_at, updated_by_staff_id) VALUES ('MAX_COD_VALUE_PAISA','500000',datetime('now'),NULL), ('COD_ORDERS_PER_PHONE_24H','2',datetime('now'),NULL), ('COD_ORDERS_PER_ADDRESS_24H','3',datetime('now'),NULL), ('RETURN_WINDOW_DAYS','7',datetime('now'),NULL);
+```
+
+```sql
+-- db/migrations/rollback/0066_seed_site_settings.rollback.sql
+DELETE FROM site_settings WHERE key IN ('MAX_COD_VALUE_PAISA','COD_ORDERS_PER_PHONE_24H','COD_ORDERS_PER_ADDRESS_24H','RETURN_WINDOW_DAYS');
+```
+
+```sql
+-- db/migrations/preflight/0066_seed_site_settings.preflight.sql
+SELECT key FROM site_settings WHERE key IN ('MAX_COD_VALUE_PAISA','COD_ORDERS_PER_PHONE_24H','COD_ORDERS_PER_ADDRESS_24H','RETURN_WINDOW_DAYS');
+```
+
+Assertions: all four rows insert; repeated reads come through the `site_settings` accessor; defaults are owner-editable after seed.
+
+---
+
+### 0067 — `seed_ai_budget_limits_imagify`
+
+Risk **Low** (idempotent seed insert into existing table). Finding C-14. Milestone M7, Phase 2.
+
+```sql
+-- db/migrations/0067_seed_ai_budget_limits_imagify.sql
+INSERT OR IGNORE INTO ai_budget_limits (provider, daily_limit_usd_cents, monthly_limit_usd_cents, soft_alert_percent, hard_block_percent, owner_override, updated_at, updated_by_staff_id) VALUES ('imagify', 200, 2000, 80, 100, 0, datetime('now'), NULL);
+```
+
+```sql
+-- db/migrations/rollback/0067_seed_ai_budget_limits_imagify.rollback.sql
+DELETE FROM ai_budget_limits WHERE provider = 'imagify';
+```
+
+```sql
+-- db/migrations/preflight/0067_seed_ai_budget_limits_imagify.preflight.sql
+SELECT provider FROM ai_budget_limits WHERE provider = 'imagify';
+```
+
+Assertions: Imagify defaults seed once; existing providers are untouched; owner may edit later.
+
+---
+
+### 0068 — `drop_variants_view`
+
+Risk **Low** (compatibility-view removal; rollback recreates). Finding C-15. Milestone M10/M12, Phase 2.
+
+```sql
+-- db/migrations/0068_drop_variants_view.sql
+DROP VIEW IF EXISTS variants;
+```
+
+```sql
+-- db/migrations/rollback/0068_drop_variants_view.rollback.sql
+CREATE VIEW variants AS SELECT * FROM product_variants;
+```
+
+```sql
+-- db/migrations/preflight/0068_drop_variants_view.preflight.sql
+SELECT 1 WHERE 0;
+```
+
+Assertions: the compatibility view is absent after apply; rollback recreates it; real gate is drift code D-46 returning zero code references before apply.
 
 ---
 

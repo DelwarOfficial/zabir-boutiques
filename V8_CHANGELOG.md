@@ -1,5 +1,35 @@
 # V8 Changelog — Zabir Boutiques Master Plan
 
+## V8.1 Patch Release
+
+| Property | Value |
+|---|---|
+| From | V8 |
+| To | **V8.1** |
+| Date | 2026-08-07 |
+| Scope | RV8-001…RV8-012 plus consistency fixes C1…C15 |
+| Migration note | 0047 amended in place because it is unapplied; 0063–0068 appended per §35.6 forward-fix rule |
+
+### V8.1 Change Summary
+
+| Finding ID | Sections edited | Change |
+|---|---|---|
+| RV8-001 | 0, 6.1, 11.5, 30 (#46), 31, 32, 34.4 #24, 36.5, 37.0 #14, 38 (D-42), `V8_MIGRATION_PLAN.md` 0047 | `payment_transactions` now carries `payment_event_id` with `UNIQUE(payment_event_id, direction)`; queue replay after ledger write is a no-op |
+| RV8-002 | 6.1, 11.3, 15.1, 30 (#16), 31, 32, 34.4 #33, 36.2, 37.0 #23, 38 (D-43), `V8_MIGRATION_PLAN.md` 0063–0064 | POS sale path is idempotent on both `(invoice_id, variant_id)` and `invoices.idempotency_key` |
+| RV8-003 | 0, 10.3, 10.6, 30 (#40), 31, 32, 34.4 #14, 36.5, 37.0 #24, 38 (D-44) | Buy Now cookies renamed to `__Host-bn_sid` / `__Host-bn_bind`; sibling-subdomain cookie tossing blocked mechanically |
+| RV8-004 | 6.8, 27.2 | Idempotency retention contradiction fixed to 2 hours everywhere |
+| RV8-005 | 12.3, 30 (#12), 31, 34.4 #21, 37.0 #25, 38 (D-22) | Cleanup cron no longer releases non-cancelled orders; reconciliation owns attached-order expiry |
+| RV8-006 | 6.1, 11.1 step 11, 13.2, 34.4 #34, 38 (D-45), `V8_MIGRATION_PLAN.md` 0065–0066 | `site_settings` defined and seeded; D-04 resolved-with-defaults |
+| RV8-007 | 13.2 | Launch scope for COD-collected refunds stated explicitly: manual only, outside `refunds` table |
+| RV8-008 | 11.6, 37.0 #26 | Paid-but-cancelled branch now refunds and pages instead of silently leaving paid+cancelled |
+| RV8-009 | 36.5, 38 (D-17) | `markConvertedAndDelete` docstring corrected to binding-hash verification |
+| RV8-010 | 11.1 step 16, 12.2 | Checkout batch is sole inserter of `stock_reservations`; DO repair paths never insert |
+| RV8-011 | 17.1 | D-02 marked resolved-deferred; Resend is only launch provider and alert pages at >5% failure |
+| RV8-012 | 27.1, 27.3 | D1 Time Travel verification task added; restore secret workflow made explicit |
+| C1–C15 | 0, 6.1, 11.2, 11.4, 12.5, 24.2, 31, 32, 38.3, 38.4, `V8_MIGRATION_PLAN.md` 0067–0068 | Reservation wording, projection-freshness wording, retired `csrf_nonces` note, rounding rules, test count 26, audit gate 45, Imagify seed, and `variants` view retirement aligned |
+
+---
+
 ## 1. Version Header
 
 | Property | Value |
@@ -24,7 +54,7 @@
 | RT-001 + F-02 | P0 | 0, 11.1, 11.6, 12.3, 13.1, 30 (#12, #50), 31, 34.4 #21/#22, 37.0 | Cleanup cron no longer releases live orders' stock; reservation window now outlasts the payment window | Cron released every active reservation older than 15 minutes with no order filter; reservations expired at 15 min while payment had 30 min | Cron releases only orphans (`order_id IS NULL` and >15 min), cancelled orders, or orders past `orders.reservation_expires_at`; `reservation_expires_at = created_at + 60 minutes` |
 | RT-003 | P0 | 11.3, 12.3, 13.2, 14.1, 30 (#17, #44), 36.2, 37.0, 29.4 | Added the only legal path for stock to enter or leave outside sales | Six DO methods, none of which increases `stock`; Guardrail #17 forbade direct D1 writes with no alternative | `VariantInventoryDO.adjustStock({...})` with a two-person rule for negative deltas; `inventory.adjust` and `inventory.adjust.approve` in RBAC; wired into return restock and goods receipt |
 | RT-006 + C-02 | P0 | 0, 6.3, 6.6, 6.8, 9.1, 30 (#6, #13, #28, #45), 31, 32, 34.4 #16, 36.6, 38 (D-05, D-41) | One alarm per Durable Object, with a stored purpose; corrected the false durability rationale | "Two-stage alarm: 5-min → upsert and re-arm; 30-day → final write then deleteAll", justified as protecting against loss on Worker restart/eviction | Single alarm with `alarm_purpose` in DO storage; `'persist'` hands off to `'cleanup'` and never re-arms itself. DO storage is already durable; the alarm exists only to keep the D1 projection fresh |
-| RT-005 + S-02 | P0 | 0, 10.3, 10.6, 30 (#40), 31, 32, 34.4 #14, 36.5, 38 (D-17) | Replaced header-based session binding with a cookie secret; removed `sid` from URLs | `Origin` **and** `sha256(User-Agent)` verified on every request including GET; mismatch → 403 + delete the DO; `sid` in the query string | Binding is `sha256(bn_bind)` against a stored `binding_hash`; `Origin` checked on state-changing POSTs only; the User-Agent check is deleted; `bn_sid` and `bn_bind` are HttpOnly cookies; no identifier in any URL; a failed GET renders a fresh page and never deletes the DO |
+| RT-005 + S-02 | P0 | 0, 10.3, 10.6, 30 (#40), 31, 32, 34.4 #14, 36.5, 38 (D-17) | Replaced header-based session binding with a cookie secret; removed `sid` from URLs | `Origin` **and** `sha256(User-Agent)` verified on every request including GET; mismatch → 403 + delete the DO; `sid` in the query string | Binding is `sha256(__Host-bn_bind)` against a stored `binding_hash`; `Origin` checked on state-changing POSTs only; the User-Agent check is deleted; `__Host-bn_sid` and `__Host-bn_bind` are HttpOnly cookies; no identifier in any URL; a failed GET renders a fresh page and never deletes the DO |
 | F-01 | P0 | 6.1, 11.5, 30 (#46), 31, 34.4 #24, 35, `V8_MIGRATION_PLAN.md` 0044–0046 | Added an enforcing uniqueness constraint for webhook replay | "Store event id in D1 `payment_events` idempotently" with no constraint; the repo table had no provider identity at all | `payment_events.provider` and `.provider_event_id` columns plus `UNIQUE(provider, provider_event_id)`; the handler treats a violation as a replay — 200, no enqueue, no credit |
 | RT-010 + M-01/M-03/M-04 | P0 | 26.3, 30 (#31, #48), 31, 35 (all), `V8_MIGRATION_PLAN.md` | Renumbered against the repository, deleted the mapping paragraph, split every multi-statement migration, rewrote pre-flights as zero-row queries | Plan numbers `0024`–`0027` mapped to repo files `0021`–`0024` while CI required exact monotonic numbering; multi-statement files; 0028's pre-flight was `PRAGMA table_info` + "inspect the result" | No mapping exists — plan numbers are repo numbers, starting at `0034`. One statement per file. Every migration has a rollback file and a pre-flight query that returns zero rows when safe |
 | C-04 + C-05 | P0 | 6.6, 24.2, 30 (#49), 31, 34.4 #25, 36.3, 37.0, 38 (D-39) | One canonical BudgetCounterDO object ID; re-keyed by provider | Three formats: `budget:{service}:{period}`, `budget:{provider}:{YYYY-MM-DD}`/`{YYYY-MM}`, and `idFromName('deepseek:' + today)`; daily and monthly limits could not coexist | `budget:{provider}` everywhere; one object holds both buckets and rolls them on UTC boundaries |
@@ -234,7 +264,7 @@ Full forward numbering: `0034`–`0062`, one statement each, specified in `V8_MI
 | **D-01** | Guest-only, or customer accounts? | Section 10.6 | `CartDO.mergeCart()`, `customer_session_link`, the `/api/me/*` identity model, a `customers` table, and a customer role in RBAC. V8 assumes guest-only and declares `mergeCart()` `NOT_IMPLEMENTED` rather than shipping it (C-07) |
 | **D-02** | Is Cloudflare Email Sending generally available for outbound transactional mail on this account? | Section 17.1 | The provider-order list, the `SendResponse.provider` union, Guardrail #30, and the `cloudflare_email` adapter folder. Until answered, Resend has no automated fallback and `EMAIL_PROVIDER=cloudflare_email` MUST NOT be set (CF-09) |
 | **D-03** | Is delivery subject to VAT? | Section 11.7 | The `tax_rates` seed (0051) and step 3 of the VAT rule. Only the `goods` row is seeded until answered (F-06) |
-| **D-04** | What are `MAX_COD_VALUE_PAISA`, `COD_ORDERS_PER_PHONE_24H`, and `COD_ORDERS_PER_ADDRESS_24H`? | Section 11.1 step 11 | The COD ceiling and velocity checks. Implementation uses BDT 5,000 / 2 / 3 from `site_settings` until answered (S-04) |
+| **D-04** | What are `MAX_COD_VALUE_PAISA`, `COD_ORDERS_PER_PHONE_24H`, and `COD_ORDERS_PER_ADDRESS_24H`? | Section 11.1 step 11 | **Resolved with launch defaults.** `site_settings` seeds BDT 5,000 / 2 / 3, and the Owner may edit them without a deploy (RV8-006) |
 | **D-05** | Add a Phase 4 finance module, or leave the "critical before scaling" ERP items unscheduled? | Section 29.4 | Nothing at launch. Blocks any ERP claim and all gross-margin reporting. The Section 1 wording change is applied unconditionally because the claim was inaccurate either way |
 | **D-06** | Key `VariantInventoryDO` as `variant:{variant_id}:{location_id}` now? | Section 29.4 | The DO object ID format and every call site. Deferring is the expensive option — changing a DO key later is a migration across the entire object space. V8 keeps the single-location key and records the cost |
 
