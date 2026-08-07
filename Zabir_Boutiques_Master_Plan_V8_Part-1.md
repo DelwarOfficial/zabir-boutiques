@@ -77,7 +77,7 @@ Every implementation, prompt, ticket, PR, and agent instruction must follow thes
 
 | Area | Canonical Decision | Why |
 |---|---|---|
-| Astro output mode | Use `output: 'server'` with `@astrojs/cloudflare`; routes are dynamic by default unless opted into prerendering with `export const prerender = true`. | Astro v6 uses `server` for on-demand rendering; static pages opt in via `prerender = true`. |
+| Astro output mode | Use `output: 'server'` with `@astrojs/cloudflare`; routes are dynamic by default unless opted into prerendering with `export const prerender = true`. | Astro v7.2 uses `server` for on-demand rendering; static pages opt in via `prerender = true`. |
 | Rendering model | Server-first. Catalog routes (`/`, `/products/[slug]`, `/categories/[slug]`, `/collections/[slug]`, `/blog/[slug]`) are **on-demand rendered** with Cache API + stale-while-revalidate and cache-tag purging. `prerender = true` is reserved for genuinely static legal/info routes (`/about`, `/privacy`, `/terms`, `/return-policy`, `/size-guide`). Checkout, staff, auth, payment, API, POS, and webhooks are dynamic. | Astro requires `getStaticPaths()` for prerendered dynamic routes; a boutique publishing daily stock cannot require a production rebuild to publish a product. Cache API + SWR keeps TTFB and SEO targets while making publish instant. Resolves RT-009. |
 | Cart source of truth | `CartDO` is the only active cart source of truth during a session. KV must not store authoritative cart JSON. CartDO storage is **already durable** across Worker restart and DO eviction — no alarm is needed for durability. CartDO runs **exactly one alarm** with a stored `alarm_purpose` (`'persist'` \| `'cleanup'`) whose only job is keeping the D1 `cart_activity` projection fresh and eventually deleting the object. | A Durable Object has exactly one alarm; `setAlarm()` overwrites any pending alarm. Corrects the false durability rationale in V7 (RT-006, C-02). |
 | Reservation window | `orders.reservation_expires_at` governs every reservation attached to an order. It MUST be `created_at + 60 minutes`, strictly greater than the 30-minute payment window plus the 15-minute reconciliation interval in Section 11.6. The cleanup cron MUST NOT release a reservation whose order is alive. | Prevents the oversell path where stock is released while the customer is still paying (RT-001, F-02, C-01). |
@@ -351,7 +351,7 @@ import cloudflare from '@astrojs/cloudflare';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig({
-  // Astro v6 uses 'server' for on-demand rendering.
+  // Astro v7.2 uses 'server' for on-demand rendering.
   // Routes are dynamic by default unless opted into prerendering.
   output: 'server',
 
