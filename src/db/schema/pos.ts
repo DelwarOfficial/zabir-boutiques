@@ -55,3 +55,17 @@ export const invoiceAudit = sqliteTable('invoice_audit', {
   metadataJson: text('metadata_json'),
   createdAt: text('created_at').notNull(),
 });
+
+/** End-of-day cash reconciliation (T-25, F-09). */
+export const posCashDrawerSessions = sqliteTable('pos_cash_drawer_sessions', {
+  id: text('id').primaryKey(),
+  openedByStaffId: text('opened_by_staff_id').notNull(),
+  openedAt: text('opened_at').notNull(),
+  openingFloatPaisa: integer('opening_float_paisa').notNull(),
+  closedByStaffId: text('closed_by_staff_id'),
+  closedAt: text('closed_at'),
+  expectedCashPaisa: integer('expected_cash_paisa'),
+  countedCashPaisa: integer('counted_cash_paisa'),
+  variancePaisa: integer('variance_paisa'),
+  notes: text('notes'),
+});

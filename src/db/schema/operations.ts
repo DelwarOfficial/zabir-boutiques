@@ -127,6 +127,37 @@ export const schemaMigrations = sqliteTable('schema_migrations', {
   appliedAt: text('applied_at').notNull(),
 });
 
+/** Supply chain: the only legal way stock enters the system besides sales returns (T-26, RT-003). */
+export const suppliers = sqliteTable('suppliers', {
+  id: text('id').primaryKey(),
+  name: text('name').notNull(),
+  phone: text('phone'),
+  address: text('address'),
+  isActive: integer('is_active', { mode: 'boolean' }).notNull().default(true),
+  createdAt: text('created_at').notNull(),
+});
+
+export const purchaseOrders = sqliteTable('purchase_orders', {
+  id: text('id').primaryKey(),
+  supplierId: text('supplier_id').notNull(),
+  status: text('status', { enum: ['draft', 'ordered', 'received', 'cancelled'] }).notNull().default('draft'),
+  totalCostPaisa: integer('total_cost_paisa').notNull().default(0),
+  createdByStaffId: text('created_by_staff_id').notNull(),
+  createdAt: text('created_at').notNull(),
+  updatedAt: text('updated_at').notNull(),
+});
+
+export const goodsReceipts = sqliteTable('goods_receipts', {
+  id: text('id').primaryKey(),
+  purchaseOrderId: text('purchase_order_id'),
+  variantId: text('variant_id').notNull(),
+  quantity: integer('quantity').notNull(),
+  unitCostPaisa: integer('unit_cost_paisa').notNull(),
+  adjustmentId: text('adjustment_id').notNull(),
+  receivedByStaffId: text('received_by_staff_id').notNull(),
+  receivedAt: text('received_at').notNull(),
+});
+
 /** Courier COD remittance reconciliation (T-24, F-03). */
 export const courierCodRemittance = sqliteTable('courier_cod_remittance', {
   id: text('id').primaryKey(),

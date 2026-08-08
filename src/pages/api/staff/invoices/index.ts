@@ -105,6 +105,17 @@ export async function POST(context: APIContext): Promise<Response> {
     return { method: p.method as InvoicePaymentMethod, amountPaisa: p.amount_paisa!, reference: p.reference ?? null };
   });
 
+  // T-25, F-09: a cash payment requires an open drawer session for this
+  // cashier, so the end-of-day close can reconcile expected vs counted.
+  if (payments.some((p) => p.method === 'cash')) {
+    const openDrawer = await env.DB.prepare(
+      `SELECT id FROM pos_cash_drawer_sessions WHERE opened_by_staff_id = ?1 AND closed_at IS NULL`,
+    ).bind(user.id).first<{ id: string }>();
+    if (!openDrawer) {
+      return Response.json({ ok: false, code: 'NO_OPEN_DRAWER', message: 'Open a cash drawer session before taking a cash payment.' }, { status: 409 });
+    }
+  }
+
   // Discount and VAT are optional. Reject negative values.
   let discountPaisa: number | undefined;
   let vatPaisa: number | undefined;
