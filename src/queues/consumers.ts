@@ -435,6 +435,12 @@ export async function handleCartActivityBatch(
       const { sessionId, itemCount, totalQuantity, subtotalPaisa, lastCartUpdateAt, customerContact } = msg.body;
       const now = nowSql();
 
+      // CF-04: queue delivery is at-least-once with no ordering guarantee.
+      // An older message processed after a newer one must not regress
+      // cart_activity (a customer with a fresh cart could otherwise get an
+      // abandoned-cart email quoting a stale, smaller cart). Guarded the
+      // same way cart-do.ts's own alarm-writer already guards its upsert:
+      // only apply if this message is at least as new as what's stored.
       await env.DB.prepare(
         `INSERT INTO cart_activity (session_id, item_count, total_quantity, subtotal_paisa, last_cart_update_at, updated_at)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -443,7 +449,8 @@ export async function handleCartActivityBatch(
            total_quantity = excluded.total_quantity,
            subtotal_paisa = excluded.subtotal_paisa,
            last_cart_update_at = excluded.last_cart_update_at,
-           updated_at = excluded.updated_at`
+           updated_at = excluded.updated_at
+         WHERE excluded.last_cart_update_at >= cart_activity.last_cart_update_at`
       ).bind(sessionId, itemCount, totalQuantity, subtotalPaisa, lastCartUpdateAt, now).run();
 
       // Update customer contact if provided (from checkout start)
