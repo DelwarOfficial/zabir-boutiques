@@ -8,7 +8,7 @@
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
   [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
-  [![Vitest](https://img.shields.io/badge/Tests-484%20passing-6E9F18?logo=vitest)](https://vitest.dev)
+  [![Vitest](https://img.shields.io/badge/Tests-533%20passing-6E9F18?logo=vitest)](https://vitest.dev)
   [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
 </div>
 
@@ -16,7 +16,7 @@
 
 A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built for the Bangladesh market. **COD-first checkout** with FraudBD risk routing, UddoktaPay payment gateway, real-time inventory reservation, full staff operations dashboard, and Workers AI–powered content tooling.
 
-> **Package version:** `7.0.0` · **Runtime:** Astro 7.2.0 / @astrojs/cloudflare 14.2.0 (`output: 'server'`) · **Spec edition:** Master Plan V8 (+ V8.1 traceability amendments) — server-authoritative checkout, D1 source of truth, Durable Object inventory gates, Cloudflare Queues for webhooks and email, Workers AI + DeepSeek fallback, R2 media, FTS5 search. Source of truth: `Zabir_Boutiques_Master_Plan_V8_Part-1.md` / `Part-2.md`.
+> **Package version:** `7.0.0` · **Runtime:** Astro 7.2.0 / @astrojs/cloudflare 14.2.0 (`output: 'server'`) — server-authoritative checkout, D1 source of truth, Durable Object inventory gates, Cloudflare Queues for webhooks and email, Workers AI + DeepSeek fallback, R2 media, FTS5 search. Source of truth: `db/migrations/` (each file's header explains its rationale) plus this README.
 
 ---
 
@@ -149,6 +149,8 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 - **Atomic batch operations** — `db.batch()` with `meta.changes` verification
 - **Partial-failure rollback** — All successful reservations released if any one fails
 - **Order creation gated on reservation success** — guardrail enforced
+- **Cleanup cron never releases a live order's stock** — orphaned or cancelled only; `pending_review`/`pending_payment` orders defer to the 2h reconciliation abandonment window
+- **`adjustStock()` idempotent + two-person rule** — caller-supplied idempotency key required; a stock decrease (damage/theft/correction) requires a second, active, permission-holding approver
 
 ### Payments
 - **UddoktaPay** with **server-to-server verification** (browser redirects never mark paid)
@@ -171,10 +173,27 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 
 ### Buy Now Direct Guest Order
 - **DirectCheckoutSessionDO** — short-lived 30-minute session with alarm-based cleanup
+- **HttpOnly cookie-secret binding** (`__Host-bn_sid` / `__Host-bn_bind`) — never Origin/User-Agent, never a `sid` in the URL; a browser hand-off (in-app browser → external) no longer 403s or deletes the session
 - **Separate from cart** — Buy Now does not mutate normal CartDO cart
 - **Conversion-focused landing page** — product offer, gallery, order form, trust points
-- **Same secure checkout engine** — server pricing, FraudBD, stock reservation, idempotency
+- **Same secure checkout engine** — server pricing, FraudBD, stock reservation, idempotency, COD ceiling + velocity limits
 - **Campaign-ready** — canonical URLs, optional noindex for campaign-only pages
+
+### COD Risk Controls
+- **Quantity threshold** (`SUM(quantity) <= 2`) plus a **value ceiling** and **24h phone/address velocity limits**, all owner-editable via `site_settings`
+- Enforced identically in `/api/checkout` and `/api/buy-now/submit` — no weaker path
+
+### Courier COD Remittance
+- **`cod_collected_paisa`** captured on delivery, distinct from courier handoff
+- **Remittance reconciliation** — expected amount computed server-side from delivered orders, staff records what the courier actually paid back, shortfall flagged
+
+### POS Cash Drawer
+- **Open/close sessions per cashier** — a cash payment is refused with no open drawer
+- **Server-computed expected cash** = opening float + `SUM` of cash payments since open; variance = counted − expected, flagged above a threshold
+
+### Supply Chain
+- **Suppliers / purchase orders / goods receipts** — the only way stock enters the system besides return restock (no direct D1 writes)
+- **Idempotent receiving** — reuses the same `doAdjustStock` pattern as return approval, deterministic per-(PO, variant) key
 
 ### POS (Point of Sale)
 - **Dedicated invoice ledger** — separate from online orders (`invoices`, `invoice_items`, `invoice_payments`)
@@ -344,11 +363,11 @@ zabir-boutiques/
 │   ├── data/                     # Build-time snapshots + fallback catalog
 │   ├── layouts/ · styles/ · hooks/
 │   └── generated/                # Build-time artifacts (csp-hashes)
-├── db/migrations/                # 39 SQL migrations (head: 0039)
+├── db/migrations/                # 47 SQL migrations (head: 0047)
 │   └── rollback/                 # Paired rollbacks
 ├── docs/                         # alerting · csp · dr · logpush · zero-trust · audit · adr
 ├── scripts/                      # build · bundlewatch · cwv · migrate · seed · audit
-├── tests/                        # 56 Vitest files · 484 tests
+├── tests/                        # 64 Vitest files · 533 tests
 ├── astro.config.mjs              # CSP-hashes Vite plugin
 ├── wrangler.jsonc                # bindings, DOs, queues, env, triggers
 └── package.json
@@ -358,7 +377,7 @@ zabir-boutiques/
 
 ## Database Schema
 
-Tables across 39 migrations (head `0039`; V8 schema work runs `0040`+, see `V8_MIGRATION_PLAN.md`). D1 is the source of truth; DOs hold only short-lived concurrency state.
+Tables across 47 migrations (head `0047`). D1 is the source of truth; DOs hold only short-lived concurrency state.
 
 | # | Table | Purpose |
 |---|-------|---------|
@@ -421,6 +440,14 @@ Migrations are applied in order; each has a paired rollback in `db/migrations/ro
 | `POST` | `/api/staff/returns` | Create return request | `orders.update` |
 | `POST` | `/api/staff/returns/:id/approve` | Approve + restock + refund | `payments.refund` |
 | `POST` | `/api/staff/returns/:id/reject` | Reject return | `orders.update` |
+| `POST` | `/api/staff/orders/:id/deliver` | Mark shipped order delivered; captures COD cash collected | `orders.ship` |
+| `POST` | `/api/staff/courier/remittance` | Record what a courier paid back for a period; flags shortfall | `payments.verify` |
+| `POST` | `/api/staff/pos/drawer/open` | Open a cash drawer session | `orders.create` |
+| `POST` | `/api/staff/pos/drawer/close` | Close drawer; expected-vs-counted variance | `orders.create` |
+| `GET` `POST` | `/api/staff/suppliers` | Supplier directory | `inventory.manage` |
+| `GET` `POST` | `/api/staff/purchase-orders` | Purchase order header | `inventory.manage` |
+| `POST` | `/api/staff/purchase-orders/:id/receive` | Receive stock against a PO (idempotent) | `inventory.adjust` |
+| `POST` | `/api/staff/inventory/adjust` | Manual stock adjustment; two-person rule on decreases | `inventory.adjust` |
 
 ---
 
@@ -556,7 +583,7 @@ DR runbook in [`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 | `npm run build:skip-snapshots` | Build only (no snapshots, no bundlewatch) |
 | `npm run preview` | Preview production build locally |
 | `npm run typecheck` | `astro check` + `tsc --noEmit` |
-| `npm test` | Vitest test suite (484 tests) |
+| `npm test` | Vitest test suite (533 tests) |
 | `npm run test:watch` | Vitest watch mode |
 | `npm run bundlewatch` | Assert JS bundle budget |
 | `npm run bundlewatch:update` | Reset budget to current sizes + 5% headroom |
@@ -572,7 +599,7 @@ DR runbook in [`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 
 ## Testing
 
-**484 tests across 56 files** covering:
+**533 tests across 64 files** covering:
 
 - Phone normalization (Bangladesh formats)
 - Inventory reservation atomicity and race conditions
@@ -609,18 +636,9 @@ Detailed operational guides in [`docs/`](docs/):
 - [`docs/logpush.md`](docs/logpush.md) — Logpush configuration + PII scrubber
 - [`docs/alerting.md`](docs/alerting.md) — Critical-metric alerting rules
 
-Top-level references:
-
-- [`Zabir_Boutiques_Master_Plan_V8_Part-1.md`](Zabir_Boutiques_Master_Plan_V8_Part-1.md) /
-  [`Part-2.md`](Zabir_Boutiques_Master_Plan_V8_Part-2.md) — **the source of truth**
-  (Sections 0–38: architecture, commerce flows, cross-cutting concerns, delivery,
-  operational enforcement). Higher priority than `AGENTS.md` or generated notes.
-- [`V8_MIGRATION_PLAN.md`](V8_MIGRATION_PLAN.md) — authoritative D1 migration
-  sequence (head `0039`; V8 schema work `0040`+). Where it and §35 differ, it wins.
-- [`V8.1_TRACEABILITY_MATRIX.md`](V8.1_TRACEABILITY_MATRIX.md) — V8.1 amendment
-  provenance (RV8-001..012 → sections, guardrails, tests, migrations).
-- [`V8_CHANGELOG.md`](V8_CHANGELOG.md) — V8 revision history.
 - [`docs/audit/`](docs/audit/) — drift audits, waivers, release records.
+
+For migration history and rationale, read `db/migrations/` directly — each file carries a comment header explaining what it does and why (see e.g. `0043_create_courier_cod_remittance.sql`). There is no separate migration-plan document; the SQL is the source of truth.
   Start with [`drift-v8-landing-2026-08-07.md`](docs/audit/drift-v8-landing-2026-08-07.md).
 - [`docs/adr/0001-audit-drift-v8-realignment.md`](docs/adr/0001-audit-drift-v8-realignment.md) —
   proposed `audit-drift.ts` realignment to §38.2.

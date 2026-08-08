@@ -36,6 +36,15 @@ export async function claimIdempotency(
 ): Promise<boolean> {
   const expiresAt = nowSql(new Date(Date.now() + 30 * 60 * 1000));
   try {
+    // T-27 stuck-claim fix: idempotency_key is the PRIMARY KEY, so a bare
+    // INSERT collides forever on a row stuck in 'processing' (Worker died
+    // between claim and complete/fail) even after checkIdempotency starts
+    // treating it as expired and gone. Delete the stale row first — guarded
+    // so a still-live claim from another in-flight request is never
+    // touched, only one that is genuinely past its own expires_at.
+    await db.prepare(
+      `DELETE FROM checkout_idempotency WHERE idempotency_key = ?1 AND expires_at < ?2`
+    ).bind(key, now).run();
     await db.prepare(
       `INSERT INTO checkout_idempotency (idempotency_key, status, created_at, expires_at)
        VALUES (?1, 'processing', ?2, ?3)`

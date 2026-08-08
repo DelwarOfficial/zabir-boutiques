@@ -87,6 +87,14 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
       const { verifyBackup } = await import('./maintenance/backup');
       const e = env as unknown as { BACKUPS?: R2Bucket; BACKUP_ENCRYPTION_KEY?: string; SESSION_SECRET?: string };
       await verifyBackup(env.DB, e.BACKUPS, e);
+
+      // T-28: the D1 row-count drill above proves nothing about Durable
+      // Object state, which a real restore leaves untouched (rolled-back
+      // D1 vs. stale DO counters). Read-only — flags drift, does not
+      // auto-correct. restoreParity() is the separate, deliberate recovery
+      // action run manually as part of an actual restore procedure.
+      const { checkDoD1Parity } = await import('./maintenance/dr-parity');
+      await checkDoD1Parity(env as unknown as { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace });
     }
 
     // Monthly 1st 05:00 UTC — archive old events to R2.

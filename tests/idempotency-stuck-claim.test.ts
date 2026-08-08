@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { checkIdempotency, claimIdempotency } from '../src/lib/idempotency';
+import { nowSql } from '../src/lib/dates';
 
 const MIGRATIONS = resolve('./db/migrations');
 
@@ -53,36 +54,46 @@ describe('idempotency-stuck-claim: a Worker crash between claim and complete/fai
     expect(peek).toMatchObject({ exists: true, status: 'processing' });
   });
 
-  it('KNOWN GAP: claimIdempotency cannot re-claim an expired key because idempotency_key is the PRIMARY KEY and the stale row is never deleted', async () => {
+  it('FIXED: claimIdempotency re-claims a key stuck in processing past its own expiry', async () => {
     const raw = buildDb();
     const db = new D1Like(raw) as unknown as D1Database;
     raw.exec(`
       INSERT INTO checkout_idempotency (idempotency_key, status, created_at, expires_at)
       VALUES ('k3', 'processing', datetime('now','-31 minutes'), datetime('now','-1 minutes'));
     `);
-    // checkIdempotency (the peek used by the route to decide whether to
-    // proceed) says this key is free...
     const peek = await checkIdempotency(db, 'k3');
     expect(peek).toEqual({ exists: false });
 
-    // ...but claimIdempotency's bare INSERT collides with the old row's
-    // PRIMARY KEY and fails. checkout.ts does not check this return value
-    // (`await claimIdempotency(...)` — result discarded), so the request
-    // proceeds anyway rather than hard-failing; but the D1 claim record
-    // itself never gets refreshed for this key. Documented here as a real
-    // gap: a customer retry more than 30 minutes after a crashed attempt
-    // is not blocked, but the stale row is not cleaned up either.
-    const claimed = await claimIdempotency(db, 'k3', new Date().toISOString());
-    expect(claimed).toBe(false);
+    // claimIdempotency now deletes the row first (guarded on its own
+    // expires_at, so it only ever removes a genuinely stale claim), then
+    // inserts fresh. A customer retry after a crashed Worker attempt is no
+    // longer permanently unclaimable.
+    const claimed = await claimIdempotency(db, 'k3', nowSql());
+    expect(claimed).toBe(true);
 
-    const row = await raw.prepare(`SELECT status FROM checkout_idempotency WHERE idempotency_key = 'k3'`).get() as any;
-    expect(row.status).toBe('processing'); // still the stale row, 31+ minutes old
+    const row = await raw.prepare(`SELECT status, created_at FROM checkout_idempotency WHERE idempotency_key = 'k3'`).get() as any;
+    expect(row.status).toBe('processing'); // fresh claim, new attempt in flight
+  });
+
+  it('does NOT delete a live (non-expired) processing claim out from under a concurrent in-flight request', async () => {
+    const raw = buildDb();
+    const db = new D1Like(raw) as unknown as D1Database;
+    raw.exec(`
+      INSERT INTO checkout_idempotency (idempotency_key, status, created_at, expires_at)
+      VALUES ('k5', 'processing', datetime('now'), datetime('now','+29 minutes'));
+    `);
+    // A second request with the same key while the first is still legitimately in-flight.
+    const claimed = await claimIdempotency(db, 'k5', nowSql());
+    expect(claimed).toBe(false); // collides with the still-live row, as it should
+
+    const row = await raw.prepare(`SELECT status FROM checkout_idempotency WHERE idempotency_key = 'k5'`).get() as any;
+    expect(row.status).toBe('processing'); // untouched, not wiped out by the delete-if-expired guard
   });
 
   it('a genuinely fresh key claims successfully', async () => {
     const raw = buildDb();
     const db = new D1Like(raw) as unknown as D1Database;
-    const claimed = await claimIdempotency(db, 'k4', new Date().toISOString());
+    const claimed = await claimIdempotency(db, 'k4', nowSql());
     expect(claimed).toBe(true);
   });
 });
