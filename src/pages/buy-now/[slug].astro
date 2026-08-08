@@ -11,9 +11,18 @@ import { BuyNowLandingForm } from "@/islands/BuyNowLandingForm";
 import { formatPaisa } from "@/lib/money";
 import type { DirectCheckoutState } from "@/lib/do-client";
 import { env } from "cloudflare:workers";
+import {
+  appendBuyNowSessionCookies,
+  readBuyNowSessionCookie,
+  readBuyNowBindingCookie,
+  sha256Hex,
+} from "@/lib/buy-now-cookies";
 
 const { slug } = Astro.params;
-let sid = Astro.url.searchParams.get("sid");
+// Session is bound to HttpOnly cookies, never a URL query param (RT-005, S-02).
+// A stale `?sid=` from a bookmarked/shared pre-V8 link is ignored, not honored.
+let sid = readBuyNowSessionCookie(Astro.request);
+let bindingSecret = readBuyNowBindingCookie(Astro.request);
 
 // 1. Direct landing page access: generate session if sid is missing
 if (!sid) {
@@ -41,13 +50,16 @@ if (!sid) {
 
   const queryQty = Number(Astro.url.searchParams.get("quantity")) || 1;
 
-  // Generate a new secure HMAC session ID
+  // Generate a new secure HMAC session ID, plus a separate binding secret
+  // for the cookie that authenticates future requests (RT-005, S-02).
   const secret = env.SESSION_SECRET || "dev-session-secret-at-least-32-chars-long-for-hmac";
   const random = crypto.getRandomValues(new Uint8Array(32));
   const payload = `${Date.now()}:${Array.from(random, b => b.toString(16).padStart(2, '0')).join('')}`;
   const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
   const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(payload));
   const sessionId = Array.from(new Uint8Array(signature), b => b.toString(16).padStart(2, '0')).join('');
+  const newBindingSecret = crypto.randomUUID();
+  const newBindingHash = await sha256Hex(newBindingSecret);
 
   const now = new Date();
   if (env.DIRECT_CHECKOUT_DO) {
@@ -63,27 +75,34 @@ if (!sid) {
         sourcePage: `/products/${product.slug}`,
         utmParams: Object.fromEntries(Astro.url.searchParams),
         sessionId,
-        origin: Astro.url.origin,
-        userAgent: Astro.request.headers.get("User-Agent") ?? '',
+        bindingSecret: newBindingSecret,
       }),
     });
   } else {
     await env.DB.prepare(
-      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, createdAt)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, bindingHash, createdAt)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
     ).bind(
       sessionId,
       product.id,
       variantId,
       queryQty,
       JSON.stringify({}),
+      newBindingHash,
       now.toISOString()
     ).run();
   }
 
+  // Redirect with no session identifier in the URL — the cookies carry it.
+  // Preserve non-session query params (variantId, quantity, utm_*) for the
+  // landing page's own use, but strip sid if a stale one was present.
   const newParams = new URLSearchParams(Astro.url.searchParams);
-  newParams.set("sid", sessionId);
-  return Astro.redirect(`/buy-now/${slug}?${newParams.toString()}`);
+  newParams.delete("sid");
+  const query = newParams.toString();
+  const headers = new Headers();
+  appendBuyNowSessionCookies(headers, Astro.request, { sessionId, bindingSecret: newBindingSecret });
+  headers.set("Location", `/buy-now/${slug}${query ? `?${query}` : ""}`);
+  return new Response(null, { status: 302, headers });
 }
 
 // 2. Load session from DirectCheckoutSessionDO or D1 database fallback
@@ -97,8 +116,7 @@ if (env.DIRECT_CHECKOUT_DO) {
     method: "POST",
     body: JSON.stringify({
       sessionId: sid,
-      origin: Astro.url.origin,
-      userAgent: Astro.request.headers.get("User-Agent") ?? "",
+      bindingSecret: bindingSecret ?? "",
     }),
   });
   const data = (await response.json().catch(() => null)) as { ok?: boolean; session?: DirectCheckoutState } | null;
@@ -106,11 +124,13 @@ if (env.DIRECT_CHECKOUT_DO) {
 }
 
 if (!session) {
+  const bindingHash = bindingSecret ? await sha256Hex(bindingSecret) : null;
   const row = await env.DB.prepare(
     `SELECT sessionId, productId, variantId, quantity, selectedOptions, sourcePage, utmParams, createdAt
      FROM checkout_sessions
-     WHERE sessionId = ?1 AND deletedAt IS NULL`
-  ).bind(sid).first<{
+     WHERE sessionId = ?1 AND deletedAt IS NULL
+       AND (bindingHash IS NULL OR bindingHash = ?2)`
+  ).bind(sid, bindingHash).first<{
     sessionId: string;
     productId: string;
     variantId: string;

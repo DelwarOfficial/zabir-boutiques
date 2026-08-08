@@ -52,6 +52,8 @@ export const checkoutSessions = sqliteTable('checkout_sessions', {
   selectedOptions: text('selectedOptions', { mode: 'json' }),
   sourcePage: text('sourcePage'),
   utmParams: text('utmParams', { mode: 'json' }),
+  /** sha256(binding_secret) — same binding contract as DirectCheckoutSessionDO (RT-005, S-02). */
+  bindingHash: text('bindingHash'),
   createdAt: text('createdAt').notNull(),
   deletedAt: text('deletedAt'),
 });

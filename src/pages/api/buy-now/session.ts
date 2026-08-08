@@ -7,6 +7,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { safeLog } from '../../../lib/pii-scrubber';
+import { appendBuyNowSessionCookies, sha256Hex } from '../../../lib/buy-now-cookies';
 
 async function createHmacSessionId(secret: string): Promise<string> {
   const random = crypto.getRandomValues(new Uint8Array(32));
@@ -63,27 +64,33 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const sessionId = await createHmacSessionId(env.SESSION_SECRET);
+  const bindingSecret = crypto.randomUUID();
+  const bindingHash = await sha256Hex(bindingSecret);
 
   // Create the DirectCheckoutSessionDO or fallback to D1
   if (!env.DIRECT_CHECKOUT_DO) {
     const now = new Date().toISOString();
     await env.DB.prepare(
-      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, createdAt)
-       VALUES (?1, ?2, ?3, ?4, ?5, ?6)`
+      `INSERT INTO checkout_sessions (sessionId, productId, variantId, quantity, selectedOptions, bindingHash, createdAt)
+       VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)`
     ).bind(
       sessionId,
       productId,
       variantId,
       quantity,
       JSON.stringify(selectedOptions),
+      bindingHash,
       now
     ).run();
 
-    return Response.json({
+    const headers = new Headers();
+    appendBuyNowSessionCookies(headers, context.request, { sessionId, bindingSecret });
+    headers.set('Content-Type', 'application/json');
+    return new Response(JSON.stringify({
       ok: true,
       session_id: sessionId,
-      redirect_url: `/buy-now/${product.slug}?sid=${sessionId}`,
-    }, { status: 201 });
+      redirect_url: `/buy-now/${product.slug}`,
+    }), { status: 201, headers });
   }
 
   const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
@@ -98,8 +105,7 @@ export async function POST(context: APIContext): Promise<Response> {
       sourcePage,
       utmParams,
       sessionId,
-      origin: context.request.headers.get('Origin') ?? new URL(context.request.url).origin,
-      userAgent: context.request.headers.get('User-Agent') ?? '',
+      bindingSecret,
     }),
   });
 
@@ -109,9 +115,12 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, error: 'Session creation failed' }, { status: 500 });
   }
 
-  return Response.json({
+  const headers = new Headers();
+  appendBuyNowSessionCookies(headers, context.request, { sessionId, bindingSecret });
+  headers.set('Content-Type', 'application/json');
+  return new Response(JSON.stringify({
     ok: true,
     session_id: sessionId,
-    redirect_url: `/buy-now/${product.slug}?sid=${sessionId}`,
-  }, { status: 201 });
+    redirect_url: `/buy-now/${product.slug}`,
+  }), { status: 201, headers });
 }

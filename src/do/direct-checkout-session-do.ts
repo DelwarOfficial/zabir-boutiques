@@ -22,8 +22,8 @@ export interface DirectCheckoutSession {
   landingVersion: number;
   sourcePage: string | null;
   utmParams: Record<string, string> | null;
-  origin: string;
-  userAgentHash: string;
+  /** sha256(binding_secret) — the ONLY session binding. RT-005, S-02. */
+  bindingHash: string;
   formDraft: {
     name?: string;
     phone?: string;
@@ -59,8 +59,7 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
       utmParams?: Record<string, string>;
       formDraft?: DirectCheckoutSession['formDraft'];
       sessionId?: string;
-      origin?: string;
-      userAgent?: string;
+      bindingSecret?: string;
       orderId?: string;
     };
 
@@ -85,8 +84,7 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
           landingVersion: 1,
           sourcePage: body.sourcePage ?? null,
           utmParams: body.utmParams ?? null,
-          origin: body.origin ?? '',
-          userAgentHash: await sha256(body.userAgent ?? ''),
+          bindingHash: await sha256(body.bindingSecret ?? ''),
           formDraft: null,
         };
 
@@ -99,21 +97,21 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
       }
 
       case 'get': {
+        // A failed/missing binding on a read is treated exactly like a
+        // missing session: render a fresh page. No 403, no DO deletion.
+        // Deletion on a forged/absent request is itself a DoS primitive
+        // (RT-005, S-02).
         const session = await this.ensureLoaded();
         if (!session) {
           return Response.json({ ok: false, error: 'SESSION_NOT_FOUND' }, { status: 404 });
         }
 
-        // Check expiry
         if (new Date(session.expiresAt) < new Date()) {
           return Response.json({ ok: false, error: 'SESSION_EXPIRED' }, { status: 410 });
         }
 
-        const verification = await verifySessionBinding(session, body.origin, body.userAgent);
-        if (verification) {
-          await this.state.storage.deleteAll();
-          this.session = null;
-          return Response.json({ ok: false, error: verification }, { status: 403 });
+        if (!(await verifySessionBinding(session, body.bindingSecret))) {
+          return Response.json({ ok: false, error: 'SESSION_NOT_FOUND' }, { status: 404 });
         }
 
         return Response.json({ ok: true, session });
@@ -125,11 +123,9 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
           return Response.json({ ok: false, error: 'SESSION_NOT_FOUND' }, { status: 404 });
         }
 
-        const verification = await verifySessionBinding(session, body.origin, body.userAgent);
-        if (verification) {
-          await this.state.storage.deleteAll();
-          this.session = null;
-          return Response.json({ ok: false, error: verification }, { status: 403 });
+        // State-changing: 403 on a bad binding, but do NOT delete the DO.
+        if (!(await verifySessionBinding(session, body.bindingSecret))) {
+          return Response.json({ ok: false, error: 'BINDING_MISMATCH' }, { status: 403 });
         }
 
         session.formDraft = body.formDraft ?? null;
@@ -141,13 +137,8 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
 
       case 'clear': {
         const session = await this.ensureLoaded();
-        if (session) {
-          const verification = await verifySessionBinding(session, body.origin, body.userAgent);
-          if (verification) {
-            await this.state.storage.deleteAll();
-            this.session = null;
-            return Response.json({ ok: false, error: verification }, { status: 403 });
-          }
+        if (session && !(await verifySessionBinding(session, body.bindingSecret))) {
+          return Response.json({ ok: false, error: 'BINDING_MISMATCH' }, { status: 403 });
         }
         // Save orderId before cleanup so alarm can check it (Master Plan §6.8)
         if (body.orderId) {
@@ -181,7 +172,7 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
     }
   }
 
-  async create(input: { product_id: string; variant_id: string; quantity: number; selected_options: Record<string, string>; source_page: string; origin: string; user_agent: string }): Promise<{ session_id: string; expires_at: string }> {
+  async create(input: { product_id: string; variant_id: string; quantity: number; selected_options: Record<string, string>; source_page: string; binding_secret: string }): Promise<{ session_id: string; expires_at: string }> {
     const res = await this.fetch(new Request('https://do/create', {
       method: 'POST',
       body: JSON.stringify({
@@ -190,24 +181,23 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
         quantity: input.quantity,
         selectedOptions: input.selected_options,
         sourcePage: input.source_page,
-        origin: input.origin,
-        userAgent: input.user_agent,
+        bindingSecret: input.binding_secret,
       }),
     }));
     const data = await res.json() as { session?: DirectCheckoutSession };
     return { session_id: data.session?.sessionId ?? '', expires_at: data.session?.expiresAt ?? '' };
   }
 
-  async get(input: { session_id: string; origin: string; user_agent: string }): Promise<unknown> {
-    return this.fetch(new Request('https://do/get', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, origin: input.origin, userAgent: input.user_agent }) })).then((r) => r.json());
+  async get(input: { session_id: string; binding_secret: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/get', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, bindingSecret: input.binding_secret }) })).then((r) => r.json());
   }
 
-  async updateFormDraft(input: { session_id: string; form_draft: Record<string, string>; origin: string; user_agent: string }): Promise<unknown> {
-    return this.fetch(new Request('https://do/draft', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, formDraft: input.form_draft, origin: input.origin, userAgent: input.user_agent }) })).then((r) => r.json());
+  async updateFormDraft(input: { session_id: string; form_draft: Record<string, string>; binding_secret: string }): Promise<unknown> {
+    return this.fetch(new Request('https://do/draft', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, formDraft: input.form_draft, bindingSecret: input.binding_secret }) })).then((r) => r.json());
   }
 
-  async markConvertedAndDelete(input: { session_id: string; order_id: string; origin: string; user_agent: string }): Promise<{ deleted: true } | { error: string }> {
-    const res = await this.fetch(new Request('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, orderId: input.order_id, origin: input.origin, userAgent: input.user_agent }) }));
+  async markConvertedAndDelete(input: { session_id: string; order_id: string; binding_secret: string }): Promise<{ deleted: true } | { error: string }> {
+    const res = await this.fetch(new Request('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId: input.session_id, orderId: input.order_id, bindingSecret: input.binding_secret }) }));
     if (!res.ok) {
       const data = await res.json() as { error?: string };
       return { error: data.error ?? 'CLEAR_FAILED' };
@@ -221,13 +211,16 @@ async function sha256(value: string): Promise<string> {
   return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, '0')).join('');
 }
 
+/**
+ * Session binding is a secret cookie hash, never Origin or User-Agent
+ * (RT-005, S-02). Returns true when the caller's binding_secret hashes to
+ * the value stored at session creation.
+ */
 async function verifySessionBinding(
   session: DirectCheckoutSession,
-  origin: string | undefined,
-  userAgent: string | undefined,
-): Promise<'ORIGIN_MISMATCH' | 'USER_AGENT_MISMATCH' | null> {
-  if (session.origin && origin !== session.origin) return 'ORIGIN_MISMATCH';
-  const userAgentHash = await sha256(userAgent ?? '');
-  if (session.userAgentHash && userAgentHash !== session.userAgentHash) return 'USER_AGENT_MISMATCH';
-  return null;
+  bindingSecret: string | undefined,
+): Promise<boolean> {
+  if (!session.bindingHash) return true; // legacy sessions created before this field existed
+  const hash = await sha256(bindingSecret ?? '');
+  return hash === session.bindingHash;
 }

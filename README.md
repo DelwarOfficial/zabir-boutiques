@@ -4,11 +4,11 @@
   <h1 align="center">Zabir Boutiques — AI Commerce Platform</h1>
   <p align="center"><strong>Master Edition</strong> · Cloudflare-Native · Bangladesh F-Commerce</p>
 
-  [![Astro](https://img.shields.io/badge/Astro-6.4.4-FF5D01?logo=astro)](https://astro.build)
+  [![Astro](https://img.shields.io/badge/Astro-7.2.0-FF5D01?logo=astro)](https://astro.build)
   [![Cloudflare](https://img.shields.io/badge/Cloudflare-Pages+Workers-F38020?logo=cloudflare)](https://pages.cloudflare.com)
   [![D1](https://img.shields.io/badge/Database-D1-3B82F6?logo=cloudflare)](https://developers.cloudflare.com/d1/)
   [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript)](https://www.typescriptlang.org)
-  [![Vitest](https://img.shields.io/badge/Tests-391%20passing-6E9F18?logo=vitest)](https://vitest.dev)
+  [![Vitest](https://img.shields.io/badge/Tests-484%20passing-6E9F18?logo=vitest)](https://vitest.dev)
   [![License](https://img.shields.io/badge/License-Proprietary-64748B)](LICENSE)
 </div>
 
@@ -16,7 +16,7 @@
 
 A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built for the Bangladesh market. **COD-first checkout** with FraudBD risk routing, UddoktaPay payment gateway, real-time inventory reservation, full staff operations dashboard, and Workers AI–powered content tooling.
 
-> **Package version:** `7.0.0` · **Runtime:** Astro 6.4.4 / @astrojs/cloudflare 13.6.1 (advanced mode) · **Spec edition:** Master_Prompt v7.0 — server-authoritative checkout, D1 source of truth, Durable Object inventory gates, Cloudflare Queues for webhooks and email, Workers AI + DeepSeek fallback, R2 Image Resizing, FTS5 search.
+> **Package version:** `7.0.0` · **Runtime:** Astro 7.2.0 / @astrojs/cloudflare 14.2.0 (`output: 'server'`) · **Spec edition:** Master Plan V8 (+ V8.1 traceability amendments) — server-authoritative checkout, D1 source of truth, Durable Object inventory gates, Cloudflare Queues for webhooks and email, Workers AI + DeepSeek fallback, R2 media, FTS5 search. Source of truth: `Zabir_Boutiques_Master_Plan_V8_Part-1.md` / `Part-2.md`.
 
 ---
 
@@ -52,7 +52,7 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 - **R2 Image Resizing** with 4 responsive variants (thumbnail 150w, card 400w, detail 800w, zoom 1600w) and a 1200×630 OG variant.
 - **Workers AI primary, DeepSeek fallback**, gated by a per-scope `BudgetCounterDO` for cost control.
 - **Three-stage content moderation** — PII regex → keyword blocks → Workers AI text-moderation.
-- **DR-grade backups** — every 6 hours to R2; RPO 6h, RTO 2h.
+- **DR-grade backups** — D1 Time Travel (near-zero RPO) + 6-hourly D1→R2 export + hourly Durable Object snapshot; RTO 2h.
 
 ---
 
@@ -90,6 +90,7 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 │   │ DirectCheckoutDO │  │ cart-activity    │  │              │  │
 │   │ ProviderHealthDO │  │ sitemap-gen      │  │              │  │
 │   │ WafRulesDO       │  │ d1-backup        │  │              │  │
+│   │ InvoiceCounterDO │  │                  │  │              │  │
 │   └──────────────────┘  └──────────────────┘  └──────────────┘  │
 │                                                                   │
 └────────┬─────────────────┬─────────────────┬───────────────────────┘
@@ -111,8 +112,8 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 
 | Layer | Technology | Purpose |
 |-------|-----------|---------|
-| **Framework** | Astro 6.4.4 (`output: "server"`) | Per-page `prerender = true/false` opt-in |
-| **Adapter** | `@astrojs/cloudflare` 13.6.1 | Advanced runtime, DOs, Queues, Cron |
+| **Framework** | Astro 7.2.0 (`output: 'server'`) | Routes dynamic by default; only 5 legal/info pages opt in with `prerender = true` |
+| **Adapter** | `@astrojs/cloudflare` 14.2.0 | DOs, Queues, Cron |
 | **Database** | Cloudflare D1 (SQLite) | Source of truth — 22 tables |
 | **Concurrency** | Durable Objects | Cart, per-variant inventory gate, idempotency, AI budget, direct checkout, provider health, WAF observability |
 | **Async** | Cloudflare Queues | Webhooks, emails, image processing, fraud audit, cart activity, sitemap, backups |
@@ -143,7 +144,7 @@ A premium boutique fashion e-commerce platform for Wari, Dhaka — purpose-built
 
 ### Inventory
 - **Reservation-first engine** — Stock is reserved (not deducted) at checkout
-- **10-minute reservation TTL**, cleanup cron every 5 min
+- **60-minute reservation window** (`reservation_expires_at = created_at + 60 min`, strictly > 30-min payment + 15-min reconcile), hourly cleanup cron (orphans + cancelled only)
 - **Durable Object concurrency gate** — `reserveVariants()` / `releaseVariants()` are serialized per variant
 - **Atomic batch operations** — `db.batch()` with `meta.changes` verification
 - **Partial-failure rollback** — All successful reservations released if any one fails
@@ -314,6 +315,7 @@ zabir-boutiques/
 │   │   ├── idempotency-do.ts
 │   │   ├── budget-counter-do.ts
 │   │   ├── provider-health-do.ts
+│   │   ├── invoice-counter-do.ts
 │   │   └── waf-rules.ts
 │   ├── queues/
 │   │   └── consumers.ts          # 7 queue handlers
@@ -342,11 +344,11 @@ zabir-boutiques/
 │   ├── data/                     # Build-time snapshots + fallback catalog
 │   ├── layouts/ · styles/ · hooks/
 │   └── generated/                # Build-time artifacts (csp-hashes)
-├── db/migrations/                # 12 SQL migrations
+├── db/migrations/                # 39 SQL migrations (head: 0039)
 │   └── rollback/                 # Paired rollbacks
-├── docs/                         # alerting · csp · dr · logpush · zero-trust
-├── scripts/                      # build · bundlewatch · cwv · migrate · seed
-├── tests/                        # 21 Vitest files · 211 tests
+├── docs/                         # alerting · csp · dr · logpush · zero-trust · audit · adr
+├── scripts/                      # build · bundlewatch · cwv · migrate · seed · audit
+├── tests/                        # 56 Vitest files · 484 tests
 ├── astro.config.mjs              # CSP-hashes Vite plugin
 ├── wrangler.jsonc                # bindings, DOs, queues, env, triggers
 └── package.json
@@ -356,7 +358,7 @@ zabir-boutiques/
 
 ## Database Schema
 
-22 tables across 12 migrations. D1 is the source of truth; DOs hold only short-lived concurrency state.
+Tables across 39 migrations (head `0039`; V8 schema work runs `0040`+, see `V8_MIGRATION_PLAN.md`). D1 is the source of truth; DOs hold only short-lived concurrency state.
 
 | # | Table | Purpose |
 |---|-------|---------|
@@ -376,7 +378,7 @@ zabir-boutiques/
 | 14 | `order_items` | Snapshot at checkout |
 | 15 | `order_status_history` | Status audit trail |
 | 16 | `return_requests` | Customer returns (approved/rejected/pending) |
-| 17 | `stock_reservations` | 10-min reservation locks |
+| 17 | `stock_reservations` | 60-min reservation locks (`expires_at` + `checkout_id`) |
 | 18 | `stock_adjustments` | Inventory delta audit (returns, restocks) |
 | 19 | `payments` | UddoktaPay records |
 | 20 | `payment_events` | Webhook idempotency |
@@ -449,7 +451,7 @@ Migrations are applied in order; each has a paired rollback in `db/migrations/ro
    - KV namespaces `CACHE` and `SESSION`
    - R2 buckets `zabir-media` and `zabir-backups`
    - Queues: `payment-webhooks`, `order-emails`, `image-processing`, `fraud-audit`, `cart-activity`, `sitemap-generation`, `d1-backup`
-   - Durable Object migrations: `v1` (CartDO + VariantInventoryDO + IdempotencyDO), `v2` (DirectCheckoutSessionDO + BudgetCounterDO + ProviderHealthDO + WafRules)
+   - Durable Object migrations: `v1` (VariantInventoryDO + IdempotencyDO), `v2` (BudgetCounterDO + WafRules), `v3` (CartDO + DirectCheckoutSessionDO + ProviderHealthDO), `v4` (InvoiceCounterDO)
 2. External accounts: UddoktaPay, FraudBD, Imagify, Resend, Turnstile, DeepSeek, OpenAI-compatible endpoint
 
 ### Secrets
@@ -506,10 +508,11 @@ npm run deploy
 
 ### CI/CD
 
-Two GitHub Actions workflows:
+GitHub Actions in `.github/workflows/`:
 
-- `ci.yml` — runs on PRs: typecheck, vitest, build verification
 - `deploy.yml` — runs on push to `main`: typecheck, vitest, production build, deploy via wrangler-action
+
+> **Note (V8 §34.4 / §38.5):** `guardrail-audit.yml` (the 34-check merge gate) and `drift-audit.yml` (nightly `audit-drift.ts`) are specified in the Master Plan but not yet wired into `.github/workflows/`. Tracked as a follow-up in `docs/audit/drift-v8-landing-2026-08-07.md`.
 
 DR runbook in [`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 
@@ -553,7 +556,7 @@ DR runbook in [`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 | `npm run build:skip-snapshots` | Build only (no snapshots, no bundlewatch) |
 | `npm run preview` | Preview production build locally |
 | `npm run typecheck` | `astro check` + `tsc --noEmit` |
-| `npm test` | Vitest test suite (211 tests) |
+| `npm test` | Vitest test suite (484 tests) |
 | `npm run test:watch` | Vitest watch mode |
 | `npm run bundlewatch` | Assert JS bundle budget |
 | `npm run bundlewatch:update` | Reset budget to current sizes + 5% headroom |
@@ -569,7 +572,7 @@ DR runbook in [`docs/disaster-recovery.md`](docs/disaster-recovery.md).
 
 ## Testing
 
-**211 tests across 21 files** covering:
+**484 tests across 56 files** covering:
 
 - Phone normalization (Bangladesh formats)
 - Inventory reservation atomicity and race conditions
@@ -608,12 +611,21 @@ Detailed operational guides in [`docs/`](docs/):
 
 Top-level references:
 
-- [`CHANGELOG.md`](CHANGELOG.md) — release notes for v7.0.0 (the audit-fix
-  release) and v6.8.0
-- [`DEPLOYMENT.md`](DEPLOYMENT.md) — pre-deploy checklist, secret
-  rotation, smoke tests, rollback runbook
-- [`AGENTS.md`](AGENTS.md) — agent rules (architecture overview,
-  guardrails, graphify)
+- [`Zabir_Boutiques_Master_Plan_V8_Part-1.md`](Zabir_Boutiques_Master_Plan_V8_Part-1.md) /
+  [`Part-2.md`](Zabir_Boutiques_Master_Plan_V8_Part-2.md) — **the source of truth**
+  (Sections 0–38: architecture, commerce flows, cross-cutting concerns, delivery,
+  operational enforcement). Higher priority than `AGENTS.md` or generated notes.
+- [`V8_MIGRATION_PLAN.md`](V8_MIGRATION_PLAN.md) — authoritative D1 migration
+  sequence (head `0039`; V8 schema work `0040`+). Where it and §35 differ, it wins.
+- [`V8.1_TRACEABILITY_MATRIX.md`](V8.1_TRACEABILITY_MATRIX.md) — V8.1 amendment
+  provenance (RV8-001..012 → sections, guardrails, tests, migrations).
+- [`V8_CHANGELOG.md`](V8_CHANGELOG.md) — V8 revision history.
+- [`docs/audit/`](docs/audit/) — drift audits, waivers, release records.
+  Start with [`drift-v8-landing-2026-08-07.md`](docs/audit/drift-v8-landing-2026-08-07.md).
+- [`docs/adr/0001-audit-drift-v8-realignment.md`](docs/adr/0001-audit-drift-v8-realignment.md) —
+  proposed `audit-drift.ts` realignment to §38.2.
+- [`AGENTS.md`](AGENTS.md) — agent rules (architecture overview, guardrails).
+- [`DEPLOYMENT.md`](DEPLOYMENT.md) — pre-deploy checklist, secret rotation, smoke tests.
 
 ---
 

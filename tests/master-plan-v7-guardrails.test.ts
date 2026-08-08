@@ -116,11 +116,24 @@ describe('Master Plan V7 commerce guardrails', () => {
     expect(read('src/lib/fraud.ts')).toContain('fallback_score":50');
   });
 
-  it('Buy Now session binding and cleanup are enforced', () => {
+  it('Buy Now session binding uses a secret cookie hash, not Origin/User-Agent (V8 §10.6, RT-005, S-02)', () => {
     expect(read('src/pages/api/buy-now/session.ts')).toContain('HMAC');
     const directDo = read('src/do/direct-checkout-session-do.ts');
-    expect(directDo).toContain('ORIGIN_MISMATCH');
-    expect(directDo).toContain('USER_AGENT_MISMATCH');
+    // The V7 mechanism 403'd real customers on a top-level GET (no Origin
+    // header sent by the browser) and on legitimate User-Agent changes
+    // (in-app-browser -> external browser hand-off). V8 replaces both with
+    // a bindingHash derived from an HttpOnly cookie secret.
+    expect(directDo).not.toContain('ORIGIN_MISMATCH');
+    expect(directDo).not.toContain('USER_AGENT_MISMATCH');
+    expect(directDo).toContain('bindingHash');
+    expect(directDo).toContain('verifySessionBinding');
+    const cookies = read('src/lib/buy-now-cookies.ts');
+    expect(cookies).toContain('bn_sid');
+    expect(cookies).toContain('bn_bind');
+    expect(cookies).toContain('HttpOnly');
+    const sessionRoute = read('src/pages/api/buy-now/session.ts');
+    // sid must never be handed back in the redirect URL (S-02).
+    expect(sessionRoute).not.toMatch(/redirect_url:\s*`[^`]*\?sid=/);
     expect(read('src/pages/api/buy-now/submit.ts')).toContain('https://do/clear');
   });
 

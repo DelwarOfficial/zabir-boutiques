@@ -25,6 +25,7 @@ import {
 } from '../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../lib/fraud';
 import { calculatePrepayment, PREPAYMENT_MESSAGE } from '../../lib/prepayment';
+import { checkCodLimits, COD_LIMIT_MESSAGES } from '../../lib/cod-limits';
 import { verifyTurnstile } from '../../lib/turnstile';
 import { clientIp } from '../../lib/audit';
 import { createPaymentCheckout } from '../../lib/integrations/payments';
@@ -265,6 +266,31 @@ export async function POST(context: APIContext): Promise<Response> {
         balance_paisa: prepayment.balancePaisa,
         payment_method_required: 'partial_prepay',
       }, { status: 402 });
+    }
+
+    // S-04: quantity threshold alone lets one high-value item ship COD, and
+    // does not stop repeated COD orders from the same phone/address. Checked
+    // for every COD attempt, not only ones the quantity rule already caught.
+    if (paymentMethod === 'cod') {
+      const codLimitResult = await checkCodLimits(env.DB, {
+        totalPaisa,
+        normalizedPhone: phoneResult.phone,
+        normalizedAddress: addressInput.toLowerCase().trim(),
+      });
+      if (!codLimitResult.ok) {
+        if (couponClaimed && couponClaim) {
+          await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
+          couponClaimed = false;
+        }
+        await releaseClaim(env, idempotencyKey);
+        claimHeld = false;
+        return Response.json({
+          ok: false,
+          code: codLimitResult.reason,
+          message: COD_LIMIT_MESSAGES[codLimitResult.reason],
+          payment_method_required: 'partial_prepay',
+        }, { status: 402 });
+      }
     }
 
     advancePaisa = 0;

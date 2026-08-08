@@ -21,11 +21,13 @@ import {
 } from '../../../lib/checkout-pricing';
 import { checkFraudBD, decideFraudRisk } from '../../../lib/fraud';
 import { calculatePrepayment } from '../../../lib/prepayment';
+import { checkCodLimits } from '../../../lib/cod-limits';
 import { createPaymentCheckout } from '../../../lib/integrations/payments';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { clientIp } from '../../../lib/audit';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { enqueueFraudAudit, enqueueOrderEmail } from '../../../queues/consumers';
+import { readBuyNowSessionCookie, readBuyNowBindingCookie, sha256Hex } from '../../../lib/buy-now-cookies';
 
 function calculateVatPaisa(subtotalPaisa: number, rawRate: unknown): number {
   const rate = Number(rawRate ?? 0);
@@ -44,16 +46,20 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  // Extract session_id from body
-  const sessionId = typeof body.session_id === 'string' ? body.session_id : '';
+  // Session identity comes from the HttpOnly binding cookies, never from
+  // the request body — a client-supplied session_id would let an attacker
+  // probe/replay arbitrary session IDs (RT-005, S-02). The state-changing
+  // Origin check happens separately, below.
+  const sessionId = readBuyNowSessionCookie(context.request) ?? '';
+  const bindingSecret = readBuyNowBindingCookie(context.request) ?? '';
   if (!sessionId) {
     return Response.json({ ok: false, code: 'MISSING_SESSION', message: 'Session ID required.' }, { status: 400 });
   }
 
-  const sessionBinding = {
-    origin: context.request.headers.get('Origin') ?? new URL(context.request.url).origin,
-    userAgent: context.request.headers.get('User-Agent') ?? '',
-  };
+  const requestOrigin = context.request.headers.get('Origin');
+  if (requestOrigin && requestOrigin !== new URL(context.request.url).origin) {
+    return Response.json({ ok: false, code: 'ORIGIN_MISMATCH', message: 'Request rejected.' }, { status: 403 });
+  }
 
   let sessionData: {
     ok?: boolean;
@@ -64,14 +70,15 @@ export async function POST(context: APIContext): Promise<Response> {
   if (env.DIRECT_CHECKOUT_DO) {
     const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
     const stub = env.DIRECT_CHECKOUT_DO.get(id);
-    const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify(sessionBinding) });
+    const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify({ sessionId, bindingSecret }) });
     sessionData = (await sessionRes.json().catch(() => null)) as typeof sessionData;
   } else {
     // Database fallback
+    const bindingHash = bindingSecret ? await sha256Hex(bindingSecret) : null;
     const dbSession = await env.DB.prepare(
       `SELECT sessionId, productId, variantId, quantity, createdAt, deletedAt
-       FROM checkout_sessions WHERE sessionId = ?1`
-    ).bind(sessionId).first<{
+       FROM checkout_sessions WHERE sessionId = ?1 AND (bindingHash IS NULL OR bindingHash = ?2)`
+    ).bind(sessionId, bindingHash).first<{
       sessionId: string;
       productId: string;
       variantId: string;
@@ -106,7 +113,7 @@ export async function POST(context: APIContext): Promise<Response> {
       ok: false,
       code: sessionData?.error === 'SESSION_EXPIRED' ? 'SESSION_EXPIRED' : 'SESSION_NOT_FOUND',
       message: 'Session expired or invalid. Please try again.',
-    }, { status: sessionData?.error === 'ORIGIN_MISMATCH' || sessionData?.error === 'USER_AGENT_MISMATCH' ? 403 : 410 });
+    }, { status: 410 });
   }
 
   const session = sessionData.session;
@@ -213,7 +220,20 @@ export async function POST(context: APIContext): Promise<Response> {
   // COD quantity rule [Master Plan §12.1 step 9]: uses SUM(quantity)
   const totalQuantity = items.reduce((sum, i) => sum + i.qty, 0);
   const prepayDecision = calculatePrepayment(totalQuantity, totalPaisa, paymentMethod);
-  const resolvedPaymentMethod = prepayDecision.required && paymentMethod === 'cod' ? 'partial_prepay' : paymentMethod;
+  // S-04: quantity threshold alone lets one high-value item ship COD, and
+  // does not stop repeated COD orders from the same phone/address. Same
+  // check as /api/checkout — the Buy Now flow must use the same rules,
+  // not a separate weaker path.
+  const codLimitResult = paymentMethod === 'cod'
+    ? await checkCodLimits(env.DB, {
+        totalPaisa,
+        normalizedPhone: phoneResult.phone,
+        normalizedAddress: addressInput.toLowerCase().trim(),
+      })
+    : { ok: true as const };
+  const resolvedPaymentMethod = paymentMethod === 'cod' && (prepayDecision.required || !codLimitResult.ok)
+    ? 'partial_prepay'
+    : paymentMethod;
 
   let advancePaisa = 0;
   let balancePaisa = totalPaisa;
@@ -307,7 +327,7 @@ export async function POST(context: APIContext): Promise<Response> {
     if (env.DIRECT_CHECKOUT_DO) {
       const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
       const stub = env.DIRECT_CHECKOUT_DO.get(id);
-      await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ ...sessionBinding, orderId }) });
+      await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId, bindingSecret, orderId }) });
     } else {
       const nowStr = new Date().toISOString();
       await env.DB.prepare(
@@ -408,7 +428,7 @@ export async function POST(context: APIContext): Promise<Response> {
       if (env.DIRECT_CHECKOUT_DO) {
         const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
         const stub = env.DIRECT_CHECKOUT_DO.get(id);
-        await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify(sessionBinding) }).catch(() => {});
+        await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId, bindingSecret }) }).catch(() => {});
       } else {
         const nowStr = new Date().toISOString();
         await env.DB.prepare(
