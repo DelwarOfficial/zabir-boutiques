@@ -245,7 +245,11 @@ export async function POST(context: APIContext): Promise<Response> {
       couponClaimed = true;
     }
 
-    vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
+    // F-06: VAT is charged on the discounted consideration (subtotal minus
+    // the coupon discount), not the pre-discount subtotal — otherwise a
+    // discounted order is VAT-overcharged. discountPaisa is finalized above
+    // before this call.
+    vatPaisa = calculateVatPaisa(Math.max(0, subtotalPaisa - discountPaisa), (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa - discountPaisa), 'total_paisa');
 
     // Master Plan §12.1 step 9: COD threshold uses SUM(quantity), not line count

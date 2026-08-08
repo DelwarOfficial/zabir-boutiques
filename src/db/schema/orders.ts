@@ -24,6 +24,8 @@ export const orders = sqliteTable('orders', {
   courierProvider: text('courier_provider'),
   courierTrackingNumber: text('courier_tracking_number'),
   courierHandoffAt: text('courier_handoff_at'),
+  /** COD cash actually collected on delivery; NULL until delivered (T-24). */
+  codCollectedPaisa: integer('cod_collected_paisa'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
 });

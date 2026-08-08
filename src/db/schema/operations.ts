@@ -126,3 +126,16 @@ export const schemaMigrations = sqliteTable('schema_migrations', {
   version: text('version').primaryKey(),
   appliedAt: text('applied_at').notNull(),
 });
+
+/** Courier COD remittance reconciliation (T-24, F-03). */
+export const courierCodRemittance = sqliteTable('courier_cod_remittance', {
+  id: text('id').primaryKey(),
+  courier: text('courier').notNull(),
+  periodStart: text('period_start').notNull(),
+  periodEnd: text('period_end').notNull(),
+  expectedPaisa: integer('expected_paisa').notNull(),
+  receivedPaisa: integer('received_paisa').notNull(),
+  reconciledByStaffId: text('reconciled_by_staff_id').notNull(),
+  reconciledAt: text('reconciled_at').notNull(),
+  createdAt: text('created_at').notNull(),
+});

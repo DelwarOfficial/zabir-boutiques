@@ -195,20 +195,34 @@ export async function claimReservationsForRelease(
 
 /**
  * Release expired active reservations and mark them released.
- * Called by the hourly cron job (Master Plan V7 §12.3).
+ * Called by the hourly cron job (Master Plan V7 §12.3, V8 RT-001).
  *
  * Bounded + chunked: processes at most `maxRows` reservations per invocation
  * and splits D1 writes into chunks that stay well under the statement limit.
+ *
+ * RT-001: order_id is always populated (orders.ts writes the order and its
+ * reservations in one atomic batch), so every reservation has a real order.
+ * A flat expires_at sweep with no regard for order status released stock
+ * out from under orders still legitimately in flight — a payment redirect
+ * that takes longer than the reservation TTL (common on a slow mobile
+ * connection through bKash), or a fraud pending_review order waiting on
+ * staff overnight. reconcilePendingPayments (reconciliation.ts) already
+ * owns the decision to cancel + release those after a real abandonment
+ * window (2h); this sweep must not race ahead of it. Anything NOT in one
+ * of those two live states (already cancelled, confirmed-then-somehow-
+ * still-active, etc.) is still swept normally as a safety net.
  */
 export async function cleanExpiredReservations(env: Env, maxRows = 200): Promise<void> {
   const db = env.DB;
   const now = nowSql();
 
   const expired = await db.prepare(
-    `SELECT id, variant_id, quantity FROM stock_reservations
-     WHERE status = 'active'
-       AND expires_at < ?2
-       AND release_requested_at IS NULL
+    `SELECT r.id, r.variant_id, r.quantity FROM stock_reservations r
+     JOIN orders o ON o.id = r.order_id
+     WHERE r.status = 'active'
+       AND r.expires_at < ?2
+       AND r.release_requested_at IS NULL
+       AND o.status NOT IN ('pending_review', 'pending_payment')
     LIMIT ?1`
   ).bind(maxRows, now).all<{ id: string; variant_id: string; quantity: number }>();
 

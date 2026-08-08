@@ -263,8 +263,9 @@ These rules are mandatory. Existing valid rules are preserved; rules that were u
    > Amended V8: strengthened per S-04. A quantity-only cap let one BDT 60,000 piece qualify for COD while three pairs of socks did not, and nothing stopped five two-item COD orders in five minutes from the same phone.
 16. POS does not use checkout reservation, but POS stock deduction must pass through `VariantInventoryDO.directSale()`. `directSale()` is idempotent on `(invoice_id, variant_id)`, and POS invoice creation is idempotent on `invoices.idempotency_key`. If `directSale()` succeeds but the D1 invoice write fails, POS MUST call `VariantInventoryDO.reverseDirectSale()`, log a P1 audit event, and return an error to the POS UI. Full contract in Section 11.3.
    > Amended V8: strengthened per RV8-002 — directSale() is idempotent on (invoice_id, variant_id) and POS invoice creation is idempotent on invoices.idempotency_key.
-17. POS must never write inventory directly to D1. No channel may: the only writers of `stock` are `VariantInventoryDO.adjustStock()` and `restoreFromSnapshot()`, and the only writers of `sold` are `confirm()`, `directSale()`, and `reverseDirectSale()`.
+17. POS must never write inventory directly to D1. No channel may: the only writers of `stock` are `VariantInventoryDO.adjustStock()` and `restoreFromSnapshot()`, and the only writers of `sold` are `confirm()`, `directSale()`, `reverseDirectSale()`, and `reverseConfirm()`.
    > Amended V8: clarified per RT-003. V7 forbade direct writes without providing any legal alternative, which made returns and opening stock impossible.
+   > Amended V8.1: added `reverseConfirm()` as the only legal reversal of an online confirmed sale.
 18. Staff-assisted phone/Messenger/WhatsApp orders use checkout pipeline.
 19. All payment webhooks verify HMAC before processing.
 20. All staff routes require Zero Trust + RBAC.
@@ -348,6 +349,8 @@ When an AI coding agent works on this repository, it must follow this order:
 - [ ] Reservation cleanup cron runs hourly and releases only orphaned reservations and reservations of cancelled orders.
 - [ ] `orders.reservation_expires_at` is written on every order-creation path and equals `created_at + 60 minutes`.
 - [ ] `VariantInventoryDO` exposes `adjustStock()`; it is the only writer of `stock`. Negative deltas require a different approver.
+- [ ] `VariantInventoryDO` exposes `reverseConfirm()`; confirmed-then-cancelled online orders decrement `sold` via this method only.
+- [ ] `IdempotencyDO` object ID is `idem:{scope}:{idempotency_key}` at every call site; raw client keys are never used as global object IDs.
 - [ ] `VariantInventoryDO` exposes `restoreFromSnapshot()`, gated by `DR_RESTORE_ENABLED`.
 - [ ] Every Durable Object arms at most one alarm and stores `alarm_purpose` when it has more than one deadline. CartDO's `'persist'` alarm hands off to `'cleanup'`.
 - [ ] `payment_events` has `UNIQUE(provider, provider_event_id)`; the webhook handler treats a violation as a replay.
@@ -425,12 +428,12 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | R2 images | Included |
 | KV sessions/flags/redirects | Included, cart removed from authoritative KV |
 | Durable Objects | Included and corrected. **One alarm per object**, with `alarm_purpose` stored in DO storage where more than one deadline is needed (Section 6.6 / 6.8, RT-006). |
-| VariantInventoryDO | Included with rollback contract, `reverseDirectSale()`, `adjustStock()`, and `restoreFromSnapshot()` (Section 11.3 / 36.2). |
+| VariantInventoryDO | Included with rollback contract, `reverseDirectSale()`, `reverseConfirm()`, `adjustStock()`, and `restoreFromSnapshot()` (Section 11.3 / 36.2). |
 | CartDO | Included as normal cart source of truth. Single alarm with `'persist' → 'cleanup'` handoff; DO storage is already durable and the alarm is a projection-freshness mechanism, not a durability mechanism (Section 6.3 / 9.1, C-02). Adds `getCartForCheckout()`. |
 | DirectCheckoutSessionDO | Included for Buy Now temporary sessions. Explicit zero-interaction contract with CartDO (Section 10.6). `session_id = HMAC(secret, timestamp + random)`, HttpOnly cookie-secret binding, `Origin` on POSTs only, no `sid` in URLs, immediate delete on order success (RT-005, S-02). |
 | BudgetCounterDO | Included with full interface, object ID `budget:{provider}` holding both daily and monthly buckets, $5.00/day UTC limit, capped Workers AI fallback on DO timeout (Section 24.2, C-04/C-05, CF-08). |
 | InvoiceCounterDO | Included. `invoice-counter:{YYYYMMDD}`, `nextInvoiceNumber()` (Section 15.5, RT-008). |
-| IdempotencyDO | Included, with a defined interface in Section 36.7a (claim / complete / replay) and 2-hour completed-response retention — V7 named the file but never specified the contract. |
+| IdempotencyDO | Included, with a defined interface in Section 36.7a (claim / complete / replay), session-scoped object ID `idem:{scope}:{idempotency_key}`, and 2-hour completed-response retention — V7 named the file but never specified the contract. |
 | Queues | Included with corrected fraud queue role |
 | UddoktaPay | Included as primary payment provider adapter with verify/reconcile flow |
 | SSLCommerz fallback | Included |
@@ -474,7 +477,7 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | Compliance/privacy | Included |
 | AI product descriptions/recommendations | Included with Workers AI primary and DeepSeek fallback. BudgetCounterDO interface and Workers AI fallback on DO timeout (Section 24.2). |
 | Prompt injection protection | Included |
-| Owner TOTP 2FA | Included via `otp_secrets` D1 table (Section 6.1, 18.1) |
+| Owner TOTP 2FA | Included via `otp_secrets` D1 table and mandatory login enforcement in Section 18.1 |
 | External API audit trail | Included via `api_audit_logs` D1 table (Section 6.1, 2.5) |
 | AI budget durable config | Included via `ai_budget_limits` D1 table (Section 6.1, 24.2) |
 | Server-side VAT computation | Included in checkout Step 8 (Section 11.1) by the single rule in Section 11.7: rate from the D1 `tax_rates` table, post-discount taxable base, half-up rounding, largest-remainder line allocation. `VAT_RATE_PERCENT` is retired. |
@@ -485,7 +488,7 @@ This matrix confirms that the V8 plan includes the required business, technical,
 | Customer accounts | **Not included.** Guest-only pending DECISION REQUIRED (D-01). `mergeCart()` is declared NOT IMPLEMENTED rather than shipped. |
 | TypeScript contract stubs | Included — `src/lib/contracts/` with interfaces for all 7 DOs + EmailProvider; implementations MUST use `implements` (Section 36) |
 | FraudBD circuit breaker test suite | Included — 25-test matrix (CB-01 to CB-25) covering all Section 11.2 rules, with fixtures and CI integration (Section 37) |
-| Mandatory test matrix | Included — 27 tests covering every P0/P1 path, with `reservation-oversell-concurrency.test.ts` as test #1 (Section 37.0) |
+| Mandatory test matrix | Included — 31 tests covering every P0/P1 path, with `reservation-oversell-concurrency.test.ts` as test #1 (Section 37.0) |
 | Drift audit playbook | Included — 46 finding codes (D-01 to D-46), `audit-drift.ts` script, CI integration, V8 landing one-time audit (Section 38) |
 
 ---
@@ -729,15 +732,16 @@ The full sequence with SQL is in `V8_MIGRATION_PLAN.md`. Summary, in dependency 
 | 0062 | `create_suppliers` | Supply chain | RT-003 | Low |
 | 0063 | `create_purchase_orders` | Supply chain | RT-003 | Low |
 | 0064 | `create_goods_receipts` | Supply chain | RT-003 | Low |
-| 0065 | `return_requests_add_restocked_at` | Restock timestamp | C-06 | Low |
+| 0065 | `returns_add_restocked_at` | Restock timestamp | C-06 | Low |
 | 0066 | `product_variants_add_cost_paisa` | COGS groundwork | Section 8 | Low |
 | 0067 | `create_trg_refund_cap` | Refund-cap trigger | F-03 | Medium |
 | 0068 | `drop_csrf_nonces` | Retires the unused CSRF table | S-10 | Medium |
 | — | *(withdrawn — see note)* | `invoices.idempotency_key` already exists in `db/migrations/0016_invoices.sql` as `UNIQUE`; no migration needed. RV8-002's POS replay guard implements against the existing column (RR-03). | RV8-002 | — |
-| 0069 | `create_site_settings` | Owner-editable operational settings | RV8-006 | Low |
-| 0070 | `seed_site_settings` | Seed COD / return-window defaults | RV8-006 | Low |
+| 0069 | `seed_site_settings_commerce_defaults` | Seed COD ceiling, COD velocity, and return-window rows into the existing site_settings table | RV8-006 | Low |
 | 0070 | `seed_ai_budget_limits_imagify` | `imagify` budget defaults | C-14 | Low |
 | 0071 | `drop_variants_view` | Remove compatibility view after code is clean | C-15 | Low |
+
+Migration `0069` MUST NOT create `site_settings`; Section 6.1 is canonical that the table already exists. Migration `0069` MUST be a single INSERT/UPSERT statement that seeds the V8 rows.
 
 Migrations `0041`–`0043` MUST be applied as a set in a single maintenance window: between `0041` and `0042` the table has no uniqueness protection at all.
 
@@ -757,7 +761,7 @@ Migrations `0041`–`0043` MUST be applied as a set in a single maintenance wind
 | 0067 | M10 | Phase 2 | Refund cap |
 | 0068 | M6 Security | Phase 2 | CSRF simplification |
 | — | M11 POS | Phase 2 | POS sale retry idempotency — no migration; `invoices.idempotency_key` already exists (RR-03) |
-| 0069–0070 | M2 Checkout / M10 Returns | Phase 1–2 | Owner-editable COD and return-window settings |
+| 0069 | M2 Checkout / M10 Returns | Phase 1–2 | Owner-editable COD and return-window settings |
 | 0070 | M7 Observability | Phase 2 | Imagify budget defaults |
 | 0071 | M10/M12 cleanup | Phase 2 | Retire the `variants` compatibility view |
 
@@ -895,6 +899,7 @@ export interface VariantInventoryDO {
   /**
    * Atomic direct sale for POS. Bypasses the reservation lifecycle because
    * counter sales are immediately paid.
+   * Idempotency per Section 11.3: a repeated call with the same invoice_id, variant_id, and quantity returns `{ success: true, replayed: true }`; a repeated call with a different quantity returns `{ error: 'CONFLICT' }`.
    *
    * Failure handling per Section 11.3:
    *   - If this returns `success: true` but the subsequent D1 invoice write
@@ -907,7 +912,8 @@ export interface VariantInventoryDO {
     staff_id: string;
     channel: 'pos';
   }): Promise<
-    | { success: true }
+    | { success: true; replayed?: false }
+    | { success: true; replayed: true }
     | { error: 'INSUFFICIENT_STOCK'; available: number }
     | { error: 'CONFLICT'; message: string }
   >;
@@ -927,6 +933,28 @@ export interface VariantInventoryDO {
     quantity: number;
     invoice_id: string;
     reason: string; // 'd1_invoice_write_failed' | 'same_day_void' | ...
+  }): Promise<
+    | { reversed: true; audit_event_id: string }
+    | { reversed: false; audit_event_id: string; message: 'already_reversed' }
+  >;
+
+  /**
+   * Compensating transaction for online orders cancelled after confirmation.
+   *
+   * Decrements the sold units created by confirm(). Does not change stock or reserved.
+   * Writes a stock_adjustments row with reason = 'order_cancel_reversal'
+   * and emits a P1 audit event. This is the ONLY way to undo the stock effect
+   * of an online confirm().
+   *
+   * Idempotent on order_id + variant_id + quantity: a second call with the
+   * same triple returns the original audit_event_id without re-applying.
+   */
+  reverseConfirm(input: {
+    variant_id: string;
+    quantity: number;
+    order_id: string;
+    reason: string; // 'order_cancel_after_confirmation' | ...
+    staff_id: string;
   }): Promise<
     | { reversed: true; audit_event_id: string }
     | { reversed: false; audit_event_id: string; message: 'already_reversed' }
@@ -1485,7 +1513,7 @@ V7 listed this file in the directory layout, omitted it from the barrel, and spe
 /**
  * IdempotencyDO contract — Section 11.1 steps 1, 17, 18.
  *
- * One Durable Object instance per Idempotency-Key (object ID: `idem:{key}`).
+ * One Durable Object instance per scoped Idempotency-Key (object ID: `idem:{scope}:{idempotency_key}`). `scope` is the checkout session identity: cart session_id, Buy Now session_id, or staff session_id. A raw client-supplied key MUST NOT be used as a global object ID.
  * Single alarm, purpose 'expire': storage is deleted 2 hours after the
  * operation completes (reduced from V7's 24 hours per the cost model in
  * Section 2.2 — every checkout attempt otherwise holds an object for a day).
@@ -1495,7 +1523,7 @@ export type IdempotencyStatus = 'claimed' | 'completed' | 'failed';
 
 export interface IdempotencyDO {
   /**
-   * Atomically claim the key. Exactly one caller receives { claimed: true }.
+   * Atomically claim the scoped key. Exactly one caller for the same `scope + idempotency_key` receives { claimed: true }.
    *
    * A second caller receives the current status:
    *   - 'completed' → the stored response, which the caller MUST return verbatim.
@@ -1507,6 +1535,7 @@ export interface IdempotencyDO {
    *   - 'failed'    → the claim is re-granted.
    */
   claim(input: {
+    scope: string;
     idempotency_key: string;
     claim_ttl_seconds: number; // 60
   }): Promise<
@@ -1517,6 +1546,7 @@ export interface IdempotencyDO {
 
   /** Store the successful response and arm the 2-hour expiry alarm. */
   complete(input: {
+    scope: string;
     idempotency_key: string;
     order_id: string;
     response_json: string;
@@ -1524,6 +1554,7 @@ export interface IdempotencyDO {
 
   /** Mark the claim failed and released, so a retry may proceed immediately. */
   fail(input: {
+    scope: string;
     idempotency_key: string;
     reason: string;
   }): Promise<{ failed: true }>;
@@ -1692,6 +1723,10 @@ Every test below is mandatory. A PR touching the named area cannot merge while i
 | 25 | `cron-never-releases-live-order.test.ts` | An order past `reservation_expires_at` but not cancelled survives the cleanup cron; reconciliation cancels it and releases atomically | RV8-005, C-12 |
 | 26 | `payment-after-cancellation-refund.test.ts` | Provider confirms payment after local cancellation: order stays cancelled, refund is initiated, refund ledger row written, P1 alert raised | RV8-008 |
 | 27 | `prepay-split-rounding.test.ts` | Odd `total_paisa` values split as `advance_paisa = floor(total_paisa / 2)` and `balance_paisa = total_paisa - advance_paisa`; invariant holds | C-10 |
+| 28 | `idempotency-cross-session-isolation.test.ts` | Two different checkout scopes using the same client idempotency key do not return each other's completed response; claim is scoped by `scope` and `idempotency_key` | Idempotency key scoping |
+| 29 | `owner-totp-enforcement.test.ts` | Owner login without TOTP fails; Owner without an `otp_secrets` row enters forced enrollment and cannot receive an Owner session; backup code is one-time | Owner TOTP enforcement |
+| 30 | `online-confirmed-cancel-reversal.test.ts` | Confirm an order (reserved→sold), then cancel the confirmed order: `reverseConfirm()` decrements sold exactly once, replay returns already_reversed, and stock/reserved remain unchanged | Confirmed online order cancellation stock reversal |
+| 31 | `coupon-usage-limit-concurrency.test.ts` | usage_limit = 1; 5 concurrent checkouts with the same coupon: exactly 1 succeeds, 4 receive 409 COUPON_LIMIT_REACHED; coupons.redeemed_count = 1 | Coupon global usage race |
 
 Guardrails #3 and #4 were previously unenforceable ("never move pricing authority to the browser" is semantic and no lint can detect it). Test #22 plus a `.strict()` Zod schema makes them mechanical: the assertion is that the schema rejects unknown keys.
 

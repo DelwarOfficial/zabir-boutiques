@@ -75,17 +75,23 @@ function seed(raw: DatabaseSync): void {
            ('v2','prod1','sku2','2026-01-01 00:00:00','2026-01-01 00:00:00'),
            ('v3','prod1','sku3','2026-01-01 00:00:00','2026-01-01 00:00:00'),
            ('v4','prod1','sku4','2026-01-01 00:00:00','2026-01-01 00:00:00');
+    -- o1 is 'cancelled': safe for the cleanup cron to sweep on expires_at.
+    -- o2 is 'pending_review': RT-001 — the cron must NOT touch its
+    -- reservations even past expiry; only reconcilePendingPayments'
+    -- 2-hour abandonment path may cancel + release it.
     INSERT INTO orders (id, order_number, phone, name, address, subtotal_paisa, delivery_paisa, discount_paisa, total_paisa, payment_method, payment_status, fraud_decision, status, advance_paisa, balance_paisa, created_at, updated_at)
-    VALUES ('o1','ORD-1','01700000000','B','A',1000,0,0,1000,'uddoktapay','pending','review','pending_review',1000,0,'2026-01-01 00:00:00','2026-01-01 00:00:00');
+    VALUES
+      ('o1','ORD-1','01700000000','B','A',1000,0,0,1000,'uddoktapay','pending','review','cancelled',1000,0,'2026-01-01 00:00:00','2026-01-01 00:00:00'),
+      ('o2','ORD-2','01700000001','C','A',1000,0,0,1000,'uddoktapay','pending','review','pending_review',1000,0,'2026-01-01 00:00:00','2026-01-01 00:00:00');
     INSERT INTO inventory_items (id, variant_id, quantity, reserved_quantity, is_available, updated_at)
     VALUES ('ii1','v1', 100, 10, 1, '2026-01-01 00:00:00'),
            ('ii2','v2', 100, 10, 1, '2026-01-01 00:00:00'),
            ('ii3','v3', 100, 10, 1, '2026-01-01 00:00:00'),
            ('ii4','v4', 100, 10, 1, '2026-01-01 00:00:00');
   `);
-  // Four reservations exercising the boundary between the OLD
-  // (created_at < now-15min) and the NEW (expires_at < now) release rule.
-  // Each uses a distinct variant to satisfy the (order_id, variant_id)
+  // Four reservations on o1 (cancelled) exercising the boundary between the
+  // OLD (created_at < now-15min) and the NEW (expires_at < now) release
+  // rule. Each uses a distinct variant to satisfy the (order_id, variant_id)
   // unique index on active reservations.
   raw.exec(`
     INSERT INTO stock_reservations (id, order_id, variant_id, quantity, status, expires_at, created_at, updated_at)
@@ -98,6 +104,21 @@ function seed(raw: DatabaseSync): void {
       ('r_old15','o1','v3',1,'active', datetime('now','+5 minutes'), datetime('now','-20 minutes'), datetime('now','-20 minutes')),
       -- OLD code would KEEP this (created 12m ago < 15m threshold) but expires_at is PAST -> RELEASE (proves expires_at-based)
       ('r_edge','o1','v4',1,'active', datetime('now','-12 minutes'), datetime('now','-12 minutes'), datetime('now','-12 minutes'));
+  `);
+}
+
+function seedPendingReviewReservation(raw: DatabaseSync): void {
+  raw.exec(`
+    INSERT INTO products (id, name, slug, price_paisa, status, created_at, updated_at)
+    VALUES ('prod2','P2','p2','1000','published','2026-01-01 00:00:00','2026-01-01 00:00:00');
+    INSERT INTO product_variants (id, product_id, sku, created_at, updated_at)
+    VALUES ('v5','prod2','sku5','2026-01-01 00:00:00','2026-01-01 00:00:00');
+    INSERT INTO inventory_items (id, variant_id, quantity, reserved_quantity, is_available, updated_at)
+    VALUES ('ii5','v5', 100, 10, 1, '2026-01-01 00:00:00');
+    -- Long-expired reservation on o2 (pending_review). RT-001: must survive
+    -- the cleanup cron regardless of how far past expires_at it is.
+    INSERT INTO stock_reservations (id, order_id, variant_id, quantity, status, expires_at, created_at, updated_at)
+    VALUES ('r_pending_review','o2','v5',1,'active', datetime('now','-90 minutes'), datetime('now','-90 minutes'), datetime('now','-90 minutes'));
   `);
 }
 
@@ -120,6 +141,22 @@ describe('INV-3: reservation expiry is consistent between D1 cron and DO', () =>
     // released r_old15 (created 20m ago). The fixed code keys on expires_at
     // (still in the future) and keeps it — matching the DO sweep.
     expect(status(raw, 'r_old15')).toBe('active');
+  });
+
+  it('RT-001: never releases a reservation whose order is still pending_review, no matter how expired', async () => {
+    const raw = buildDb();
+    seed(raw);
+    seedPendingReviewReservation(raw);
+    const d1 = new D1Like(raw) as unknown as D1Database;
+
+    await cleanExpiredReservations({ DB: d1 });
+
+    // 90 minutes past expiry, but the order is pending_review: the cron
+    // must defer to reconcilePendingPayments' 2-hour abandonment window,
+    // not release it unilaterally.
+    expect(status(raw, 'r_pending_review')).toBe('active');
+    const inventory = readFileSync(resolve('./src/lib/inventory.ts'), 'utf8');
+    expect(inventory).toContain("o.status NOT IN ('pending_review', 'pending_payment')");
   });
 
   it('all three layers agree on the same canonical TTL (no future drift)', () => {

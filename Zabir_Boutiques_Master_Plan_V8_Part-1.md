@@ -546,7 +546,7 @@ Required table groups:
 -- otp_secrets: Owner TOTP 2FA
 CREATE TABLE otp_secrets (
   staff_id TEXT PRIMARY KEY REFERENCES staff_users(id),
-  secret_cipher BLOB NOT NULL,           -- AES-GCM encrypted TOTP secret
+  secret_cipher BLOB NOT NULL,           -- AES-GCM encrypted TOTP secret, encrypted with OTP_ENCRYPTION_KEY
   backup_codes_hash TEXT NOT NULL,       -- bcrypt hash of comma-separated backup codes
   enabled_at TEXT NOT NULL,
   last_used_at TEXT,
@@ -880,7 +880,7 @@ logs/workers/{env}/{yyyy}/{mm}/{dd}/{hour}.jsonl
 | `VariantInventoryDO` | `variant:{variant_id}` | Serialize stock reservation/release/confirm operations |
 | `CartDO` | `cart:{session_id}` | Active cart state, optimistic UI reconciliation, cart_activity updates |
 | `DirectCheckoutSessionDO` | `buy:{session_id}` | Short-lived Buy Now session, selected variant/quantity, landing order form state, self-cleanup alarm |
-| `IdempotencyDO` | `idem:{idempotency_key}` | Atomic checkout/payment operation claiming |
+| `IdempotencyDO` | `idem:{scope}:{idempotency_key}` | Atomic checkout/payment operation claiming. The scope is the checkout session: cart session_id, Buy Now session_id, or staff session_id. Raw client keys are never global object IDs. |
 | `BudgetCounterDO` | `budget:{provider}` | AI/expensive-operation budget enforcement. **One object per provider**, holding both the daily and the monthly bucket. This is the only permitted format document-wide (C-04, C-05). |
 | `ProviderHealthDO` | `provider:{name}` | Circuit breaker and health state for external APIs |
 | `InvoiceCounterDO` | `invoice-counter:{YYYYMMDD}` | Serializes the daily POS invoice serial. The only legal source of `invoices.receipt_no` (RT-008). |
@@ -1234,7 +1234,7 @@ The intent of this strict isolation is to ensure that a customer who uses Buy No
 
 Required checks:
 
-- Idempotency key.
+- Idempotency key, scoped to the Buy Now `session_id`.
 - Turnstile if risk threshold requires it.
 - Phone normalization to `+880`.
 - Server-side price load.
@@ -1291,7 +1291,7 @@ Checkout is server-authoritative, idempotent, and race-condition-aware.
 
 ### 11.1 Guest Checkout Canonical Flow
 
-1. Validate `Idempotency-Key`. Claim operation through IdempotencyDO. If existing successful response exists, return it.
+1. Validate `Idempotency-Key`. Resolve the checkout scope: normal cart checkout uses the cart `session_id`, Buy Now submit uses the Buy Now `session_id`, and staff-assisted checkout uses the staff session id. Claim the operation through IdempotencyDO using object ID `idem:{scope}:{idempotency_key}`. A raw client-supplied key MUST NOT be used as a global idempotency identity. If an existing successful response exists for the same scope and key, return it.
 2. Verify Turnstile for guest checkout when **pre-checkout signals** require it. Pre-checkout signals are the only inputs available at this step: Cloudflare Bot Management score, request rate for the IP/session, cart velocity for the session, and whether the normalized phone has ordered before. The FraudBD score does not exist yet — it is produced at step 12 — so it MUST NOT be referenced here (C-01). FraudBD may trigger a *second* interactive challenge at step 13, in the `41–70` band only, before reservation.
 3. Normalize phone to E.164 Bangladesh format `+8801XXXXXXXXX`.
 4. Load active cart from CartDO using `getCartForCheckout({ session_id })` and retain the returned `cart_version`.
@@ -1309,7 +1309,7 @@ Checkout is server-authoritative, idempotent, and race-condition-aware.
 13. If the FraudBD score is in the reject band (`71–100`), reject before stock reservation. If it is in the `41–70` band, issue the second interactive Turnstile challenge (step 2's deferred challenge) before reservation, then create the order as `pending_review`.
 14. Reserve stock through VariantInventoryDO for each variant, passing `checkout_id`. Each reservation returns `reservation_id`. Before reserving, re-assert the `cart_version` from step 4; on mismatch return `409 CART_VERSION_CONFLICT` and reserve nothing.
 15. If any variant reservation fails, release all successful prior reservations and return `409 INSUFFICIENT_STOCK`.
-16. Create the D1 order using an atomic D1 batch: `orders` (including `reservation_expires_at`, `payment_status`, `fraud_score`, `fraud_source`, `created_by_staff_id` where applicable), `order_items`, `stock_reservations` (one row per variant, carrying `checkout_id` and `expires_at`), `order_status_events`, `coupon_redemptions` **if a coupon was validated at step 9**, and the coupon usage decrement. Because `batch()` is atomic, either the order and its redemption both exist or neither does.
+16. Create the D1 order using an atomic D1 batch: `orders` (including `reservation_expires_at`, `payment_status`, `fraud_score`, `fraud_source`, `created_by_staff_id` where applicable), `order_items`, `stock_reservations` (one row per variant, carrying `checkout_id` and `expires_at`), `order_status_events`, `coupon_redemptions` **if a coupon was validated at step 9**, and the coupon usage decrement via a conditional UPDATE: UPDATE coupons SET redeemed_count = redeemed_count + 1 WHERE coupon_id = :coupon_id AND redeemed_count < usage_limit AND is_active = 1. If changes() ≠ 1, the batch MUST be treated as failed: release all reservations and return 409 COUPON_LIMIT_REACHED. Because batch() is atomic, either the order, redemption, and usage increment all exist or none do.
 17. If D1 order creation fails, immediately release all DO reservations and mark IdempotencyDO state as failed/released.
 18. Complete IdempotencyDO with order_id and serialized response.
 19. Enqueue order confirmation email.
@@ -1379,6 +1379,7 @@ VariantInventoryDO must support:
 - `confirm({reservation_id, order_id})`
 - `directSale({variant_id, quantity, invoice_id, staff_id, channel: 'pos'})` — atomic stock deduction for POS counter sales (no reservation lifecycle).
 - `reverseDirectSale({variant_id, quantity, invoice_id, reason})` — compensating transaction for POS failures. Atomically restores the sold units back to available stock, records a `stock_adjustments` row with `reason = 'pos_reversal'`, links the `invoice_id`, and emits a P1 audit event. This is the ONLY way to undo a successful `directSale()`; staff must not manually edit inventory to compensate.
+- `reverseConfirm({variant_id, quantity, order_id, reason, staff_id})` — compensating transaction for online orders cancelled after confirmation. Atomically decrements the sold units created by `confirm()`, writes a `stock_adjustments` row with `reason = 'order_cancel_reversal'`, links the `order_id`, and emits a P1 audit event. This is the ONLY way to undo the stock effect of an online `confirm()`; staff must not manually edit inventory to compensate. Idempotent on `(order_id, variant_id, quantity)`.
 - `adjustStock({variant_id, delta, reason, reference_id?, staff_id, approved_by_staff_id, adjustment_id})` — **the only way `stock` ever changes** (RT-003). Covers return restock, goods receipt, stocktake correction, damage, theft, and correction. Writes a `stock_adjustments` row and an `audit_log` entry. Idempotent on `adjustment_id`. For a negative `delta`, `approved_by_staff_id` MUST differ from `staff_id`.
 - `restoreFromSnapshot({stock, reserved, sold, snapshot_id})` — disaster-recovery only (RT-004). Overwrites the DO counters from an R2 snapshot taken alongside the D1 backup. Gated by the `DR_RESTORE_ENABLED` environment flag; refuses to run when the flag is unset. Every call writes a P1 `audit_log` entry.
 - `getAvailability({variant_id})`
@@ -1405,7 +1406,8 @@ interface VariantInventoryDO {
   }): Promise<
     | { success: true; replayed?: false }
     | { success: true; replayed: true }
-    | { error: 'INSUFFICIENT_STOCK' | 'CONFLICT' }
+    | { error: 'INSUFFICIENT_STOCK'; available: number }
+    | { error: 'CONFLICT'; message: string }
   >;
 
   reverseDirectSale(input: {
@@ -1414,6 +1416,17 @@ interface VariantInventoryDO {
     invoice_id: string;
     reason: string; // e.g. 'd1_invoice_write_failed', 'same_day_void'
   }): Promise<{ reversed: boolean; audit_event_id: string }>;
+
+  reverseConfirm(input: {
+    variant_id: string;
+    quantity: number;
+    order_id: string;
+    reason: string; // 'order_cancel_after_confirmation' | ...
+    staff_id: string;
+  }): Promise<
+    | { reversed: true; audit_event_id: string }
+    | { reversed: false; audit_event_id: string; message: 'already_reversed' }
+  >;
 
   /**
    * Adjust total stock. The ONLY way stock enters or leaves outside of
@@ -1459,10 +1472,13 @@ There is exactly one arithmetic across every channel:
 | `confirm()` | unchanged | −qty | +qty |
 | `directSale()` (POS) | **unchanged** | unchanged | **+qty** |
 | `reverseDirectSale()` | unchanged | unchanged | −qty |
+| `reverseConfirm()` (online cancellation) | unchanged | unchanged | −qty |
 | `adjustStock(+delta)` | +delta | unchanged | unchanged |
 | `adjustStock(−delta)` | −delta | unchanged | unchanged |
 
 `stock` means "total units ever received, less units removed by an explicit adjustment". Sales never touch it. `directSale()` increments `sold` exactly like an online confirmation does — POS and online use the same arithmetic on the same object, which is the point of routing both through `VariantInventoryDO`. `directSale()` is idempotent on `(invoice_id, variant_id)`: a repeated call with the same `quantity` returns `{ success: true, replayed: true }` and does not deduct again; a repeated call with a different `quantity` returns `{ error: 'CONFLICT' }`.
+
+`reverseConfirm()` is the online cancellation counterpart of `reverseDirectSale()`: it decrements `sold` without touching `stock` or `reserved`, and it is idempotent on `(order_id, variant_id, quantity)`.
 
 #### Checkout Rollback Triggers
 
@@ -1529,7 +1545,7 @@ Cron every 15 minutes:
 - Call UddoktaPay/SSLCommerz status API.
 - Update D1 if provider confirms payment.
 - If the provider confirms payment for an order whose status is already `cancelled`: do **not** re-confirm the order. Initiate a refund for the settled amount through the payment provider, write `payment_events` + `payment_transactions(direction='refund')` on success, and raise a P1 alert. If the provider refund API is unavailable, page on-call; never leave the state silently as paid+cancelled.
-- Cancel the order and release its reservations only when `orders.reservation_expires_at < datetime('now')`.
+- Cancel the order and release its reservations only when `orders.reservation_expires_at < datetime('now')` AND the provider status check succeeded. If the provider status API is unreachable or returns an error, do NOT cancel: leave the order pending, log `event_type = 'reconciliation_provider_unavailable'`, and raise a P2 alert. Cancel only after a successful provider verification or after two consecutive missed ticks (30 minutes of accumulated failure), whichever comes first.
 - Alert if provider confirms payment but local event was missed.
 
 #### Payment Window vs Reservation Window (canonical, F-02)
@@ -1576,7 +1592,7 @@ Definitions:
 
 - `stock`: total units received, less units removed by an explicit `adjustStock()` call. **Sales never change `stock`** (F-04).
 - `reserved`: units held by an active checkout reservation.
-- `sold`: units confirmed sold, through either `confirm()` (online) or `directSale()` (POS). Both channels use the same arithmetic — see the table in Section 11.3.
+- `sold`: units confirmed sold, through either `confirm()` (online) or `directSale()` (POS), reduced only by `reverseDirectSale()` or `reverseConfirm()`. Both channels use the same arithmetic — see the table in Section 11.3.
 - `available`: computed value exposed to display/API as a band, never as an exact count on public endpoints (Section 2.2).
 
 ### 12.2 VariantInventoryDO Rules
@@ -1736,7 +1752,7 @@ Without this carve-out, the worst-case POS P0 (1-unit sale, failed reversal) wou
 | `processing` | `shipped`, `cancelled` | Staff starts fulfillment | Send processing/shipping prep notification if enabled |
 | `shipped` | `delivered`, `returned` | Courier handoff/confirmation | Tracking shown to customer |
 | `delivered` | `returned` | Courier/customer confirmation | COD balance recorded if applicable |
-| `cancelled` | terminal | Staff/customer/payment timeout | Release stock/refund if needed |
+| `cancelled` | terminal | Staff/customer/payment timeout | Release active reservations; if the order was already confirmed, call VariantInventoryDO.reverseConfirm() for each item; refund if needed |
 | `returned` | `refunded` | Return approval | Inventory effect is handled by `adjustStock()`, not by a state |
 | `refunded` | terminal | Refund complete | Update finance log |
 
@@ -1756,7 +1772,7 @@ Invalid transitions must be rejected and logged as security/bug events. The perm
 | `partially_refunded` | Some settled money returned |
 | `refunded` | All settled money returned |
 
-Interaction rule, stated once: when `payment_status` becomes `paid` or `partially_paid` **and** `fraud_score <= 40` **and** `status = 'created'`, the order auto-transitions to `confirmed` and its reservations are confirmed (`reserved → sold`). In every other case the order stays where it is and waits for a staff action. An order in `pending_review` never auto-advances, regardless of payment (Section 11.2 step 9).
+Interaction rule, stated once: when `payment_status` becomes `paid` or `partially_paid` **and** `fraud_score <= 40` **and** `status = 'created'`, the order auto-transitions to `confirmed` and its reservations are confirmed (`reserved → sold`). In every other case the order stays where it is and waits for a staff action. An order in `pending_review` never auto-advances to `processing` or beyond via payment alone. The `fraud-audit` queue consumer MAY transition `pending_review → confirmed` or `pending_review → cancelled` after a successful FraudBD re-check (Section 11.2); moving to `processing` always requires explicit staff action (Section 11.2 step 9).
 
 ### 13.2 Return and Refund Flow
 
@@ -2134,6 +2150,14 @@ All `datetime('now')` calls in the SQL above rely on SQLite's default behavior o
 - Owner role requires TOTP 2FA.
 - Password minimum: 10 characters, uppercase, number, special character.
 
+Owner TOTP Enforcement (mandatory)
+- Staff login MUST verify password first, then role. If the authenticated staff role is Owner, a second factor MUST be verified before creating an Owner-role staff session.
+- The second factor is either a valid TOTP code verified against `otp_secrets.secret_cipher` or a single-use backup code verified against `otp_secrets.backup_codes_hash`.
+- If an Owner has no `otp_secrets` row, login MUST enter forced-enrollment mode. The Owner MUST complete TOTP enrollment before receiving an Owner-role session.
+- Backup codes are one-time. A used backup code MUST be invalidated and the use MUST be written to `audit_log`.
+- TOTP verification attempts MUST be rate-limited to 5 attempts per 10 minutes per staff user. Failures MUST be written to `audit_log`.
+- `otp_secrets.secret_cipher` MUST be encrypted with `OTP_ENCRYPTION_KEY` before storage and decrypted only in the login/2FA verification path.
+
 ### 18.2 Staff Protection
 
 - `/staff/*` and `/api/staff/*` protected by Cloudflare Zero Trust Access.
@@ -2224,13 +2248,14 @@ All secrets live in Cloudflare Secrets. The complete list — V7 omitted four of
 | `POS_BIN`, `POS_TIN` | Receipt printing | On change by the tax authority |
 | `CSRF_SIGNING_SECRET`, `CSRF_SIGNING_SECRET_PREVIOUS` | CSRF | Monthly, 24h overlap |
 | `BUY_NOW_SESSION_HMAC_SECRET` | `session_id = HMAC(secret, ...)` (Section 10.6) | Quarterly, dual-key |
+| `OTP_ENCRYPTION_KEY` | Owner TOTP secret encryption/decryption | Quarterly; rotate by re-encrypting `otp_secrets.secret_cipher` with a documented runbook; no plaintext TOTP secret may be logged |
 | `AUDIT_CUSTOMER_REF_SALT` | Salted `customer_ref` hash in `audit_log` (S-07) | **Never** — rotating it breaks the ability to link existing audit rows to a customer |
 
 Environment variables (not secrets): `EMAIL_PROVIDER`, `DR_RESTORE_ENABLED`. `VAT_RATE_PERCENT` is **retired** — the rate now lives in the D1 `tax_rates` table (Section 11.7).
 
 #### Rotation Procedure (S-11)
 
-Every rotatable secret follows the same three-step procedure; none of them may be rotated by simply overwriting the value:
+Every rotatable secret follows the same three-step procedure; none of them may be rotated by simply overwriting the value. `OTP_ENCRYPTION_KEY` is special: rotation requires re-encrypting every `otp_secrets.secret_cipher` row with the new key inside a single maintenance window; the old key MUST remain available for decryption during that window. The runbook is `docs/runbooks/otp-key-rotation.md`.
 
 1. Publish the new value as `{NAME}` and move the old value to `{NAME}_PREVIOUS`.
 2. Verification accepts both for the overlap window (24 hours for CSRF and webhook secrets, 1 hour for API keys where the provider supports two active keys). Signing/issuance always uses the new value.
@@ -2386,7 +2411,7 @@ Flow:
 2. Browser creates a lightweight preview only; it must not generate production variants.
 3. Browser uploads the original image to R2 using a signed upload URL.
 4. Upload creates an `image-processing` queue message.
-5. Queue consumer calls the Imagify adapter when API optimization mode is enabled.
+5. Queue consumer calls `BudgetCounterDO.canUseImagify()` before invoking the Imagify adapter. If the budget check returns false, the consumer falls back to local R2 variant generation without calling Imagify.
 6. Queue consumer generates or receives required variants and stores them in R2.
 7. D1 stores image records, optimization status, and active variant URLs.
 8. Product publish must not be blocked by Imagify failure; fallback status is `original_only` or `optimization_pending`.
