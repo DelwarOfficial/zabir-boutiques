@@ -55,7 +55,6 @@ declare global {
       PASSWORD_PEPPER: string;
       PUBLIC_SITE_URL: string;
       PUBLIC_SITE_NAME: string;
-      VAT_RATE_PERCENT?: string;
       VARIANT_INVENTORY_DO: DurableObjectNamespace;
       IDEMPOTENCY_DO: DurableObjectNamespace;
       AI_BUDGET: DurableObjectNamespace;

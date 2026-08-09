@@ -44,6 +44,10 @@ export type ReservedOrderItem = {
   unitPricePaisa: number;
   vatPaisa?: number;
   reservationId?: string;
+  /** Pre-assigned order_item id, so callers can allocate VAT (§11.7
+   *  largest-remainder) against the same ids used in the INSERT. Generated
+   *  here if omitted. */
+  itemId?: string;
 };
 
 type VariantSnapshot = {
@@ -133,7 +137,7 @@ export async function insertReservedOrderWithRetry(
           quantity, unit_price_paisa, total_price_paisa, vat_paisa, created_at
         ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)`
       ).bind(
-        crypto.randomUUID(), orderId, item.variantId, snapshot.product_name,
+        item.itemId ?? crypto.randomUUID(), orderId, item.variantId, snapshot.product_name,
         variantLabel(snapshot), item.quantity, item.unitPricePaisa,
         item.unitPricePaisa * item.quantity, item.vatPaisa ?? 0, now
       );

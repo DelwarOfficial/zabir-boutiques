@@ -28,12 +28,7 @@ import { clientIp } from '../../../lib/audit';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { enqueueFraudAudit, enqueueOrderEmail } from '../../../queues/consumers';
 import { readBuyNowSessionCookie, readBuyNowBindingCookie, sha256Hex } from '../../../lib/buy-now-cookies';
-
-function calculateVatPaisa(subtotalPaisa: number, rawRate: unknown): number {
-  const rate = Number(rawRate ?? 0);
-  if (!Number.isFinite(rate) || rate <= 0) return 0;
-  return assertPaisa(Math.round((subtotalPaisa * rate) / 100), 'vat_paisa');
-}
+import { getVatRatePercent, calculateVatPaisa as calculateVatPaisaCanonical, allocateVatByLargestRemainder } from '../../../lib/vat';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -214,7 +209,10 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'PRICING_ERROR', message: 'Could not price your order.' }, { status: 409 });
   }
 
-  const vatPaisa = calculateVatPaisa(subtotalPaisa, (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
+  // §11.7: rate from D1 tax_rates, not VAT_RATE_PERCENT (retired, D-19).
+  // No coupon/discount on Buy Now, so subtotal is the taxable base directly.
+  const vatRatePercent = await getVatRatePercent(env.DB, 'goods', now);
+  const vatPaisa = assertPaisa(calculateVatPaisaCanonical(subtotalPaisa, vatRatePercent), 'vat_paisa');
   const totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa), 'total_paisa');
 
   // COD quantity rule [Master Plan §12.1 step 9]: uses SUM(quantity)
@@ -290,12 +288,18 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     stockReserved = true;
 
-    const totalQuantity = items.reduce((sum, item) => sum + item.qty, 0);
-    const orderItems = items.map((item) => ({
+    // §11.7 step 5: largest-remainder per-line VAT (invariant: sum equals orders.vat_paisa).
+    const itemIds = items.map(() => crypto.randomUUID());
+    const vatAllocation = allocateVatByLargestRemainder(
+      items.map((item, i) => ({ id: itemIds[i], linePaisa: snapshots.get(item.variantId)!.price_paisa * item.qty })),
+      vatPaisa,
+    );
+    const orderItems = items.map((item, i) => ({
+      itemId: itemIds[i],
       variantId: item.variantId,
       quantity: item.qty,
       unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
-      vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
+      vatPaisa: assertPaisa(vatAllocation.get(itemIds[i]) ?? 0, 'order_item_vat_paisa'),
       reservationId: item.reservationId,
     }));
 

@@ -14,6 +14,7 @@ import { nowSql } from '../../lib/dates';
 import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency, recordOrderInProgress } from '../../lib/idempotency';
 import { doClaim, doComplete, doFail, doPeek } from '../../lib/do-client';
 import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../lib/money';
+import { getVatRatePercent, calculateVatPaisa as calculateVatPaisaCanonical, allocateVatByLargestRemainder } from '../../lib/vat';
 import {
   assertNoClientMoneyTrust,
   loadVariantSnapshots,
@@ -47,12 +48,6 @@ function processingResponse(): Response {
     { ok: false, code: 'CHECKOUT_PROCESSING', message: 'Request is already processing.' },
     { status: 202, headers: { 'Retry-After': RETRY_AFTER_SECONDS } },
   );
-}
-
-function calculateVatPaisa(subtotalPaisa: number, rawRate: unknown): number {
-  const rate = Number(rawRate ?? 0);
-  if (!Number.isFinite(rate) || rate <= 0) return 0;
-  return assertPaisa(Math.round((subtotalPaisa * rate) / 100), 'vat_paisa');
 }
 
 async function releaseClaim(env: ReturnType<typeof getEnv>, idempotencyKey: string): Promise<void> {
@@ -249,11 +244,13 @@ export async function POST(context: APIContext): Promise<Response> {
       couponClaimed = true;
     }
 
-    // F-06: VAT is charged on the discounted consideration (subtotal minus
-    // the coupon discount), not the pre-discount subtotal — otherwise a
-    // discounted order is VAT-overcharged. discountPaisa is finalized above
-    // before this call.
-    vatPaisa = calculateVatPaisa(Math.max(0, subtotalPaisa - discountPaisa), (env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT);
+    // F-06/§11.7: VAT is charged on the discounted consideration (subtotal
+    // minus the coupon discount), not the pre-discount subtotal — otherwise
+    // a discounted order is VAT-overcharged. discountPaisa is finalized
+    // above before this call. Rate comes from D1 tax_rates, not
+    // VAT_RATE_PERCENT (retired, §11.7 D-19).
+    const vatRatePercent = await getVatRatePercent(env.DB, 'goods', now);
+    vatPaisa = assertPaisa(calculateVatPaisaCanonical(Math.max(0, subtotalPaisa - discountPaisa), vatRatePercent), 'vat_paisa');
     totalPaisa = assertPaisa(Math.max(0, subtotalPaisa + deliveryPaisa + vatPaisa - discountPaisa), 'total_paisa');
 
     // Master Plan §12.1 step 9: COD threshold uses SUM(quantity), not line count
@@ -347,11 +344,23 @@ export async function POST(context: APIContext): Promise<Response> {
     }
     stockReserved = true;
 
-    const orderItems = items.map((item) => ({
+    // §11.7 step 5: per-line VAT via largest-remainder so
+    // SUM(order_items.vat_paisa) === orders.vat_paisa exactly (invariant),
+    // not quantity-proportional rounding which can drift off the total.
+    const itemIds = items.map(() => crypto.randomUUID());
+    const vatAllocation = allocateVatByLargestRemainder(
+      items.map((item, i) => ({
+        id: itemIds[i],
+        linePaisa: snapshots.get(item.variantId)!.price_paisa * item.qty,
+      })),
+      vatPaisa,
+    );
+    const orderItems = items.map((item, i) => ({
+      itemId: itemIds[i],
       variantId: item.variantId,
       quantity: item.qty,
       unitPricePaisa: snapshots.get(item.variantId)!.price_paisa,
-      vatPaisa: assertPaisa(Math.round((vatPaisa * item.qty) / totalQuantity), 'order_item_vat_paisa'),
+      vatPaisa: assertPaisa(vatAllocation.get(itemIds[i]) ?? 0, 'order_item_vat_paisa'),
       reservationId: item.reservationId,
     }));
 

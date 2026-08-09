@@ -266,9 +266,11 @@ const checks: Check[] = [
     const content = read('src/pages/api/buy-now/submit.ts');
     return content.includes("https://do/clear") ? [] : [makeFinding('D-18', 'P1', 'src/pages/api/buy-now/submit.ts', 'Buy Now submit path does not clear the direct checkout session.', 'Delete DirectCheckoutSessionDO session after successful order creation. See Section 38.2 D-18.')];
   } },
-  { code: 'D-19', severity: 'P0', fix: 'Compute VAT server-side from VAT_RATE_PERCENT. See Section 38.2 D-19.', run: () => {
+  { code: 'D-19', severity: 'P0', fix: 'Compute VAT server-side per Section 11.7: rate from D1 tax_rates, base subtotal-discount, largest-remainder line allocation. VAT_RATE_PERCENT is retired.', run: () => {
     const content = read('src/pages/api/checkout.ts');
-    return content.includes('VAT_RATE_PERCENT') && content.includes('vat_paisa') ? [] : [makeFinding('D-19', 'P0', 'src/pages/api/checkout.ts', 'Checkout VAT computation is missing from the server flow.', 'Compute VAT server-side from VAT_RATE_PERCENT. See Section 38.2 D-19.')];
+    const usesCanonicalVat = content.includes('getVatRatePercent(env.DB') && content.includes('allocateVatByLargestRemainder');
+    const usesRetiredEnvVar = /^(?!\s*(\/\/|\*|\/\*\*)).*VAT_RATE_PERCENT/m.test(content);
+    return usesCanonicalVat && !usesRetiredEnvVar ? [] : [makeFinding('D-19', 'P0', 'src/pages/api/checkout.ts', 'Checkout VAT computation is not using the Section 11.7 canonical rule (D1 tax_rates, largest-remainder allocation) or still references the retired VAT_RATE_PERCENT env var.', 'Compute VAT server-side per Section 11.7: rate from D1 tax_rates, base subtotal-discount, largest-remainder line allocation. VAT_RATE_PERCENT is retired.')];
   } },
   { code: 'D-20', severity: 'P0', fix: 'Strip browser-supplied VAT and recompute server-side. See Section 38.2 D-20.', run: () => {
     const content = read('src/lib/checkout-pricing.ts');

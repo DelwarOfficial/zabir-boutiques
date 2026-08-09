@@ -21,6 +21,7 @@ import { writeAuditLog, clientIp, userAgent } from "../../../../lib/audit";
 import { safeLog } from "../../../../lib/pii-scrubber";
 import { normalizeBangladeshPhone } from "../../../../lib/phone";
 import { assertPaisa } from "../../../../lib/money";
+import { getVatRatePercent, calculateVatPaisa } from "../../../../lib/vat";
 
 interface CreateInvoiceRequest {
   idempotency_key?: string;
@@ -145,9 +146,10 @@ export async function POST(context: APIContext): Promise<Response> {
       .all<{ id: string; price_paisa: number | null }>();
     const priceMap = new Map((priceRows.results ?? []).map((r) => [r.id, r.price_paisa ?? 0]));
     const subtotalPaisa = items.reduce((sum, it) => sum + (priceMap.get(it.variantId) ?? 0) * it.quantity, 0);
-    const vatRate = Number((env as unknown as { VAT_RATE_PERCENT?: string }).VAT_RATE_PERCENT ?? 0);
+    // §11.7: rate from D1 tax_rates, not VAT_RATE_PERCENT (retired, D-19).
+    const vatRate = await getVatRatePercent(env.DB, 'goods', now);
     if (vatRate > 0 && subtotalPaisa > 0) {
-      vatPaisa = assertPaisa(Math.round((subtotalPaisa * vatRate) / 100), "vat_paisa");
+      vatPaisa = assertPaisa(calculateVatPaisa(subtotalPaisa, vatRate), "vat_paisa");
     }
   }
 
