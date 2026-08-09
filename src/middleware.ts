@@ -117,7 +117,11 @@ async function rateLimit(context: Parameters<MiddlewareHandler>[0], pathname: st
   const cache = (cloudflareEnv as { CACHE?: KVNamespace }).CACHE;
   if (!rule || !cache) return null;
 
-  const ip = context.request.headers.get('CF-Connecting-IP') ?? context.request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ?? 'unknown';
+  // K-27: X-Forwarded-For is client-settable; CF-Connecting-IP is set by
+  // Cloudflare's edge and cannot be forged by the client. Trusting XFF as
+  // a fallback let a caller spoof a fresh IP per request to bypass this
+  // very rate limiter.
+  const ip = context.request.headers.get('CF-Connecting-IP') ?? 'unknown';
   const windowId = Math.floor(Date.now() / (rule.windowSeconds * 1000));
   const key = `rl:${pathname}:${ip}:${windowId}`;
 

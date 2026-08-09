@@ -20,6 +20,19 @@ const PII_KEYS = new Set([
   "card_number",
   "card_cvv",
   "cardholder",
+  // K-30. NOTE: "name" (bare) is deliberately NOT included — it's used
+  // throughout this codebase for non-PII audit metadata (role name, API
+  // key name, product name: roles/[id].ts:151, api-keys/index.ts:107) and
+  // redacting it there would destroy legitimate admin-audit usefulness for
+  // no privacy benefit. "full_name" is unambiguous (always a person) and
+  // is included.
+  "nid",
+  "national_id",
+  "passport",
+  "postal_code",
+  "full_name",
+  "dob",
+  "date_of_birth",
 ]);
 
 const PHONE_REGEX = /(\+?88)?01[3-9]\d{8}/g;

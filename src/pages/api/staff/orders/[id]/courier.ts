@@ -11,6 +11,7 @@ import { requireAuth, requirePermission, RbacError } from '../../../../../lib/rb
 import { writeAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
 import { createCourierClient, validateProvider } from '../../../../../lib/integrations/courier';
 import type { CourierEnv } from '../../../../../lib/integrations/courier/types';
+import { isLocalHttpDev } from '../../../../../lib/staff-cookies';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -83,7 +84,13 @@ export async function POST(context: APIContext): Promise<Response> {
   const codAmountPaisa = order.balance_paisa > 0 ? order.balance_paisa : order.total_paisa;
   const city = order.shipping_zone?.trim() || 'Dhaka';
 
-  const client = createCourierClient(provider, env as CourierEnv, { mock: body.mock === true });
+  // K-34: body.mock let any staff with orders.ship mark an order shipped
+  // (with a fake tracking number) in production without ever calling the
+  // real courier — a fraud/insider-abuse path (COD collusion, hiding
+  // non-fulfillment). Mock mode now only engages on local HTTP dev,
+  // matching the isLocalHttpDev gate already used for cookie hardening.
+  const allowMock = body.mock === true && isLocalHttpDev(context.request);
+  const client = createCourierClient(provider, env as CourierEnv, { mock: allowMock });
   const shipment = await client.createShipment({
     orderId: order.order_number,
     recipientName: order.name,

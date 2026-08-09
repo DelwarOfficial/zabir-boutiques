@@ -4,7 +4,7 @@
  * Double-submit: HttpOnly `__Host-csrf-token` cookie + matching
  * `X-CSRF-Token` request header. Token format: `nonce.HMAC(nonce)`.
  */
-import { verifyCsrfToken } from './security';
+import { verifyCsrfToken, timingSafeEqualHex } from './security';
 import { readStaffCsrfCookie } from './staff-cookies';
 
 export const CSRF_COOKIE_NAME = '__Host-csrf-token';
@@ -28,7 +28,8 @@ export async function validateCsrfDoubleSubmit(
   const cookieToken = readCsrfCookie(request);
   const headerToken = request.headers.get('X-CSRF-Token');
 
-  if (!cookieToken || !headerToken || cookieToken !== headerToken) {
+  // K-29: constant-time compare, matching the constant-time HMAC check below.
+  if (!cookieToken || !headerToken || cookieToken.length !== headerToken.length || !timingSafeEqualHex(cookieToken, headerToken)) {
     return { ok: false, reason: 'token_mismatch' };
   }
   if (!secret || !(await verifyCsrfToken(cookieToken, secret))) {

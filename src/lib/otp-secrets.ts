@@ -67,6 +67,18 @@ export async function loadStaffTotpSecret(
   return legacy.totp_secret;
 }
 
+/** K-28: last TOTP time-step that successfully authenticated this staff member. */
+export async function loadLastUsedTotpCounter(db: D1Database, staffId: string): Promise<number | null> {
+  const row = await db.prepare(`SELECT last_used_counter FROM otp_secrets WHERE staff_id = ?1`).bind(staffId).first<{ last_used_counter: number | null }>();
+  return row?.last_used_counter ?? null;
+}
+
+export async function recordUsedTotpCounter(db: D1Database, staffId: string, counter: number, now: string): Promise<void> {
+  await db.prepare(
+    `UPDATE otp_secrets SET last_used_counter = ?2, last_used_at = ?3, updated_at = ?3 WHERE staff_id = ?1`,
+  ).bind(staffId, counter, now).run();
+}
+
 export async function isStaffTotpEnabled(db: D1Database, staffId: string): Promise<boolean> {
   const otp = await db.prepare(`SELECT staff_id FROM otp_secrets WHERE staff_id = ?1 LIMIT 1`).bind(staffId).first();
   if (otp) return true;

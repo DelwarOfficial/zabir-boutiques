@@ -13,6 +13,23 @@ import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/cr
 
 const DECISIONS = new Set(['approved', 'review', 'blocked']);
 
+// K-16: no cooldown meant a compromised/rogue owner-tier session could
+// flip fraud_decision on many orders in rapid succession (e.g. mass
+// approve blocked COD orders). 10 overrides / 5 min per staff member —
+// generous for genuine review work, but bounds abuse volume. Fails open
+// (no throttle) when SESSION KV isn't bound, matching login-rate-limit.ts.
+const OVERRIDE_RATE_LIMIT = { max: 10, windowSeconds: 5 * 60 };
+
+async function checkOverrideRateLimit(kv: KVNamespace | undefined, staffId: string): Promise<boolean> {
+  if (!kv) return true;
+  const key = `ratelimit:fraud-override:${staffId}`;
+  const raw = await kv.get(key);
+  const count = raw ? parseInt(raw, 10) || 0 : 0;
+  if (count >= OVERRIDE_RATE_LIMIT.max) return false;
+  await kv.put(key, String(count + 1), { expirationTtl: OVERRIDE_RATE_LIMIT.windowSeconds });
+  return true;
+}
+
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const now = nowSql();
@@ -28,6 +45,14 @@ export async function POST(context: APIContext): Promise<Response> {
     if (err instanceof RbacError) return err.toResponse();
     if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
+  }
+
+  const sessionKv = (env as typeof env & { SESSION?: KVNamespace }).SESSION;
+  if (!(await checkOverrideRateLimit(sessionKv, user.id))) {
+    return Response.json(
+      { ok: false, code: 'RATE_LIMITED', message: 'Too many overrides. Please wait before trying again.' },
+      { status: 429, headers: { 'Retry-After': String(OVERRIDE_RATE_LIMIT.windowSeconds) } },
+    );
   }
 
   let body: any;

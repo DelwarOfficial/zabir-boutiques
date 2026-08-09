@@ -153,17 +153,36 @@ export async function doAdjustStock(
   const adjustmentId = idempotencyKey ?? crypto.randomUUID();
   if (!env.VARIANT_INVENTORY_DO) {
     console.warn('[do-client] VARIANT_INVENTORY_DO not bound, falling back to direct D1 mutation. Production should always bind DO.');
+    // K-44: the SELECT-then-UPDATE below used to read `currentStock`
+    // outside the atomic batch, then build the UPDATE and negativity
+    // check from that stale read — a genuine TOCTOU race between two
+    // concurrent adjustments in the D1-fallback path (no DO bound).
+    // Guard the UPDATE itself so it only succeeds when the resulting
+    // quantity would stay non-negative, and treat `meta.changes === 0` as
+    // the real "insufficient stock" signal instead of a pre-read guess.
     const row = await env.DB
       .prepare(`SELECT quantity FROM inventory_items WHERE variant_id = ?1`)
       .bind(variantId)
       .first<{ quantity: number }>();
     const currentStock = row?.quantity ?? 0;
     const newStock = currentStock + delta;
-    if (newStock < 0) return { ok: false, error: 'INSUFFICIENT_STOCK', current_stock: currentStock };
-    await env.DB.batch([
-      env.DB.prepare(`UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2`).bind(delta, variantId),
-      env.DB.prepare(`INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))`).bind(adjustmentId, variantId, delta, reason, currentStock, newStock, notes ?? null, staffId),
-    ], { atomic: true });
+    // Guarded UPDATE runs alone first — if the audit INSERT were batched
+    // atomically alongside it, a rejected (0-row) UPDATE would still leave
+    // a misleading stock_adjustments row behind (D1 batch runs every
+    // statement regardless of another statement's row count). Only
+    // INSERT the audit row once the UPDATE is confirmed to have applied.
+    const updateResult = await env.DB
+      .prepare(`UPDATE inventory_items SET quantity = quantity + ?1, updated_at = datetime('now') WHERE variant_id = ?2 AND quantity + ?1 >= 0`)
+      .bind(delta, variantId)
+      .run();
+    if (updateResult.meta.changes !== 1) {
+      const latest = await env.DB.prepare(`SELECT quantity FROM inventory_items WHERE variant_id = ?1`).bind(variantId).first<{ quantity: number }>();
+      return { ok: false, error: 'INSUFFICIENT_STOCK', current_stock: latest?.quantity ?? currentStock };
+    }
+    await env.DB
+      .prepare(`INSERT INTO stock_adjustments (id, variant_id, delta, reason, prev_quantity, new_quantity, notes, adjusted_by, created_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))`)
+      .bind(adjustmentId, variantId, delta, reason, currentStock, newStock, notes ?? null, staffId)
+      .run();
     return { ok: true, previous_stock: currentStock, new_stock: newStock, adjustment_id: adjustmentId };
   }
   const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);

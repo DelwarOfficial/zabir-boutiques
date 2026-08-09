@@ -54,13 +54,18 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ received: true, queued: true }, { status: 200 });
   }
 
-  const work = processPaymentWebhookMessage(env, invoiceId);
   const cfContext = context.locals.cfContext;
   if (cfContext?.waitUntil) {
-    cfContext.waitUntil(work);
-  } else {
-    void work;
+    cfContext.waitUntil(processPaymentWebhookMessage(env, invoiceId));
+    return Response.json({ received: true, async: true }, { status: 200 });
   }
 
-  return Response.json({ received: true, async: true }, { status: 200 });
+  // K-05: neither the queue nor waitUntil is available — a fire-and-forget
+  // `void work` here could be killed mid-flight when the Worker instance
+  // recycles, silently leaving the payment unapplied with no queue to
+  // retry it and a 200 already sent to the provider. Await it directly
+  // instead; this is the only path where nothing else guarantees the work
+  // completes.
+  await processPaymentWebhookMessage(env, invoiceId);
+  return Response.json({ received: true, async: false }, { status: 200 });
 }

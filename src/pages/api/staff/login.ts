@@ -9,7 +9,7 @@ import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
 import { verifyTurnstile } from '../../../lib/turnstile';
 import { verifyTotpCode } from '../../../lib/totp';
-import { isStaffTotpEnabled, loadStaffTotpSecret } from '../../../lib/otp-secrets';
+import { isStaffTotpEnabled, loadStaffTotpSecret, loadLastUsedTotpCounter, recordUsedTotpCounter } from '../../../lib/otp-secrets';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 import { checkLoginRateLimit, resetLoginRateLimit, sha256Hex, LOGIN_RATE_LIMIT } from '../../../lib/login-rate-limit';
@@ -153,7 +153,10 @@ export async function POST(context: APIContext): Promise<Response> {
     }
   } else {
     const legacyHash = await legacyHashPassword(password, env.SESSION_SECRET);
-    if (staff.password_hash !== legacyHash) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+    // K-29: constant-time compare.
+    if (staff.password_hash.length !== legacyHash.length || !timingSafeEqualHex(staff.password_hash, legacyHash)) {
+      return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
     const newSalt = generateRandomHex(16);
     const newHash = await hashPassword(password, newSalt, env.PASSWORD_PEPPER);
     // Conditional upgrade: only update if the row still has the legacy
@@ -201,7 +204,11 @@ export async function POST(context: APIContext): Promise<Response> {
       }
       return Response.json({ error: 'TOTP code required', totp_required: true, step2_token: step2Token }, { status: 401 });
     }
-    const totpValid = await verifyTotpCode(totpSecret, totpCode);
+    // K-28: reject a code already used at/before its own time step — the
+    // same 6-digit code otherwise stays valid for its whole ~90s window
+    // and could be replayed by anyone who shoulder-surfed or intercepted it.
+    const lastUsedCounter = await loadLastUsedTotpCounter(env.DB, staff.id);
+    const { valid: totpValid, counter: totpCounter } = await verifyTotpCode(totpSecret, totpCode, lastUsedCounter ?? undefined);
     if (!totpValid) {
       await writeAuditLog(env.DB, {
         actorStaffId: staff.id,
@@ -213,6 +220,9 @@ export async function POST(context: APIContext): Promise<Response> {
         userAgent: userAgent(context.request),
       });
       return Response.json({ error: 'Invalid TOTP code' }, { status: 401 });
+    }
+    if (totpCounter != null) {
+      await recordUsedTotpCounter(env.DB, staff.id, totpCounter, now);
     }
   }
 
@@ -226,16 +236,23 @@ export async function POST(context: APIContext): Promise<Response> {
   // Master_Prompt v7.0 §18.1: Max 2 concurrent sessions per user.
   // Revoke the oldest session if limit exceeded.
   const activeSessions = await env.DB.prepare(
-    `SELECT id FROM staff_sessions WHERE staff_user_id = ?1 AND is_revoked = 0 AND absolute_expires_at > ?2 ORDER BY created_at ASC`
-  ).bind(staff.id, now).all<{ id: string }>();
+    `SELECT id, token_hash FROM staff_sessions WHERE staff_user_id = ?1 AND is_revoked = 0 AND absolute_expires_at > ?2 ORDER BY created_at ASC`
+  ).bind(staff.id, now).all<{ id: string; token_hash: string }>();
   if (activeSessions.results && activeSessions.results.length >= 2) {
-    const oldestId = activeSessions.results[0].id;
+    const oldest = activeSessions.results[0];
+    const oldestId = oldest.id;
     await env.DB.prepare(
       `UPDATE staff_sessions SET is_revoked = 1 WHERE id = ?1 AND is_revoked = 0`
     ).bind(oldestId).run();
-    // Also blacklist in KV if available
-    if (sessionKv) {
-      await sessionKv.put(`session:blacklist:${oldestId}`, '1', { expirationTtl: 8 * 60 * 60 });
+    // K-20/N-7: this used to write `session:blacklist:{sessionId}` — a
+    // third, divergent key format that isSessionRevoked() (which only
+    // reads `session-blacklist:{tokenHash}`) never checked, so the KV
+    // write was dead. requireAuth's D1 `is_revoked` check above still
+    // caught it on the D1 hot path, but the intended KV fast-path never
+    // engaged. Use the shared revokeSession() helper with the real key.
+    if (sessionKv && oldest.token_hash) {
+      const { revokeSession } = await import('../../../lib/session-blacklist');
+      await revokeSession(env, oldest.token_hash, 8 * 60 * 60);
     }
     await writeAuditLog(env.DB, {
       actorStaffId: staff.id,

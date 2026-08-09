@@ -86,7 +86,11 @@ export async function validateApiKey(
 
   if (row.allowed_ips_json && request) {
     const allowedIps = parseStringArray(row.allowed_ips_json);
-    const ip = request.headers.get('CF-Connecting-IP') ?? request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ?? '';
+    // K-27: this is an IP allowlist SECURITY gate. X-Forwarded-For is
+    // client-settable — trusting it here let a caller spoof their way
+    // past the allowlist by setting the header to any permitted IP.
+    // CF-Connecting-IP is edge-set and cannot be forged by the client.
+    const ip = request.headers.get('CF-Connecting-IP') ?? '';
     if (allowedIps.length && !allowedIps.includes(ip)) {
       throw new ApiKeyError(403, 'API_KEY_IP_DENIED', 'API key is not allowed from this IP');
     }

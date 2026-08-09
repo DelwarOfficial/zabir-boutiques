@@ -20,6 +20,7 @@
 
 import { nowSql } from './dates';
 import { normalizeBangladeshPhone } from './phone';
+import { timingSafeEqualHex } from './security';
 
 const OTP_LENGTH = 6;
 const OTP_TTL_MS = 10 * 60 * 1000; // 10 minutes
@@ -159,7 +160,8 @@ export async function confirmPhoneOtp(
   }
 
   const codeHash = await sha256Hex(code);
-  const isValid = codeHash === row.code_hash;
+  // K-29: constant-time compare against the stored hash.
+  const isValid = codeHash.length === row.code_hash.length && timingSafeEqualHex(codeHash, row.code_hash);
 
   // Increment attempts regardless of outcome
   await db.prepare(
@@ -213,9 +215,11 @@ export async function verifyPhoneToken(
 
   if (!payloadB64 || !signature) return { valid: false, reason: 'MALFORMED' };
 
-  // Verify signature
+  // Verify signature (K-29: constant-time compare).
   const expectedSig = await hmacSha256Base64url(payloadB64, sessionSecret);
-  if (expectedSig !== signature) return { valid: false, reason: 'INVALID_SIGNATURE' };
+  if (expectedSig.length !== signature.length || !timingSafeEqualHex(expectedSig, signature)) {
+    return { valid: false, reason: 'INVALID_SIGNATURE' };
+  }
 
   // Decode and check expiry
   let payload: { phone: string; exp: number };

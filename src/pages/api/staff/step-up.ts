@@ -12,6 +12,7 @@ import { requireAuth, RbacError } from '../../../lib/rbac';
 import { verifyPasswordWithUpgrade, hashPassword, legacyHashPassword, PBKDF2_LEGACY_ITERATIONS } from '../../../lib/password';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
+import { timingSafeEqualHex } from '../../../lib/security';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -60,7 +61,8 @@ export async function POST(context: APIContext): Promise<Response> {
     }
   } else {
     const legacyHash = await legacyHashPassword(password, env.SESSION_SECRET);
-    valid = staff.password_hash === legacyHash;
+    // K-29: constant-time compare.
+    valid = staff.password_hash.length === legacyHash.length && timingSafeEqualHex(staff.password_hash, legacyHash);
   }
 
   if (!valid) {

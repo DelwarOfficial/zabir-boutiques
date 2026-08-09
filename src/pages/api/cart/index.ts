@@ -19,7 +19,10 @@ function isLocalDev(request: Request): boolean {
 
 function setCartSessionCookie(response: Response, sid: string, request: Request): Response {
   const secure = isLocalDev(request) ? '' : ' Secure;';
-  const setCookie = `${SID_COOKIE}=${encodeURIComponent(sid)}; HttpOnly;${secure} Path=/; Max-Age=${SID_MAX_AGE}; SameSite=Lax`;
+  // K-40: this cookie is only ever read by same-origin fetch() calls, never
+  // a top-level cross-site navigation, so Strict costs nothing here and
+  // closes the CSRF-adjacent surface Lax leaves open.
+  const setCookie = `${SID_COOKIE}=${encodeURIComponent(sid)}; HttpOnly;${secure} Path=/; Max-Age=${SID_MAX_AGE}; SameSite=Strict`;
   const existing = response.headers.get('Set-Cookie');
   response.headers.set('Set-Cookie', existing ? `${existing}, ${setCookie}` : setCookie);
   return response;

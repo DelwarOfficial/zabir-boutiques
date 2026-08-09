@@ -7,7 +7,8 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { verifyTotpCode } from '../../../../lib/totp';
 import { writeCriticalAuditLog } from '../../../../lib/audit';
-import { storeStaffTotpSecret, readPendingTotpEnvelope } from '../../../../lib/otp-secrets';
+import { storeStaffTotpSecret, readPendingTotpEnvelope, recordUsedTotpCounter } from '../../../../lib/otp-secrets';
+import { nowSql } from '../../../../lib/dates';
 
 export async function POST(context: APIContext): Promise<Response> {
   let user;
@@ -29,10 +30,13 @@ export async function POST(context: APIContext): Promise<Response> {
   const secret = await readPendingTotpEnvelope(user.id, body.pending, env);
   if (!secret) return Response.json({ ok: false, code: 'PENDING_EXPIRED_OR_INVALID' }, { status: 400 });
 
-  const valid = await verifyTotpCode(secret, body.code);
+  const { valid, counter } = await verifyTotpCode(secret, body.code);
   if (!valid) return Response.json({ ok: false, code: 'INVALID_CODE' }, { status: 400 });
 
   await storeStaffTotpSecret(env.DB, user.id, secret, env);
+  if (counter != null) {
+    await recordUsedTotpCounter(env.DB, user.id, counter, nowSql());
+  }
 
   await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,

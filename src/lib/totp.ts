@@ -28,14 +28,25 @@ export function generateTotpSecret(email: string, issuer = 'Zabir Boutiques'): T
  * Verify a TOTP code against a secret using HMAC-SHA1 (RFC 6238).
  * Checks current time step and ±1 step window for clock drift tolerance.
  * Uses constant-time comparison to prevent timing attacks.
+ *
+ * K-28: a bare boolean gives the caller no way to detect replay — the same
+ * 6-digit code stays valid for its whole ~90s window and could be reused
+ * by anyone who shoulder-surfs or intercepts it. Returns the matched time
+ * step (`counter`) so the caller can persist it and reject a code whose
+ * counter is <= the last one that succeeded (see otp-secrets.ts).
+ * `minCounter` rejects a match at or before an already-used step outright.
  */
-export async function verifyTotpCode(secret: string, code: string): Promise<boolean> {
+export async function verifyTotpCode(
+  secret: string,
+  code: string,
+  minCounter?: number,
+): Promise<{ valid: boolean; counter: number | null }> {
   if (!code || code.length !== 6 || !/^\d{6}$/.test(code)) {
-    return false;
+    return { valid: false, counter: null };
   }
 
   const keyBytes = base32Decode(secret);
-  if (!keyBytes || keyBytes.length === 0) return false;
+  if (!keyBytes || keyBytes.length === 0) return { valid: false, counter: null };
 
   const cryptoKey = await crypto.subtle.importKey(
     'raw',
@@ -53,11 +64,14 @@ export async function verifyTotpCode(secret: string, code: string): Promise<bool
     const counter = timeStep + offset;
     const expected = await generateHotp(cryptoKey, counter);
     if (constantTimeEqual(code, expected)) {
-      return true;
+      if (minCounter != null && counter <= minCounter) {
+        return { valid: false, counter }; // correct code, but already used at/after this step
+      }
+      return { valid: true, counter };
     }
   }
 
-  return false;
+  return { valid: false, counter: null };
 }
 
 /**

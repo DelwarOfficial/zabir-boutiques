@@ -13,12 +13,11 @@ export interface AuditEntry {
   userAgent?: string | null;
 }
 
+// K-27: X-Forwarded-For is client-settable; CF-Connecting-IP is edge-set
+// by Cloudflare and cannot be forged. Trusting XFF here would let a
+// caller inject an arbitrary IP into forensic audit records.
 export function clientIp(request: Request): string | null {
-  return (
-    request.headers.get('CF-Connecting-IP') ??
-    request.headers.get('X-Forwarded-For')?.split(',')[0]?.trim() ??
-    null
-  );
+  return request.headers.get('CF-Connecting-IP') ?? null;
 }
 
 export function userAgent(request: Request): string | null {

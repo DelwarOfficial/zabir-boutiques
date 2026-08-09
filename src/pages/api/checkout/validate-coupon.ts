@@ -1,6 +1,8 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { calculateCouponDiscount, type DiscountType } from '../../../lib/money';
+import { checkCouponRateLimit, recordCouponFailure, clearCouponFailures } from '../../../lib/coupon-rate-limit';
+import { clientIp } from '../../../lib/audit';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -12,6 +14,24 @@ export async function POST(context: APIContext): Promise<Response> {
   const { code, subtotalPaisa } = body;
   if (!code || typeof subtotalPaisa !== 'number') {
     return Response.json({ ok: false, code: 'INVALID_REQUEST', message: 'Missing coupon code or subtotal.' }, { status: 400 });
+  }
+
+  // K-10/N-22: this preview endpoint had zero rate limiting, letting a
+  // client brute-force enumerate valid coupon codes at unlimited speed.
+  // coupon-rate-limit.ts already existed for exactly this (5/min, 30-min
+  // lockout after 5 failures) but had no callers. Rate-limit key is the
+  // guest cart session cookie when present, otherwise client IP — either
+  // way it's per-client, not global.
+  const raw = context.request.headers.get('cookie') ?? '';
+  const cartSidMatch = raw.match(/(?:^|;\s*)zb_cart_sid=([^;]*)/);
+  const rateLimitKey = cartSidMatch ? decodeURIComponent(cartSidMatch[1]) : `ip:${clientIp(context.request) ?? 'unknown'}`;
+
+  const rateLimit = await checkCouponRateLimit(env.DB, rateLimitKey);
+  if (!rateLimit.allowed) {
+    return Response.json(
+      { ok: false, code: 'RATE_LIMITED', message: 'Too many coupon attempts. Please try again later.' },
+      { status: 429 },
+    );
   }
 
   // Format UTC now text matching D1 text dates: YYYY-MM-DD HH:MM:SS
@@ -26,6 +46,7 @@ export async function POST(context: APIContext): Promise<Response> {
     ).bind(code).first<any>();
 
     if (!coupon) {
+      await recordCouponFailure(env.DB, rateLimitKey, 'COUPON_NOT_FOUND');
       return Response.json({ ok: false, code: 'COUPON_NOT_FOUND', message: 'Coupon code is invalid.' }, { status: 404 });
     }
     if (!coupon.is_active) {
@@ -52,6 +73,7 @@ export async function POST(context: APIContext): Promise<Response> {
       coupon.max_discount_paisa
     );
 
+    await clearCouponFailures(env.DB, rateLimitKey);
     return Response.json({
       ok: true,
       code,
