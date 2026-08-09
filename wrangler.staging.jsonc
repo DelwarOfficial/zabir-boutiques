@@ -60,11 +60,11 @@
     ],
     "consumers": [
       { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-staging" },
-      { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
-      { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
-      { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2 },
-      { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2 },
-      { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
+      { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3, "dead_letter_queue": "order-emails-dlq-staging" },
+      { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3, "dead_letter_queue": "image-processing-dlq-staging" },
+      { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq-staging" },
+      { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq-staging" },
+      { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3, "dead_letter_queue": "cart-activity-dlq-staging" }
     ]
   },
   "vars": {

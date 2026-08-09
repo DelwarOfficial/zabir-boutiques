@@ -74,10 +74,16 @@ describe('QUEUE-1: fraud-audit and d1-backup have dead-letter queues configured'
     expect(deadLetterOf('d1-backup-dev')).toBe('d1-backup-dlq-dev');
   });
 
-  it('does not add DLQs to queues the audit did not flag', () => {
-    expect(deadLetterOf('order-emails')).toBeUndefined();
-    expect(deadLetterOf('image-processing')).toBeUndefined();
-    expect(deadLetterOf('cart-activity')).toBeUndefined();
+  it('K-42/N-20: wires a dead-letter queue for order-emails, image-processing, and cart-activity (all envs)', () => {
+    expect(deadLetterOf('order-emails')).toBe('order-emails-dlq');
+    expect(deadLetterOf('order-emails-staging')).toBe('order-emails-dlq-staging');
+    expect(deadLetterOf('order-emails-dev')).toBe('order-emails-dlq-dev');
+    expect(deadLetterOf('image-processing')).toBe('image-processing-dlq');
+    expect(deadLetterOf('image-processing-staging')).toBe('image-processing-dlq-staging');
+    expect(deadLetterOf('image-processing-dev')).toBe('image-processing-dlq-dev');
+    expect(deadLetterOf('cart-activity')).toBe('cart-activity-dlq');
+    expect(deadLetterOf('cart-activity-staging')).toBe('cart-activity-dlq-staging');
+    expect(deadLetterOf('cart-activity-dev')).toBe('cart-activity-dlq-dev');
   });
 });
 

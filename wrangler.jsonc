@@ -116,6 +116,9 @@
   //   npx wrangler queues create payment-webhooks-dlq
   //   npx wrangler queues create fraud-audit-dlq
   //   npx wrangler queues create d1-backup-dlq
+  //   npx wrangler queues create order-emails-dlq
+  //   npx wrangler queues create image-processing-dlq
+  //   npx wrangler queues create cart-activity-dlq
   // Staging: append "-staging". Dev: append "-dev".
   "queues": {
     "producers": [
@@ -128,11 +131,15 @@
     ],
     "consumers": [
       { "queue": "payment-webhooks", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq" },
-      { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3 },
-      { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3 },
+      // K-42/N-20: these 3 queues had no DLQ — exhausted-retry messages
+      // (e.g. a permanently-failing order confirmation email, image
+      // resize, or cart-activity write) were silently dropped instead of
+      // landing somewhere inspectable.
+      { "queue": "order-emails", "max_batch_size": 10, "max_retries": 3, "dead_letter_queue": "order-emails-dlq" },
+      { "queue": "image-processing", "max_batch_size": 5, "max_retries": 3, "dead_letter_queue": "image-processing-dlq" },
       { "queue": "fraud-audit", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq" },
       { "queue": "d1-backup", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq" },
-      { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3 }
+      { "queue": "cart-activity", "max_batch_size": 25, "max_retries": 3, "dead_letter_queue": "cart-activity-dlq" }
     ]
   },
 
@@ -192,11 +199,11 @@
         ],
         "consumers": [
           { "queue": "payment-webhooks-staging", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-staging" },
-          { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3 },
-          { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3 },
+          { "queue": "order-emails-staging", "max_batch_size": 10, "max_retries": 3, "dead_letter_queue": "order-emails-dlq-staging" },
+          { "queue": "image-processing-staging", "max_batch_size": 5, "max_retries": 3, "dead_letter_queue": "image-processing-dlq-staging" },
           { "queue": "fraud-audit-staging", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq-staging" },
           { "queue": "d1-backup-staging", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq-staging" },
-          { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3 }
+          { "queue": "cart-activity-staging", "max_batch_size": 25, "max_retries": 3, "dead_letter_queue": "cart-activity-dlq-staging" }
         ]
       },
       "analytics_engine_datasets": [
@@ -253,11 +260,11 @@
         ],
         "consumers": [
           { "queue": "payment-webhooks-dev", "max_batch_size": 5, "max_retries": 5, "dead_letter_queue": "payment-webhooks-dlq-dev" },
-          { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3 },
-          { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3 },
+          { "queue": "order-emails-dev", "max_batch_size": 10, "max_retries": 3, "dead_letter_queue": "order-emails-dlq-dev" },
+          { "queue": "image-processing-dev", "max_batch_size": 5, "max_retries": 3, "dead_letter_queue": "image-processing-dlq-dev" },
           { "queue": "fraud-audit-dev", "max_batch_size": 10, "max_retries": 2, "dead_letter_queue": "fraud-audit-dlq-dev" },
           { "queue": "d1-backup-dev", "max_batch_size": 1, "max_retries": 2, "dead_letter_queue": "d1-backup-dlq-dev" },
-          { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3 }
+          { "queue": "cart-activity-dev", "max_batch_size": 25, "max_retries": 3, "dead_letter_queue": "cart-activity-dlq-dev" }
         ]
       },
       "analytics_engine_datasets": [

@@ -48,6 +48,12 @@ const TRANSITIONS: Record<OrderStatus, TransitionRule[]> = {
   ],
   pending_payment: [
     { to: "payment_verified", effects: ["send_email_confirmed"] },
+    // K-37: staff/orders/[id]/confirm.ts allows a direct pending_payment ->
+    // staff_confirmed transition (manual staff confirmation when payment
+    // was verified out-of-band) — declaring it here so canTransition is
+    // the single source of truth instead of the route silently diverging
+    // from this table.
+    { to: "staff_confirmed", effects: ["send_email_confirmed"] },
     { to: "cancelled", effects: ["restock", "send_email_cancelled"] },
   ],
   payment_verified: [

@@ -34,6 +34,11 @@ const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number
   { pattern: /^\/api\/fraud\/check$/, limit: 30, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/fraud\/override$/, limit: 10, windowSeconds: 60 },
   { pattern: /^\/api\/staff\/api-keys$/, limit: 20, windowSeconds: 60 },
+  // N-24: unauthenticated, unrate-limited endpoint writing arbitrary
+  // client-controlled strings into Analytics Engine. Generous per-IP
+  // limit — a real page fires this a handful of times per load (one per
+  // Core Web Vitals metric), not dozens.
+  { pattern: /^\/api\/analytics\/vitals$/, limit: 60, windowSeconds: 60 },
 ];
 
 export const onRequest: MiddlewareHandler = async (context, next) => {

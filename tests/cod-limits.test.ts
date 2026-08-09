@@ -15,6 +15,7 @@ class Stmt {
     return Array.isArray(raw) ? raw : [];
   }
   async first<T>(): Promise<T | null> { return (this.rows()[0] ?? null) as T | null; }
+  async all<T>(): Promise<{ results: T[] }> { return { results: this.rows() as T[] }; }
   async run(): Promise<{ meta: { changes: number } }> {
     const res = (this.db.prepare(this.sql) as any).run(...this.bound);
     return { meta: { changes: Number((res as any)?.changes ?? 0) } };

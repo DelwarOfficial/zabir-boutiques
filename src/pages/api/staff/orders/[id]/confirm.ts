@@ -4,6 +4,7 @@ import { nowSql } from '../../../../../lib/dates';
 import { requireAuth, requirePermission, canConfirmOrder, RbacError } from '../../../../../lib/rbac';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../../lib/audit';
 import { confirmReservationsForOrder } from '../../../../../lib/inventory';
+import { canTransition } from '../../../../../lib/order-state-machine';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -94,6 +95,12 @@ export async function POST(context: APIContext): Promise<Response> {
   // flip + history row are embedded in the same atomic batch so the whole
   // transition commits together.
   if (order.status === 'pending_review' || order.status === 'pending_payment') {
+    // K-37: assert against the canonical state machine (single source of
+    // truth) instead of only trusting the ad-hoc status checks above,
+    // which could silently drift from order-state-machine.ts over time.
+    if (!canTransition(order.status as Parameters<typeof canTransition>[0], 'staff_confirmed')) {
+      return Response.json({ ok: false, code: 'INVALID_TRANSITION', error: `Cannot confirm from ${order.status}.` }, { status: 409 });
+    }
     const orderUpdate = env.DB.prepare(
       `UPDATE orders SET status = 'staff_confirmed', updated_at = ?2
        WHERE id = ?1 AND status = ?3`,

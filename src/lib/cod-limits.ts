@@ -33,6 +33,22 @@ export type CodLimitResult =
   | { ok: false; reason: 'COD_VALUE_EXCEEDED' | 'COD_PHONE_VELOCITY' | 'COD_ADDRESS_VELOCITY' };
 
 /**
+ * K-17: the old normalization was only toLowerCase().trim() — "House 5,
+ * Road 2" and "House  5,  Road 2" (extra spaces) or "House 5. Road 2"
+ * (different punctuation) counted as different addresses, trivially
+ * defeating the per-address COD velocity limit. Collapses whitespace and
+ * strips common punctuation so cosmetic variations of the same address
+ * compare equal.
+ */
+export function normalizeAddressForVelocityCheck(address: string): string {
+  return address
+    .toLowerCase()
+    .replace(/[.,#\-/\\]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * normalizedAddress should be a stable, comparable form of the delivery
  * address (trimmed, collapsed whitespace, lowercased) — not necessarily
  * the exact text stored on the order, just consistent enough that repeat
@@ -63,14 +79,21 @@ export async function checkCodLimits(
     return { ok: false, reason: 'COD_PHONE_VELOCITY' };
   }
 
-  const addressCount = await db
+  // K-17: SQL's lower(trim(...)) can't collapse whitespace or strip
+  // punctuation the way normalizeAddressForVelocityCheck does, so the
+  // comparison happens in JS against the (bounded, 24h-windowed) set of
+  // recent COD order addresses rather than relying on SQL text equality.
+  const recentAddresses = await db
     .prepare(
-      `SELECT COUNT(*) AS c FROM orders
-       WHERE lower(trim(address)) = ?1 AND payment_method = 'cod' AND created_at > datetime('now', '-24 hours')`,
+      `SELECT address FROM orders
+       WHERE payment_method = 'cod' AND created_at > datetime('now', '-24 hours')`,
     )
-    .bind(input.normalizedAddress)
-    .first<{ c: number }>();
-  if ((addressCount?.c ?? 0) >= perAddress) {
+    .all<{ address: string }>();
+  const target = normalizeAddressForVelocityCheck(input.normalizedAddress);
+  const addressCount = (recentAddresses.results ?? []).filter(
+    (r) => normalizeAddressForVelocityCheck(r.address ?? '') === target,
+  ).length;
+  if (addressCount >= perAddress) {
     return { ok: false, reason: 'COD_ADDRESS_VELOCITY' };
   }
 

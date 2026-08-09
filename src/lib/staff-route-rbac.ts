@@ -45,6 +45,18 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/inventory/movements')) return 'inventory.manage';
   if (p.includes('/inventory/variants')) return 'inventory.manage';
 
+  // N-9: these previously fell through to the generic orders.update/
+  // orders.view default, which is broader than what their own route
+  // handlers actually require (requirePermission calls verified below) —
+  // any staff with plain order-management rights could otherwise pass
+  // this middleware layer for POS drawer, purchasing, supplier, and
+  // courier-remittance actions.
+  if (p.includes('/purchase-orders/') && p.includes('/receive')) return 'inventory.adjust';
+  if (p.includes('/purchase-orders')) return 'inventory.manage';
+  if (p.includes('/suppliers')) return 'inventory.manage';
+  if (p.includes('/pos/drawer')) return 'orders.create';
+  if (p.includes('/courier/remittance')) return 'payments.verify';
+
   if (p.includes('/orders')) return isMut ? 'orders.update' : 'orders.view';
 
   return isMut ? 'orders.update' : 'orders.view';

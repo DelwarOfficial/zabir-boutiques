@@ -192,7 +192,10 @@ const canonicalUrl = new URL(Astro.url.pathname, Astro.site ?? "https://zabirbou
               }
             }).catch(function() {});
           } catch (err) {
-            console.error(err);
+            // N-17: client-side inline script — safeLog is a server-only
+            // module and can't run here. Cart-sync errors aren't
+            // actionable to the user; drop rather than leaving a raw
+            // console.error a shared/kiosk browser's devtools could show.
           }
         };
       })();

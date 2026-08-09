@@ -212,12 +212,12 @@ export async function getCurrentStaffUser(context: APIContext): Promise<StaffUse
   const tokenHash = await hashSessionToken(sessionToken, sessionSecret);
   const now = nowSql();
 
-  // Extract from KV when available (Task 5). D1 is still used for authoritative revocation/idle checks.
-  if (sessionKV) {
-    try {
-      sessionKV.get(`staff-session:${tokenHash}`, 'json') as any;
-    } catch {}
-  }
+  // N-6: this used to call sessionKV.get(...) without awaiting it or using
+  // the result — a fire-and-forget read whose value was always discarded
+  // (dead code; D1 below ran unconditionally regardless). Removed rather
+  // than wired into a real fast-path, since KV staleness would need care
+  // around the revocation/idle checks D1 is authoritative for. sessionKV
+  // is still used below to populate the write-side cache.
 
   const row = await db.prepare(
     `SELECT s.id AS session_id, s.staff_user_id, u.role, u.full_name, s.last_active_at

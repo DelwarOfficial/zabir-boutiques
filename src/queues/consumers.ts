@@ -149,7 +149,13 @@ export async function handleOrderEmailBatch(
           session_id: msg.body.sessionId,
           name: row.customer_name?.trim() || 'there',
           email: row.customer_email,
-          recovery_url: `${(env.PUBLIC_SITE_URL ?? 'https://zabirboutiques.com').replace(/\/$/, '')}/checkout?session_id=${encodeURIComponent(msg.body.sessionId)}`,
+          // K-39: session_id was appended as a query-string param here but
+          // nothing on /checkout ever reads it (grep confirms zero
+          // consumers) — it was a pure leak (query strings are logged by
+          // proxies/CDNs, appear in browser history, and leak via Referer)
+          // with no functional benefit. The cart itself is restored from
+          // the CartDO-backed cookie, not the URL.
+          recovery_url: `${(env.PUBLIC_SITE_URL ?? 'https://zabirboutiques.com').replace(/\/$/, '')}/checkout`,
         });
         if (!sendResult.ok) {
           safeLog.error('[order-email-consumer] abandoned cart send failed', { sessionId: msg.body.sessionId, error: sendResult.error });
@@ -208,16 +214,37 @@ export async function handleOrderEmailBatch(
         items: itemsResult.results ?? [],
       };
 
+      // K-43: claim-before-send, same pattern as every other idempotency
+      // gate in this codebase (checkout, invoices, webhook processing). A
+      // deterministic id keyed on (orderId, emailType) means a redelivered
+      // message (Worker died after send, before ack) hits an existing
+      // 'sent' row and skips re-sending instead of emailing the customer
+      // twice.
+      const emailLogId = `email:${orderId}:${emailType}`;
+      const claim = await env.DB
+        .prepare(
+          `INSERT OR IGNORE INTO email_log (id, order_id, email_type, recipient, status, sent_at, created_at)
+           VALUES (?1, ?2, ?3, ?4, 'queued', NULL, datetime('now'))`,
+        )
+        .bind(emailLogId, orderId, emailType, order.email || `${order.phone}@sms.placeholder`)
+        .run();
+      if (claim.meta.changes !== 1) {
+        const existing = await env.DB.prepare(`SELECT status FROM email_log WHERE id = ?1`).bind(emailLogId).first<{ status: string }>();
+        if (existing?.status === 'sent') {
+          msg.ack();
+          continue;
+        }
+        // 'queued' or 'failed' from a prior partial attempt — fall through
+        // and retry the send, then update this same row below.
+      }
+
       // Determine recipient email
       const recipient = order.email || `${order.phone}@sms.placeholder`;
       if (!order.email) {
-        // No email on file — log and skip
+        // No email on file — mark the claim row failed and skip.
         await env.DB
-          .prepare(
-            `INSERT OR IGNORE INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message)
-             VALUES (?1, ?2, ?3, ?4, 'failed', NULL, 'no-email-on-file')`,
-          )
-          .bind(crypto.randomUUID(), orderId, emailType, recipient)
+          .prepare(`UPDATE email_log SET status = 'failed', error_message = 'no-email-on-file' WHERE id = ?1`)
+          .bind(emailLogId)
           .run();
         msg.ack();
         continue;
@@ -228,6 +255,7 @@ export async function handleOrderEmailBatch(
       const VALID_EMAIL_TYPES: ReadonlyArray<string> = ["order_confirmed", "payment_confirmed", "order_shipped", "order_delivered", "return_confirmed"];
       if (!VALID_EMAIL_TYPES.includes(emailType)) {
         safeLog.warn("[order-email-consumer] unknown emailType, acking", { orderId, emailType });
+        await env.DB.prepare(`UPDATE email_log SET status = 'failed', error_message = 'unknown-email-type' WHERE id = ?1`).bind(emailLogId).run().catch(() => {});
         msg.ack();
         continue;
       }
@@ -237,10 +265,15 @@ export async function handleOrderEmailBatch(
 
       if (!result.ok) {
         safeLog.error("[order-email-consumer] send failed", { orderId, emailType, error: result.error });
+        await env.DB.prepare(`UPDATE email_log SET status = 'failed', error_message = ?2 WHERE id = ?1`).bind(emailLogId, result.error ?? 'send_failed').run().catch(() => {});
         msg.retry({ delaySeconds: 30 });
         continue;
       }
 
+      // K-43: record success BEFORE ack — if the Worker dies between here
+      // and ack(), the redelivered message hits the 'sent' row above and
+      // skips resending instead of emailing the customer again.
+      await env.DB.prepare(`UPDATE email_log SET status = 'sent', sent_at = datetime('now') WHERE id = ?1`).bind(emailLogId).run();
       msg.ack();
     } catch (err) {
       safeLog.error("[order-email-consumer] failed", { error: err instanceof Error ? err.message : String(err) });

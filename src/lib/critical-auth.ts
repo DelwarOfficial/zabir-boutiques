@@ -2,7 +2,8 @@ import type { APIContext } from 'astro';
 import { getEnv } from './env';
 import type { StaffUser } from './rbac';
 
-const STEP_UP_WINDOW_SECONDS = 10 * 60;
+// N-10: plan target is <=5 min for the step-up window (was 10).
+const STEP_UP_WINDOW_SECONDS = 5 * 60;
 
 export class CriticalAuthError extends Error {
   constructor(public status: number, public code: string, message: string) {
