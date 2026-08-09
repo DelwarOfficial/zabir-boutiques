@@ -170,6 +170,12 @@ vi.mock('../src/lib/rbac', () => ({
     toResponse() { return new Response('', { status: 403 }); }
   },
 }));
+vi.mock('../src/lib/critical-auth', () => ({
+  requireRecentStaffSession: async () => {},
+  CriticalAuthError: class extends Error {
+    toResponse() { return new Response('', { status: 403 }); }
+  },
+}));
 vi.mock('../src/lib/order-state-machine', () => ({ canTransition: () => true }));
 vi.mock('../src/lib/payments', () => ({ verifyUddoktaPayment: async () => ({ status: 'paid' }) }));
 vi.mock('../src/lib/integrations/uddoktapay', () => ({ UddoktaPayClient: class { async refundPayment() { return { ok: true }; } } }));

@@ -3,7 +3,7 @@ import StaffLayout from "@/layouts/StaffLayout.astro";
 import { getCurrentStaffUser } from "@/lib/rbac";
 import { getEnv } from "@/lib/env";
 import { generateTotpSecret } from "@/lib/totp";
-import { isStaffTotpEnabled } from "@/lib/otp-secrets";
+import { isStaffTotpEnabled, createPendingTotpEnvelope } from "@/lib/otp-secrets";
 import QRCode from "qrcode";
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect("/staff/login");
@@ -20,10 +20,12 @@ const totpEnabled = await isStaffTotpEnabled(env.DB, user!.id);
 
 let secret = '';
 let qrDataUrl = '';
+let pending = '';
 if (!totpEnabled) {
   const generated = generateTotpSecret(email);
   secret = generated.secret;
   qrDataUrl = await QRCode.toDataURL(generated.uri, { width: 280, margin: 1.5, color: { dark: "#1a1816", light: "#0000" } });
+  pending = await createPendingTotpEnvelope(user!.id, secret, env);
 }
 ---
 
@@ -72,6 +74,7 @@ if (!totpEnabled) {
 
           <div style="background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:0.75rem 1rem;display:flex;align-items:center;justify-content:space-between;margin-bottom:1.5rem;font-family:'SF Mono','Cascadia Code','Consolas',monospace;font-size:0.85rem;letter-spacing:1px;">
             <span id="secret-key" style="color:var(--ink);font-weight:600;">{secret}</span>
+            <input type="hidden" id="pending-envelope" value={pending} />
             <button id="copy-btn" class="tap-44" style="background:none;border:none;cursor:pointer;color:var(--brand);font-size:0.75rem;font-weight:600;padding:0.25rem 0.5rem;border-radius:6px;">Copy</button>
           </div>
 
@@ -135,6 +138,7 @@ if (!totpEnabled) {
 <script is:inline>
   (function() {
     const secret = document.getElementById('secret-key')?.textContent || '';
+    const pending = document.getElementById('pending-envelope')?.value || '';
     const verifyGrid = document.getElementById('verify-grid');
     if (!verifyGrid) return;
 
@@ -202,7 +206,7 @@ if (!totpEnabled) {
       const res = await fetch('/api/staff/totp/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-        body: JSON.stringify({ code, secret })
+        body: JSON.stringify({ code, pending })
       });
 
       if (res.ok) {

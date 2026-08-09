@@ -310,6 +310,8 @@ export async function POST(context: APIContext): Promise<Response> {
       discount_paisa: 0,
       vat_paisa: vatPaisa,
       total_paisa: totalPaisa,
+      advance_paisa: advancePaisa,
+      balance_paisa: balancePaisa,
       payment_method: paymentMethod,
       fraud_decision: fraudDecision,
     }, orderItems, now);
@@ -318,10 +320,6 @@ export async function POST(context: APIContext): Promise<Response> {
     orderPersisted = true;
 
     await recordOrderInProgress(env.DB, idempotencyKey, orderId);
-
-    await env.DB.prepare(
-      `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
-    ).bind(orderId, advancePaisa, balancePaisa, now).run();
 
     // Clear the direct checkout session with conversion tracking
     if (env.DIRECT_CHECKOUT_DO) {

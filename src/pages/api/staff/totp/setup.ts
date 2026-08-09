@@ -7,6 +7,7 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateTotpSecret } from '../../../../lib/totp';
+import { createPendingTotpEnvelope } from '../../../../lib/otp-secrets';
 
 export async function POST(context: APIContext): Promise<Response> {
   let user;
@@ -20,6 +21,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const env = getEnv(context);
   const totp = generateTotpSecret(`${user.id}@zabir.local`);
+  const pending = await createPendingTotpEnvelope(user.id, totp.secret, env);
   await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,
     actorRole: user.role,
@@ -29,5 +31,5 @@ export async function POST(context: APIContext): Promise<Response> {
     ipAddress: clientIp(context.request),
     userAgent: userAgent(context.request),
   });
-  return Response.json({ ok: true, secret: totp.secret, uri: totp.uri });
+  return Response.json({ ok: true, secret: totp.secret, uri: totp.uri, pending });
 }

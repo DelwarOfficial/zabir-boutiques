@@ -11,7 +11,7 @@
  * Session / Idempotency cleanup                 | Daily 03:00 UTC        | Mirror to cron entrypoint
  * Audit integrity check + checkpoint            | Daily 03:00 UTC        | Hash-chain verification
  * Tinify retry                                   | Daily 03:00 UTC        | Re-compress any uncompressed images
- * D1 backup to R2 (d1-backup queue)             | Every 6 hours          | DR backup via queue consumer
+ * D1 backup to R2 (d1-backup queue)             | Hourly                 | DR backup via queue consumer (INV-4)
  * Sitemap generation                            | Daily 02:00 UTC        | sitemap.xml to R2
  * Backup verification on staging                | Weekly Sun 09:00 UTC   | Restore test
  * Monthly archive                                | 1st of month 05:00 UTC | Archive old events to R2
@@ -76,8 +76,11 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
       await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
     }
 
-    // Every 6 hours — D1 backup via queue.
-    if (utcHour % 6 === 0) {
+    // INV-4: hourly D1 backup via queue (was every 6 hours — a D1 disaster
+    // during that window meant up to 6h of orders/payments unrecoverable
+    // from R2). This block already runs on the hourly `0 * * * *` trigger,
+    // so no schedule change is needed, just no longer gating on utcHour % 6.
+    {
       const { enqueueD1Backup } = await import('./queue-publisher');
       await enqueueD1Backup(env as unknown as { D1_BACKUP?: Queue }, nowSql());
     }

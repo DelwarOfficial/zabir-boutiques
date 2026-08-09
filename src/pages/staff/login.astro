@@ -154,6 +154,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
         // State — only identifier is accepted from URL (not password)
         let identifier = params.get('identifier') || '';
         let password = '';
+        let step2Token = '';
 
         // DOM refs
         const step1 = document.getElementById('step1');
@@ -222,6 +223,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
             loginBtn.textContent = 'Sign in';
             // totp_required —> move to step 2
             if (body.totp_required) {
+              step2Token = body.step2_token || '';
               void showStep(2);
               return;
             }
@@ -270,7 +272,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             credentials: 'same-origin',
-            body: JSON.stringify({ identifier, password, totp_code: code })
+            body: JSON.stringify({ identifier, password, totp_code: code, step2_token: step2Token })
           });
 
           if (res.ok) {

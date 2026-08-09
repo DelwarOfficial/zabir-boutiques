@@ -85,8 +85,12 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Master Plan §6.1 step 4: Load cart from CartDO (source of truth).
   // Guest checkout must have a CartDO session; Buy Now uses DirectCheckoutSessionDO instead.
-  let sessionId = typeof body.session_id === 'string' ? body.session_id : null;
-  if (!sessionId) {
+  // K-18: session identity comes only from the cookie, never the request
+  // body — a client-supplied session_id let a caller submit checkout
+  // against a different cart session than the one the cookie ties them to
+  // (same principle already applied to buy-now/submit.ts).
+  let sessionId: string | null = null;
+  {
     const raw = context.request.headers.get('cookie') ?? '';
     const match = raw.match(/(?:^|;\s*)zb_cart_sid=([^;]*)/);
     if (match) sessionId = decodeURIComponent(match[1]);
@@ -362,6 +366,8 @@ export async function POST(context: APIContext): Promise<Response> {
       discount_paisa: discountPaisa,
       vat_paisa: vatPaisa,
       total_paisa: totalPaisa,
+      advance_paisa: advancePaisa,
+      balance_paisa: balancePaisa,
       payment_method: paymentMethod,
       fraud_decision: fraudDecision,
     }, orderItems, now);
@@ -371,16 +377,18 @@ export async function POST(context: APIContext): Promise<Response> {
 
     await recordOrderInProgress(env.DB, idempotencyKey, orderId);
 
-    await env.DB.prepare(
-      `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
-    ).bind(orderId, advancePaisa, balancePaisa, now).run();
-
     let checkoutUrl: string | null = null;
     let paymentInvoiceId: string | null = null;
     if (advancePaisa > 0) {
       try {
         paymentInvoiceId = crypto.randomUUID();
-        const origin = context.request.headers.get('Origin') ?? '';
+        // K-13: the Origin header is caller-controlled (any non-browser
+        // client can set it to anything) and was used verbatim to build the
+        // post-payment redirect URL — an open redirect a provider would
+        // happily send a paying customer to after checkout. Allowlist
+        // against the configured site origin instead.
+        const requestOrigin = context.request.headers.get('Origin') ?? '';
+        const origin = requestOrigin === env.PUBLIC_SITE_URL ? requestOrigin : env.PUBLIC_SITE_URL;
         const checkout = await createPaymentCheckout(env, {
           invoiceId: paymentInvoiceId,
           amountPaisa: advancePaisa,

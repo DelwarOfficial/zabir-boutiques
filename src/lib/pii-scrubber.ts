@@ -29,7 +29,7 @@ function scrubString(s: string): string {
   return s.replace(PHONE_REGEX, "[PHONE]").replace(EMAIL_REGEX, "[EMAIL]");
 }
 
-function scrubValue(v: unknown): unknown {
+export function scrubValue(v: unknown): unknown {
   if (v === null || v === undefined) return v;
   if (typeof v === "string") return scrubString(v);
   if (typeof v === "number" || typeof v === "boolean") return v;

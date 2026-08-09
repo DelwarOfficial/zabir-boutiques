@@ -187,7 +187,9 @@ export class VariantInventoryDO implements DurableObject, VariantInventoryDOCont
       if (this.reserved < qty) {
         return Response.json({ ok: false, error: "OVER_ALLOCATED" }, { status: 409 });
       }
-      this.stock -= qty;
+      // INV-1: stock is invariant under confirm() — only reserved->sold
+      // shifts, matching directSale()'s arithmetic below and V8 §11.3.
+      // stock only ever changes via adjustStock().
       this.reserved -= qty;
       this.sold += qty;
       // Remove the reservation if provided

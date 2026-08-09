@@ -151,8 +151,15 @@ export async function applyPaymentVerified(
     return { ok: false, code: 'AMOUNT_MISMATCH' };
   }
 
-  // 3. metadata.order_id must match payment.order_id (defends against invoice reuse).
-  if (verified.metadata && typeof verified.metadata.order_id === 'string' && verified.metadata.order_id !== payment.order_id) {
+  // 3. metadata.order_id must match payment.order_id (defends against invoice
+  // reuse). K-07: this used to only check when metadata was present, so a
+  // gateway response that omitted metadata entirely silently skipped the
+  // check instead of failing closed. We always set metadata.order_id at
+  // checkout-create time (uddoktapay/client.ts), so a genuine verify
+  // response for our own payment always has it — missing/malformed
+  // metadata is now treated as a mismatch, not a pass.
+  const verifiedOrderId = verified.metadata && typeof verified.metadata.order_id === 'string' ? verified.metadata.order_id : null;
+  if (verifiedOrderId !== payment.order_id) {
     return { ok: false, code: 'INVOICE_ORDER_MISMATCH' };
   }
 
@@ -185,7 +192,15 @@ export async function applyPaymentVerified(
   //    can re-run everything. This closes the partial-failure window
   //    where a successful claim but a failed status update left
   //    payments.status stuck.
-  const eventId = crypto.randomUUID();
+  // K-06/INV-2: the id must be DETERMINISTIC per (invoice, outcome), not a
+  // fresh crypto.randomUUID() — a random id can never collide with itself,
+  // which made this claim's INSERT OR IGNORE always "succeed" and the
+  // `eventResult.meta.changes !== 1` replay check below unreachable dead
+  // code. A second applyPaymentVerified call for the same invoice+outcome
+  // (queue redelivery, or the inline-webhook and queue-consumer paths
+  // racing) now actually collides here.
+  const applyEventStatus = isPartialPrepay ? 'partially_paid' : 'paid';
+  const eventId = `apply:${invoiceId}:${applyEventStatus}`;
   const claimStmt = db
     .prepare(
       `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
@@ -195,7 +210,7 @@ export async function applyPaymentVerified(
       eventId,
       payment.id,
       invoiceId,
-      isPartialPrepay ? 'partially_paid' : 'paid',
+      applyEventStatus,
       verified.rawResponse,
       now,
     );
@@ -250,15 +265,21 @@ export async function applyPaymentVerified(
   // "manual confirm + delayed webhook" double-deduct race. The
   // payment_events claim still guards true webhook replays.
   const hasActiveReservations = reservationRows.length > 0;
+  // INV-1: stock (quantity) is invariant under confirm — only
+  // reserved_quantity -> sold_quantity shifts (matches
+  // confirmReservationsForOrder in inventory.ts and directSale()'s
+  // arithmetic). This inline webhook-triggered deduct used to also
+  // decrement quantity, double-counting against adjustStock()'s exclusive
+  // ownership of that column and drifting `available` over time.
   const deductStmts = hasActiveReservations
     ? reservationRows.map((r) =>
         db
           .prepare(
             `UPDATE inventory_items
              SET reserved_quantity = reserved_quantity - ?1,
-                 quantity = quantity - ?1,
+                 sold_quantity = COALESCE(sold_quantity, 0) + ?1,
                  updated_at = ?3
-             WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`,
+             WHERE variant_id = ?2 AND reserved_quantity >= ?1`,
           )
           .bind(r.quantity, r.variant_id, now),
       )

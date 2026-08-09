@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission, can } from '../../../../lib/rbac';
+import { requireRecentStaffSession } from '../../../../lib/critical-auth';
 import { doAdjustStock } from '../../../../lib/do-client';
 import { prepareAuditLogInsert } from '../../../../lib/audit';
 import { nowSql } from '../../../../lib/dates';
@@ -11,6 +12,8 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     const user = await requireAuth(context);
     requirePermission(user, 'inventory.adjust');
+    // K-24: manual stock adjustment requires a recent step-up.
+    await requireRecentStaffSession(context, user);
 
     const env = getEnv(context);
     let body: { variantId?: string; delta?: number; reason?: string; notes?: string; approvedByStaffId?: string; idempotency_key?: string };

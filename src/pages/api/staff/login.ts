@@ -1,8 +1,8 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
-import { createCsrfToken } from '../../../lib/security';
-import { hashPassword, verifyPassword, legacyHashPassword } from '../../../lib/password';
+import { createCsrfToken, hmacSha256Hex, timingSafeEqualHex } from '../../../lib/security';
+import { hashPassword, verifyPasswordWithUpgrade, legacyHashPassword, PBKDF2_LEGACY_ITERATIONS } from '../../../lib/password';
 import { generateRandomHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
@@ -61,7 +61,33 @@ export async function POST(context: APIContext): Promise<Response> {
 
   // Turnstile bot protection on staff login (Master_Prompt v7.0 §18.5)
   // Token is REQUIRED when TURNSTILE_SECRET_KEY is set.
-  if (env.TURNSTILE_SECRET_KEY && !body.totp_code) {
+  // K-19: Turnstile must gate every password-verification attempt regardless
+  // of totp_code. The old `!body.totp_code` guard let any caller skip
+  // Turnstile just by sending a totp_code field, whether or not the account
+  // actually has TOTP enabled. The 2-step TOTP UI resubmits the same
+  // identifier+password on step 2, but Turnstile tokens are single-use, so
+  // step 2 proves it already passed Turnstile+password via a short-lived
+  // server-signed `step2Token` (issued on the totp_required response)
+  // instead of re-solving the widget.
+  const step2Token = typeof body.step2_token === 'string' ? body.step2_token : '';
+  let step2Verified = false;
+  if (env.TURNSTILE_SECRET_KEY && step2Token) {
+    const [nonce, sig] = step2Token.split('.');
+    if (nonce && sig) {
+      const [expiresStr, idHash] = nonce.split(':');
+      const expectedIdHash = await hmacSha256Hex(identifier, env.SESSION_SECRET);
+      const expectedSig = await hmacSha256Hex(nonce, env.SESSION_SECRET);
+      if (
+        expiresStr && idHash
+        && timingSafeEqualHex(idHash, expectedIdHash)
+        && timingSafeEqualHex(sig, expectedSig)
+        && Number(expiresStr) > Date.now()
+      ) {
+        step2Verified = true;
+      }
+    }
+  }
+  if (env.TURNSTILE_SECRET_KEY && !step2Verified) {
     const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
     if (!token) {
       return Response.json({ error: "Bot check required." }, { status: 403 });
@@ -115,8 +141,16 @@ export async function POST(context: APIContext): Promise<Response> {
   // If the stored hash uses the old format (no password_salt), verify with
   // legacy HMAC and re-hash with PBKDF2 on success.
   if (staff.password_salt) {
-    const valid = await verifyPassword(password, staff.password_hash, staff.password_salt, env.PASSWORD_PEPPER);
+    const { valid, matchedIterations } = await verifyPasswordWithUpgrade(password, staff.password_hash, staff.password_salt, env.PASSWORD_PEPPER);
     if (!valid) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+    // K-25: transparently re-hash at the current (600k) iteration count if
+    // this row was still hashed at the old 100k count.
+    if (matchedIterations === PBKDF2_LEGACY_ITERATIONS) {
+      const newHash = await hashPassword(password, staff.password_salt, env.PASSWORD_PEPPER);
+      await env.DB.prepare(
+        `UPDATE staff_users SET password_hash = ?2 WHERE id = ?1 AND password_hash = ?3`
+      ).bind(staff.id, newHash, staff.password_hash).run();
+    }
   } else {
     const legacyHash = await legacyHashPassword(password, env.SESSION_SECRET);
     if (staff.password_hash !== legacyHash) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
@@ -154,7 +188,18 @@ export async function POST(context: APIContext): Promise<Response> {
   if (totpRequired && totpSecret) {
     const totpCode = typeof body.totp_code === 'string' ? body.totp_code.trim() : '';
     if (!totpCode) {
-      return Response.json({ error: 'TOTP code required', totp_required: true }, { status: 401 });
+      // K-19: issue a short-lived (5 min) proof that Turnstile + password
+      // already passed this attempt, so the step-2 TOTP submit doesn't need
+      // to re-solve Turnstile but also can't skip it on a fresh attempt.
+      let step2Token: string | undefined;
+      if (env.TURNSTILE_SECRET_KEY) {
+        const expires = Date.now() + 5 * 60 * 1000;
+        const idHash = await hmacSha256Hex(identifier, env.SESSION_SECRET);
+        const nonce = `${expires}:${idHash}`;
+        const sig = await hmacSha256Hex(nonce, env.SESSION_SECRET);
+        step2Token = `${nonce}.${sig}`;
+      }
+      return Response.json({ error: 'TOTP code required', totp_required: true, step2_token: step2Token }, { status: 401 });
     }
     const totpValid = await verifyTotpCode(totpSecret, totpCode);
     if (!totpValid) {

@@ -9,7 +9,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { requireAuth, RbacError } from '../../../lib/rbac';
-import { verifyPassword, legacyHashPassword } from '../../../lib/password';
+import { verifyPasswordWithUpgrade, hashPassword, legacyHashPassword, PBKDF2_LEGACY_ITERATIONS } from '../../../lib/password';
 import { nowSql } from '../../../lib/dates';
 import { writeAuditLog, clientIp, userAgent } from '../../../lib/audit';
 
@@ -48,7 +48,16 @@ export async function POST(context: APIContext): Promise<Response> {
   // Verify password
   let valid = false;
   if (staff.password_salt) {
-    valid = await verifyPassword(password, staff.password_hash, staff.password_salt, env.PASSWORD_PEPPER);
+    const result = await verifyPasswordWithUpgrade(password, staff.password_hash, staff.password_salt, env.PASSWORD_PEPPER);
+    valid = result.valid;
+    // K-25: transparently re-hash at the current (600k) iteration count if
+    // this row was still hashed at the old 100k count.
+    if (valid && result.matchedIterations === PBKDF2_LEGACY_ITERATIONS) {
+      const newHash = await hashPassword(password, staff.password_salt, env.PASSWORD_PEPPER);
+      await env.DB.prepare(
+        `UPDATE staff_users SET password_hash = ?2 WHERE id = ?1 AND password_hash = ?3`
+      ).bind(user.id, newHash, staff.password_hash).run();
+    }
   } else {
     const legacyHash = await legacyHashPassword(password, env.SESSION_SECRET);
     valid = staff.password_hash === legacyHash;

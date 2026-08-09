@@ -29,7 +29,7 @@
 
 import { assertPaisa } from "./money";
 import { writeAuditLog } from "./audit";
-import { doSyncFromD1, doDirectSale, doReverseDirectSale } from "./do-client";
+import { doSyncFromD1, doDirectSale, doReverseDirectSale, doNextInvoiceNumber } from "./do-client";
 
 /** Generate a Bangladesh NBR-style receipt number.
  *  Format: ZB-INV-YYYYMMDD-NNNN. The NNNN is the count of paid
@@ -146,7 +146,7 @@ export type CreateInvoiceFailure =
  *  batch rolls back — no half-created invoices, no negative stock.
  */
 export async function createInvoice(
-  env: { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
+  env: { DB: D1Database; VARIANT_INVENTORY_DO?: DurableObjectNamespace; INVOICE_COUNTER_DO?: DurableObjectNamespace },
   input: CreateInvoiceInput,
   now: string,
 ): Promise<CreateInvoiceResult | CreateInvoiceFailure> {
@@ -274,10 +274,14 @@ export async function createInvoice(
   }
   const changeDuePaisa = assertPaisa(amountPaidPaisa - totalPaisa, "change_due_paisa");
 
-  // Claim the receipt number. The UNIQUE(receipt_no) constraint is
-  // the real guard against concurrent inserts; the pre-check is just
-  // an optimization.
-  const receiptNo = await generateReceiptNoWithRetry(db, now);
+  // INV-3 fix: InvoiceCounterDO serializes serial issuance per UTC day
+  // (single-threaded per object) so two concurrent cashiers can never
+  // race the same number — no read-modify-write, no retry loop. Falls
+  // back to the D1 retry path (UNIQUE(receipt_no) catches duplicates
+  // after the fact) only when the DO is not bound.
+  const dateKey = now.replace(/[-: ]/g, "").slice(0, 8);
+  const doResult = await doNextInvoiceNumber(env, dateKey, input.cashierId);
+  const receiptNo = doResult?.receipt_no ?? (await generateReceiptNoWithRetry(db, now));
   if (!receiptNo) return { ok: false, code: "DUPLICATE_IDEMPOTENCY" };
 
   const invoiceId = crypto.randomUUID();
@@ -416,6 +420,19 @@ export async function createInvoice(
     );
   } catch (err) {
     await compensateDirectSales(env, directSales, invoiceId, input.cashierId, "d1_invoice_write_failed");
+    if (doResult) {
+      // Serial burned, never reused — a gap is acceptable to an auditor,
+      // a duplicate is not (InvoiceCounterDO contract). The DO's counter
+      // does not rewind on a downstream D1 failure.
+      await db
+        .prepare(
+          `INSERT INTO invoice_audit (id, invoice_id, actor_staff_id, action, from_status, to_status, metadata_json, created_at)
+           VALUES (?1, ?2, ?3, 'serial_burned', NULL, NULL, ?4, ?5)`,
+        )
+        .bind(crypto.randomUUID(), invoiceId, input.cashierId, JSON.stringify({ receipt_no: receiptNo, reason: "d1_invoice_write_failed" }), now)
+        .run()
+        .catch(() => {});
+    }
     throw err;
   }
 

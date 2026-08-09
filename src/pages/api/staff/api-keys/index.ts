@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertSuperAdminOnly, requirePermission, RbacError } from '../../../../lib/rbac';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 import { writeAuditLog, writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateApiKey, hashApiKey, normalizeApiKeyScopes, ApiKeyError, API_KEY_SCOPES } from '../../../../lib/api-keys';
 import { nowSql } from '../../../../lib/dates';
@@ -45,8 +46,11 @@ export async function POST(context: APIContext): Promise<Response> {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
     requirePermission(user, 'api_keys.create');
+    // K-24: minting a new API key requires a recent step-up.
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

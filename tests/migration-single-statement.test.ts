@@ -38,12 +38,26 @@ describe('migration-single-statement (V8 discipline, T-27)', () => {
     //      an ALTER TABLE / structural rebuild half-applying — a brand
     //      new empty table getting its own index in the same file is not
     //      that risk.
+    //   3. A full table rebuild wrapped in its own PRAGMA/BEGIN..COMMIT
+    //      transaction (CREATE ..._new, INSERT..SELECT, DROP, RENAME) —
+    //      same pattern and justification as 0018_schema_constraints.sql's
+    //      pre-V8 rebuilds. Splitting a rebuild across multiple migration
+    //      files would be the actual danger here: each file applies
+    //      separately, so a mid-rebuild failure between files would leave
+    //      two coexisting tables instead of rolling back cleanly. The
+    //      BEGIN/COMMIT wrapper is what keeps this atomic, not a 1-statement
+    //      file.
     // What is NOT exempt: two unrelated statements, or an ALTER TABLE
     // sharing a file with anything else.
     const files = readdirSync(MIGRATIONS)
       .filter((f) => /^\d{4}_.+\.sql$/.test(f))
       .filter((f) => Number(f.slice(0, 4)) >= 40)
       .filter((f) => !f.includes('_seed_'))
+      .filter((f) => {
+        const sql = readFileSync(resolve(MIGRATIONS, f), 'utf8');
+        const isRebuild = /^\s*BEGIN TRANSACTION/im.test(sql) && /DROP TABLE/i.test(sql) && /RENAME TO/i.test(sql);
+        return !isRebuild;
+      })
       .sort();
 
     expect(files.length).toBeGreaterThanOrEqual(7); // 0040, 0042-0047

@@ -104,6 +104,53 @@ export async function storeStaffTotpSecret(
   ]);
 }
 
+/**
+ * K-22: /totp/setup returns the freshly generated secret to the client for
+ * QR display, but /totp/verify must NOT trust a client-supplied secret back
+ * (that lets any authenticated caller enroll their own attacker-controlled
+ * secret). Instead setup wraps the secret + staff-id binding + expiry in an
+ * AES-GCM envelope (auth tag = tamper-evident) that verify decrypts and
+ * checks, so the enrolled secret is always the one the server generated.
+ */
+export async function createPendingTotpEnvelope(
+  staffId: string,
+  secret: string,
+  env: { SESSION_SECRET?: string; TOTP_CIPHER_KEY?: string },
+): Promise<string> {
+  const material = cipherMaterial(env);
+  if (!material) throw new Error('TOTP_CIPHER_KEY or SESSION_SECRET required');
+  const expires = Date.now() + 10 * 60 * 1000;
+  const cipher = await encryptTotpSecret(JSON.stringify({ staffId, secret, expires }), material);
+  return btoa(String.fromCharCode(...cipher));
+}
+
+export async function readPendingTotpEnvelope(
+  staffId: string,
+  envelope: string,
+  env: { SESSION_SECRET?: string; TOTP_CIPHER_KEY?: string },
+): Promise<string | null> {
+  const material = cipherMaterial(env);
+  if (!material) return null;
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(envelope), (c) => c.charCodeAt(0));
+  } catch {
+    return null;
+  }
+  const plain = await decryptTotpSecret(bytes, material);
+  if (!plain) return null;
+  let payload: { staffId?: string; secret?: string; expires?: number };
+  try {
+    payload = JSON.parse(plain);
+  } catch {
+    return null;
+  }
+  if (!payload.staffId || !payload.secret || !payload.expires) return null;
+  if (payload.staffId !== staffId) return null;
+  if (payload.expires < Date.now()) return null;
+  return payload.secret;
+}
+
 export async function clearStaffTotpSecret(db: D1Database, staffId: string): Promise<void> {
   const now = new Date().toISOString().replace('T', ' ').slice(0, 19);
   await db.batch([

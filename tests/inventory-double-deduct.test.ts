@@ -67,6 +67,7 @@ function buildDb(): DatabaseSync {
   raw.exec(readFileSync(resolve(MIGRATIONS, '0001_initial_v6_8a_schema.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0002_indexes.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0013_order_state_machine_constraints.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0017_variants_stock_generated.sql'), 'utf8'));
   return raw;
 }
 
@@ -90,14 +91,17 @@ function seed(raw: DatabaseSync): void {
 }
 
 function qty(raw: DatabaseSync) {
-  return raw.prepare('SELECT quantity, reserved_quantity FROM inventory_items WHERE variant_id = ?').get('v1') as {
+  return raw.prepare('SELECT quantity, reserved_quantity, COALESCE(sold_quantity, 0) AS sold_quantity FROM inventory_items WHERE variant_id = ?').get('v1') as {
     quantity: number;
     reserved_quantity: number;
+    sold_quantity: number;
   };
 }
 
 function webhookPayload() {
-  return { amountPaisa: 1000, metadata: {}, rawResponse: '{}' } as const;
+  // K-07: metadata.order_id must be present and match payment.order_id
+  // (checked in payments.ts) — the seeded payment row belongs to order o1.
+  return { amountPaisa: 1000, metadata: { order_id: 'o1' }, rawResponse: '{}' } as const;
 }
 
 describe('INV-1: payment-verified stock deduct is not double-applied', () => {
@@ -110,13 +114,13 @@ describe('INV-1: payment-verified stock deduct is not double-applied', () => {
     expect(res.ok).toBe(true);
     expect(res.status).toBe('paid');
     expect(res.alreadyProcessed).toBe(false);
-    expect(qty(raw)).toEqual({ quantity: 8, reserved_quantity: 0 }); // 10-2, 2-2
+    expect(qty(raw)).toEqual({ quantity: 10, reserved_quantity: 0, sold_quantity: 2 }); // stock invariant: reserved -> sold, quantity untouched
 
     // Replay (true webhook retry):
     const replay = await applyPaymentVerified({ DB: d1 }, 'inv1', webhookPayload(), NOW);
     expect(replay.ok).toBe(true);
     expect(replay.alreadyProcessed).toBe(true);
-    expect(qty(raw)).toEqual({ quantity: 8, reserved_quantity: 0 }); // unchanged
+    expect(qty(raw)).toEqual({ quantity: 10, reserved_quantity: 0, sold_quantity: 2 }); // unchanged
   });
 
   it('INV-1 race: manual confirm BEFORE delayed webhook must not double-deduct', async () => {
@@ -129,12 +133,12 @@ describe('INV-1: payment-verified stock deduct is not double-applied', () => {
     // api/staff/orders/[id]/confirm.ts branch 1).
     raw.exec(`
       UPDATE inventory_items
-      SET reserved_quantity = reserved_quantity - 2, quantity = quantity - 2, updated_at = '${NOW}'
-      WHERE variant_id = 'v1' AND reserved_quantity >= 2 AND quantity >= 2;
+      SET reserved_quantity = reserved_quantity - 2, sold_quantity = COALESCE(sold_quantity, 0) + 2, updated_at = '${NOW}'
+      WHERE variant_id = 'v1' AND reserved_quantity >= 2;
       UPDATE stock_reservations SET status = 'confirmed', updated_at = '${NOW}' WHERE id = 'res1' AND status = 'active';
       UPDATE orders SET status = 'staff_confirmed', updated_at = '${NOW}' WHERE id = 'o1' AND status = 'pending_payment';
     `);
-    expect(qty(raw)).toEqual({ quantity: 8, reserved_quantity: 0 }); // manual confirm deducted once
+    expect(qty(raw)).toEqual({ quantity: 10, reserved_quantity: 0, sold_quantity: 2 }); // manual confirm: reserved -> sold once
 
     // Delayed webhook now lands:
     const res = await applyPaymentVerified({ DB: d1 }, 'inv1', webhookPayload(), NOW);
@@ -143,7 +147,7 @@ describe('INV-1: payment-verified stock deduct is not double-applied', () => {
     expect(res.alreadyProcessed).toBe(false);
 
     // CRITICAL: stock must NOT be deducted a second time.
-    expect(qty(raw)).toEqual({ quantity: 8, reserved_quantity: 0 }); // still 8, not 6
+    expect(qty(raw)).toEqual({ quantity: 10, reserved_quantity: 0, sold_quantity: 2 }); // still sold=2, not 4
 
     // Payment record marked paid (authoritative). Order stays staff_confirmed:
     // the webhook's guarded order transition refuses to touch an already
@@ -158,6 +162,6 @@ describe('INV-1: payment-verified stock deduct is not double-applied', () => {
     expect(raw.prepare('SELECT COUNT(*) AS c FROM payment_events WHERE invoice_id = ?').get('inv1')).toMatchObject({ c: 1 });
     const replay = await applyPaymentVerified({ DB: d1 }, 'inv1', webhookPayload(), NOW);
     expect(replay.alreadyProcessed).toBe(true);
-    expect(qty(raw)).toEqual({ quantity: 8, reserved_quantity: 0 });
+    expect(qty(raw)).toEqual({ quantity: 10, reserved_quantity: 0, sold_quantity: 2 });
   });
 });

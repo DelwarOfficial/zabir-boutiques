@@ -27,6 +27,7 @@ interface DoEnv {
   CART_DO?: DurableObjectNamespace;
   DIRECT_CHECKOUT_DO?: DurableObjectNamespace;
   PROVIDER_HEALTH_DO?: DurableObjectNamespace;
+  INVOICE_COUNTER_DO?: DurableObjectNamespace;
 }
 
 /** Call the VariantInventoryDO for a variant. */
@@ -510,4 +511,31 @@ export async function doRecordProviderResult(
     method: "POST",
     body: JSON.stringify({ provider, success }),
   });
+}
+
+/**
+ * INV-3 fix: InvoiceCounterDO was bound and exported but never called —
+ * invoices.ts used a racy D1 SELECT MAX+1 read-modify-write instead. The
+ * DO serializes serial issuance per UTC day (single-threaded per object),
+ * eliminating the read-modify-write race entirely rather than catching
+ * duplicates after the fact via a UNIQUE-constraint retry loop.
+ *
+ * Falls back to null when the DO is not bound (e.g. free-tier deploy);
+ * the caller is responsible for falling back to the D1 retry path.
+ */
+export async function doNextInvoiceNumber(
+  env: DoEnv,
+  dateKey: string,
+  staffId: string,
+): Promise<{ receipt_no: string; seq: number } | null> {
+  if (!env.INVOICE_COUNTER_DO) return null;
+  const id = env.INVOICE_COUNTER_DO.idFromName(`invoice-counter:${dateKey}`);
+  const stub = env.INVOICE_COUNTER_DO.get(id);
+  const res = await stub.fetch("https://do/next", {
+    method: "POST",
+    body: JSON.stringify({ staffId }),
+  });
+  const data = (await res.json().catch(() => null)) as { ok?: boolean; receipt_no?: string; seq?: number } | null;
+  if (!data?.ok || !data.receipt_no) return null;
+  return { receipt_no: data.receipt_no, seq: data.seq ?? 0 };
 }

@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 import { nowSql } from '../../../../lib/dates';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 
@@ -44,8 +45,11 @@ export async function PUT(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
+    // K-24: editing a role requires a recent step-up.
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 
@@ -107,8 +111,11 @@ export async function DELETE(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
+    // K-24: deleting a role requires a recent step-up.
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

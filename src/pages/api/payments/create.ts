@@ -14,12 +14,16 @@ export async function POST(context: APIContext): Promise<Response> {
   const orderId = body.order_id;
   if (!orderId) return Response.json({ error: 'Missing order_id' }, { status: 400 });
 
-  // Master Plan §2.6: Idempotency-Key must be accepted for payment creation
+  // Master Plan §2.6: Idempotency-Key must be accepted for payment creation.
+  // K-03: the key is never the row PK — a client cannot choose payments.id.
+  // It is stored in a separate column with its own unique index
+  // (order_id, idempotency_key), so a chosen key can only ever collide
+  // within the client's own order, never with another order's payment.
   const idempotencyKey = context.request.headers.get('Idempotency-Key')?.trim() || null;
   if (idempotencyKey) {
     const existing = await env.DB.prepare(
-      `SELECT id, checkout_url, invoice_id FROM payments WHERE id = ?1 AND status IN ('created','pending','processing')`
-    ).bind(idempotencyKey).first<{ id: string; checkout_url: string | null; invoice_id: string }>();
+      `SELECT id, checkout_url, invoice_id FROM payments WHERE order_id = ?1 AND idempotency_key = ?2 AND status IN ('created','pending','processing')`
+    ).bind(orderId, idempotencyKey).first<{ id: string; checkout_url: string | null; invoice_id: string }>();
     if (existing && existing.checkout_url) {
       return Response.json(
         { ok: true, payment_id: existing.id, checkout_url: existing.checkout_url, invoice_id: existing.invoice_id, reused: true },
@@ -63,7 +67,7 @@ export async function POST(context: APIContext): Promise<Response> {
     );
   }
 
-  const paymentId = idempotencyKey || crypto.randomUUID();
+  const paymentId = crypto.randomUUID();
   const invoiceId = crypto.randomUUID();
   const checkout = await createPaymentCheckout(env, {
     invoiceId,
@@ -85,9 +89,9 @@ export async function POST(context: APIContext): Promise<Response> {
   // already inserted a payment row for this order, this insert is silently
   // skipped and we return the existing payment below.
   const insertResult = await env.DB.prepare(
-    `INSERT OR IGNORE INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, created_at, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)`
-  ).bind(paymentId, orderId, invoiceId, checkout.provider, paymentAmountPaisa, checkout.paymentUrl, now).run();
+    `INSERT OR IGNORE INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, idempotency_key, created_at, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?8, ?8)`
+  ).bind(paymentId, orderId, invoiceId, checkout.provider, paymentAmountPaisa, checkout.paymentUrl, idempotencyKey, now).run();
 
   if (insertResult.meta.changes === 0) {
     // Another request created the payment row first. Fetch and return it.

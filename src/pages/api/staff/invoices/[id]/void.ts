@@ -9,6 +9,7 @@ import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { nowSql } from "../../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";
+import { requireRecentStaffSession, CriticalAuthError } from "../../../../../lib/critical-auth";
 import { voidInvoice } from "../../../../../lib/invoices";
 import { writeAuditLog, clientIp, userAgent } from "../../../../../lib/audit";
 
@@ -21,8 +22,11 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     requirePermission(user, "orders.cancel");
+    // K-24: voiding a paid invoice requires a recent step-up.
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

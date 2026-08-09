@@ -360,12 +360,15 @@ export async function confirmReservationsForOrder(
   for (const item of items) {
     inventoryStmtIndex.push(stmts.length);
     stmts.push(
+      // INV-1: stock (quantity) is invariant under confirm — only
+      // reserved_quantity -> sold_quantity shifts, matching directSale()'s
+      // arithmetic and V8 §11.3. stock only ever changes via adjustStock().
       db.prepare(
         `UPDATE inventory_items
          SET reserved_quantity = reserved_quantity - ?1,
-             quantity = quantity - ?1,
+             sold_quantity = COALESCE(sold_quantity, 0) + ?1,
              updated_at = ?3
-         WHERE variant_id = ?2 AND reserved_quantity >= ?1 AND quantity >= ?1`,
+         WHERE variant_id = ?2 AND reserved_quantity >= ?1`,
       ).bind(item.qty, item.variantId, now),
     );
     stmts.push(

@@ -21,13 +21,9 @@ export async function verifyPaymentWebhookSignature(
   return timingSafeEqualHex(normalized, expected);
 }
 
+/** K-02: closed header list — generic X-Signature/Signature are attacker/proxy-settable. */
 export function readWebhookSignature(request: Request): string {
-  return (
-    request.headers.get('X-UddoktaPay-Signature')
-    || request.headers.get('X-Signature')
-    || request.headers.get('Signature')
-    || ''
-  ).trim();
+  return (request.headers.get('X-UddoktaPay-Signature') || '').trim();
 }
 
 export function parseWebhookPayload(rawBody: string): WebhookIngressBody | null {
@@ -56,24 +52,30 @@ export type WebhookReceiptResult = 'recorded' | 'duplicate' | 'payment_not_found
 
 /**
  * Persist webhook receipt in payment_events before queue processing.
- * Uses provider event id as PRIMARY KEY for replay protection.
+ *
+ * N-16/INV-2: dedup identity is (provider, provider_event_id) — the
+ * provider's own event id — not an (invoice_id, event_type, status) tuple.
+ * The old shape silently dropped a second GENUINE webhook for the same
+ * invoice/type/status (e.g. a provider retry with a new event id), not just
+ * replays. `id` (the row PK) is still set from the resolved event id so
+ * existing PK-level replay protection (INSERT OR IGNORE) is unaffected.
  */
 export async function recordWebhookReceipt(
   db: D1Database,
   opts: { eventId: string; invoiceId: string; rawBody: string; now: string },
 ): Promise<WebhookReceiptResult> {
   const payment = await db
-    .prepare('SELECT id FROM payments WHERE invoice_id = ?1')
+    .prepare('SELECT id, provider FROM payments WHERE invoice_id = ?1')
     .bind(opts.invoiceId)
-    .first<{ id: string }>();
+    .first<{ id: string; provider: string }>();
   if (!payment) return 'payment_not_found';
 
   const result = await db
     .prepare(
-      `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, raw_payload, created_at)
-       VALUES (?1, ?2, ?3, 'webhook', 'received', ?4, ?5)`,
+      `INSERT OR IGNORE INTO payment_events (id, payment_id, invoice_id, event_type, status, provider, provider_event_id, raw_payload, created_at)
+       VALUES (?1, ?2, ?3, 'webhook', 'received', ?4, ?5, ?6, ?7)`,
     )
-    .bind(opts.eventId, payment.id, opts.invoiceId, opts.rawBody.slice(0, 4000), opts.now)
+    .bind(opts.eventId, payment.id, opts.invoiceId, payment.provider, opts.eventId, opts.rawBody.slice(0, 4000), opts.now)
     .run();
 
   return result.meta.changes === 1 ? 'recorded' : 'duplicate';

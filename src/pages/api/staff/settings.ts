@@ -5,6 +5,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { requireAuth, requirePermission, isSuperAdmin } from '../../../lib/rbac';
+import { requireRecentStaffSession } from '../../../lib/critical-auth';
 
 export async function GET(context: APIContext): Promise<Response> {
   const user = await requireAuth(context);
@@ -27,6 +28,9 @@ export async function GET(context: APIContext): Promise<Response> {
 export async function POST(context: APIContext): Promise<Response> {
   const user = await requireAuth(context);
   requirePermission(user, 'settings.manage');
+  // K-24: changing a site setting (including platform-tier ones) requires
+  // a recent step-up.
+  await requireRecentStaffSession(context, user);
 
   const env = getEnv(context);
   const body = await context.request.json<{ key: string; value: string }>();

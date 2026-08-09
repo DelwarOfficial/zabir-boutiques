@@ -31,6 +31,8 @@ type OrderInsertData = {
   discount_paisa: number;
   vat_paisa?: number;
   total_paisa: number;
+  advance_paisa?: number;
+  balance_paisa?: number;
   payment_method: 'cod' | 'uddoktapay' | 'partial_prepay' | 'in_store';
   fraud_decision: string;
   status?: string;
@@ -110,13 +112,16 @@ export async function insertReservedOrderWithRetry(
       `INSERT INTO orders (
         id, order_number, phone, name, address, note, shipping_zone,
         subtotal_paisa, delivery_paisa, discount_paisa, vat_paisa, total_paisa,
+        advance_paisa, balance_paisa,
         payment_method, fraud_decision, status, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?16)`
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?18)`
     ).bind(
       orderId, orderNumber, orderData.phone, orderData.name, orderData.address,
       orderData.note ?? null, orderData.shipping_zone ?? null,
       orderData.subtotal_paisa, orderData.delivery_paisa,
-      orderData.discount_paisa, orderData.vat_paisa ?? 0, orderData.total_paisa, orderData.payment_method,
+      orderData.discount_paisa, orderData.vat_paisa ?? 0, orderData.total_paisa,
+      orderData.advance_paisa ?? 0, orderData.balance_paisa ?? orderData.total_paisa,
+      orderData.payment_method,
       orderData.fraud_decision, orderData.status ?? 'pending_review', now
     );
 

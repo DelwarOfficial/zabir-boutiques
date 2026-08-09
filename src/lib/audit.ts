@@ -1,6 +1,6 @@
 import { nowSql } from './dates';
 import { env as cloudflareEnv } from 'cloudflare:workers';
-import { safeLog } from './pii-scrubber';
+import { safeLog, scrubValue } from './pii-scrubber';
 
 export interface AuditEntry {
   actorStaffId: string | null;
@@ -72,7 +72,20 @@ export async function writeAuditLog(db: D1Database, entry: AuditEntry): Promise<
 
 export async function prepareAuditLogInsert(db: D1Database, entry: AuditEntry, now = nowSql()): Promise<D1PreparedStatement> {
   const id = crypto.randomUUID();
-  const { previousHash, chainHash } = await computeHashChain(db, entry, now);
+  // INV-5: audit_log is append-only for 7 years. metadata is caller-supplied
+  // and has carried raw phone/email/address in the past (order/customer
+  // detail dumps). Scrub it the same way safeLog scrubs console output
+  // before it's hashed into the chain or persisted, so the retained record
+  // never has a phone/email regex match or a raw PII_KEYS field.
+  const scrubbedEntry: AuditEntry = {
+    ...entry,
+    // entity_id has carried a raw user-typed identifier (phone/email) on at
+    // least one call site (staff.login.turnstile_failed) before the
+    // corresponding staff row was even looked up.
+    entityId: typeof entry.entityId === 'string' ? (scrubValue(entry.entityId) as string) : entry.entityId,
+    metadata: entry.metadata != null ? scrubValue(entry.metadata) : entry.metadata,
+  };
+  const { previousHash, chainHash } = await computeHashChain(db, scrubbedEntry, now);
   return db.prepare(
     `INSERT INTO audit_log (
       id, actor_staff_id, actor_role, action, entity_type, entity_id,
@@ -80,14 +93,14 @@ export async function prepareAuditLogInsert(db: D1Database, entry: AuditEntry, n
     ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)`
   ).bind(
     id,
-    entry.actorStaffId,
-    entry.actorRole,
-    entry.action,
-    entry.entityType,
-    entry.entityId,
-    entry.metadata != null ? JSON.stringify(entry.metadata) : null,
-    entry.ipAddress ?? null,
-    entry.userAgent ?? null,
+    scrubbedEntry.actorStaffId,
+    scrubbedEntry.actorRole,
+    scrubbedEntry.action,
+    scrubbedEntry.entityType,
+    scrubbedEntry.entityId,
+    scrubbedEntry.metadata != null ? JSON.stringify(scrubbedEntry.metadata) : null,
+    scrubbedEntry.ipAddress ?? null,
+    scrubbedEntry.userAgent ?? null,
     now,
     previousHash,
     chainHash

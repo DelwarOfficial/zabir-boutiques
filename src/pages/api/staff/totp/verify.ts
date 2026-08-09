@@ -7,7 +7,7 @@ import { getEnv } from '../../../../lib/env';
 import { requireAuth, requireRole, RbacError } from '../../../../lib/rbac';
 import { verifyTotpCode } from '../../../../lib/totp';
 import { writeCriticalAuditLog } from '../../../../lib/audit';
-import { storeStaffTotpSecret } from '../../../../lib/otp-secrets';
+import { storeStaffTotpSecret, readPendingTotpEnvelope } from '../../../../lib/otp-secrets';
 
 export async function POST(context: APIContext): Promise<Response> {
   let user;
@@ -20,13 +20,19 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const env = getEnv(context);
-  const body = (await context.request.json().catch(() => ({}))) as { code?: string; secret?: string };
-  if (!body.code || !body.secret) return Response.json({ ok: false, code: 'CODE_AND_SECRET_REQUIRED' }, { status: 400 });
+  const body = (await context.request.json().catch(() => ({}))) as { code?: string; pending?: string };
+  if (!body.code || !body.pending) return Response.json({ ok: false, code: 'CODE_AND_PENDING_REQUIRED' }, { status: 400 });
 
-  const valid = await verifyTotpCode(body.secret, body.code);
+  // K-22: the secret to enroll comes only from the server-issued `pending`
+  // envelope from /totp/setup, never from client-supplied plaintext — a
+  // hijacked session can no longer enroll its own attacker-chosen secret.
+  const secret = await readPendingTotpEnvelope(user.id, body.pending, env);
+  if (!secret) return Response.json({ ok: false, code: 'PENDING_EXPIRED_OR_INVALID' }, { status: 400 });
+
+  const valid = await verifyTotpCode(secret, body.code);
   if (!valid) return Response.json({ ok: false, code: 'INVALID_CODE' }, { status: 400 });
 
-  await storeStaffTotpSecret(env.DB, user.id, body.secret, env);
+  await storeStaffTotpSecret(env.DB, user.id, secret, env);
 
   await writeCriticalAuditLog(env.DB, {
     actorStaffId: user.id,

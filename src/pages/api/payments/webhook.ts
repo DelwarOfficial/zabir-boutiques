@@ -26,9 +26,11 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ error: 'Unauthorized' }, { status: 401 });
   }
 
-  const ipnKey = context.request.headers.get('RT-UDDOKTAPAY-API-KEY');
-  if (ipnKey && env.UDDOKTAPAY_API_KEY && !timingSafeEqualHex(ipnKey, env.UDDOKTAPAY_API_KEY)) {
-    return Response.json({ error: 'Unauthorized' }, { status: 401 });
+  if (env.UDDOKTAPAY_API_KEY) {
+    const ipnKey = context.request.headers.get('RT-UDDOKTAPAY-API-KEY');
+    if (!ipnKey || !timingSafeEqualHex(ipnKey, env.UDDOKTAPAY_API_KEY)) {
+      return Response.json({ error: 'Unauthorized' }, { status: 401 });
+    }
   }
 
   const body = parseWebhookPayload(rawBody);

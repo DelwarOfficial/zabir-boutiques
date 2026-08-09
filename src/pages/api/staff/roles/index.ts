@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, assertSuperAdminOnly, RbacError } from '../../../../lib/rbac';
+import { requireRecentStaffSession, CriticalAuthError } from '../../../../lib/critical-auth';
 import { nowSql } from '../../../../lib/dates';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 
@@ -50,8 +51,12 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     assertSuperAdminOnly(user);
+    // K-24: creating a role (with an arbitrary permission set) requires a
+    // recent step-up.
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err;
   }
 

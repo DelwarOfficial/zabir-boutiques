@@ -1,6 +1,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../../lib/env';
 import { requireAuth, requirePermission } from '../../../../lib/rbac';
+import { requireRecentStaffSession } from '../../../../lib/critical-auth';
 import { CloudflareCacheClient } from '../../../../lib/integrations/cloudflare_cache/client';
 import { writeCriticalAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 
@@ -11,6 +12,8 @@ interface PurgeBody {
 export async function POST(context: APIContext): Promise<Response> {
   const user = await requireAuth(context);
   requirePermission(user, 'settings.platform.update');
+  // K-24: platform cache purge requires a recent step-up.
+  await requireRecentStaffSession(context, user);
 
   const env = getEnv(context);
   let body: PurgeBody = {};

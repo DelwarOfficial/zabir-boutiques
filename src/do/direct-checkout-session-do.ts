@@ -68,6 +68,12 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
         if (!body.productId || !body.variantId || !body.quantity || body.quantity < 1) {
           return Response.json({ ok: false, error: 'INVALID_INPUT' }, { status: 400 });
         }
+        // K-14: an empty binding secret hashes to a deterministic constant
+        // (sha256('')), which would let any caller that also omits the
+        // secret match the session. Reject at creation.
+        if (!body.bindingSecret) {
+          return Response.json({ ok: false, error: 'MISSING_BINDING_SECRET' }, { status: 400 });
+        }
 
         const sessionId = body.sessionId || crypto.randomUUID();
         const now = new Date();
@@ -221,6 +227,9 @@ async function verifySessionBinding(
   bindingSecret: string | undefined,
 ): Promise<boolean> {
   if (!session.bindingHash) return true; // legacy sessions created before this field existed
-  const hash = await sha256(bindingSecret ?? '');
+  if (!bindingSecret) return false; // K-14: never let an omitted secret match anything
+  const hash = await sha256(bindingSecret);
+  const EMPTY_SECRET_HASH = 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855';
+  if (hash === EMPTY_SECRET_HASH) return false; // reject legacy sha256('') rows
   return hash === session.bindingHash;
 }

@@ -66,6 +66,15 @@ export async function POST(context: APIContext): Promise<Response> {
     `UPDATE password_reset_tokens SET used_at = ?2 WHERE id = ?1`,
   ).bind(token.id, now).run();
 
+  // K-21: revoke every other outstanding reset token for this account too —
+  // otherwise an older unclaimed token (e.g. from an earlier reset request,
+  // or one an attacker intercepted) stays valid until its own expiry even
+  // after the password has already been changed via a different token.
+  await env.DB.prepare(
+    `UPDATE password_reset_tokens SET revoked_at = ?2
+     WHERE staff_id = ?1 AND id != ?3 AND used_at IS NULL AND revoked_at IS NULL`,
+  ).bind(token.staff_id, now, token.id).run();
+
   // Revoke all active sessions for this staff — force re-login
   const sessions = await env.DB.prepare(
     `SELECT id FROM staff_sessions WHERE staff_user_id = ?1 AND is_revoked = 0 AND absolute_expires_at > ?2`,

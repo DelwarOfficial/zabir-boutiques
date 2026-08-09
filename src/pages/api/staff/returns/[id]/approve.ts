@@ -2,6 +2,7 @@ import type { APIContext } from "astro";
 import { getEnv } from "../../../../../lib/env";
 import { nowSql } from "../../../../../lib/dates";
 import { requireAuth, requirePermission, RbacError } from "../../../../../lib/rbac";
+import { requireRecentStaffSession, CriticalAuthError } from "../../../../../lib/critical-auth";
 import { prepareAuditLogInsert, clientIp, userAgent } from "../../../../../lib/audit";
 import { canTransition } from "../../../../../lib/order-state-machine";
 import { doAdjustStock } from "../../../../../lib/do-client";
@@ -20,8 +21,11 @@ export async function POST(context: APIContext): Promise<Response> {
   try {
     user = await requireAuth(context);
     requirePermission(user, "payments.refund");
+    // K-24: refund-triggering approval requires a recent step-up.
+    await requireRecentStaffSession(context, user);
   } catch (err) {
     if (err instanceof RbacError) return err.toResponse();
+    if (err instanceof CriticalAuthError) return err.toResponse();
     throw err instanceof Error ? err : new Error(String(err));
   }
 
