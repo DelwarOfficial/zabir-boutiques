@@ -1,13 +1,19 @@
 /**
- * DELETE /api/me/data [Master_Prompt v7.0 §28.3]
- * Anonymize customer PII while preserving order integrity.
+ * DELETE /api/me/data [Master_Prompt v7.0 §28.3, N-12]
+ *
+ * N-12: this used to anonymize immediately. The plan requires a 30-day
+ * processing window so a fraud investigation, open order, or chargeback
+ * isn't cut off by the customer's own deletion request. Actual
+ * anonymization now happens via the daily `pending_deletions` cron
+ * (src/lib/customer-deletion.ts) — this route only records the verified
+ * request.
  */
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { nowSql } from '../../../lib/dates';
-import { writeAuditLog } from '../../../lib/audit';
 import { extractBearerToken, sha256Hex, verifyPhoneToken } from '../../../lib/phone-verification';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
+import { scheduleCustomerDeletion } from '../../../lib/customer-deletion';
 
 export async function DELETE(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -26,22 +32,22 @@ export async function DELETE(context: APIContext): Promise<Response> {
   }
 
   const now = nowSql();
-  const anon = `DELETED-${crypto.randomUUID().slice(0, 8)}`;
   const phoneHash = await sha256Hex(normalized.phone);
 
-  await env.DB.batch([
-    env.DB.prepare(`UPDATE orders SET name = ?2, address = ?3, email = NULL, phone = ?2, updated_at = ?4 WHERE phone IN (?1, ?5)`).bind(normalized.phone, anon, anon, now, normalized.local),
-    env.DB.prepare(`UPDATE cart_activity SET customer_name = ?2, customer_email = NULL, customer_phone = NULL WHERE customer_phone IN (?1, ?3)`).bind(normalized.phone, anon, normalized.local),
-  ]);
+  const { scheduledFor, alreadyScheduled } = await scheduleCustomerDeletion(
+    env.DB,
+    normalized.phone,
+    normalized.local,
+    phoneHash,
+    now,
+  );
 
-  await writeAuditLog(env.DB, {
-    actorStaffId: null,
-    actorRole: null,
-    action: 'customer.data_deletion',
-    entityType: 'customer',
-    entityId: `sha256:${phoneHash}`,
-    metadata: { anonymized: true },
+  return Response.json({
+    ok: true,
+    scheduled_for: scheduledFor,
+    already_scheduled: alreadyScheduled,
+    message: alreadyScheduled
+      ? 'A deletion request is already scheduled for this account.'
+      : 'Deletion request received. Your data will be anonymized in 30 days unless there is an open order, return, or fraud review in progress at that time.',
   });
-
-  return Response.json({ ok: true, message: 'Data anonymized. Orders preserved with redacted PII.' });
 }

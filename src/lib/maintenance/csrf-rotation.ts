@@ -1,17 +1,16 @@
 /**
- * CSRF Key Rotation [Master_Prompt v7.0 §18.3]
+ * CSRF Key Rotation [Master Plan §18.3, K-36]
  *
- * Monthly rotation of CSRF signing key. Uses dual-key verification
- * (current + previous key) to prevent token invalidation during rotation.
- *
- * This is a placeholder implementation. In production, the key rotation
- * should be handled by a Durable Object or Cloudflare Secret management.
+ * Monthly rotation of the CSRF signing key. Uses dual-key verification
+ * (current + previous key) so a token signed just before rotation is
+ * still accepted, instead of failing every in-flight session's CSRF
+ * check the moment rotation runs.
  */
+import { rotateCsrfSigningKey } from '../csrf-keys';
 
 export async function rotateCsrfKey(
-  env: { DB: D1Database; CSRF_SIGNING_KEY?: string; CSRF_SIGNING_KEY_PREV?: string },
+  env: { DB: D1Database; SESSION_SECRET: string },
 ): Promise<{ ok: boolean; rotated: boolean; error?: string }> {
-  // Check if rotation is needed (monthly)
   const lastRotation = await env.DB.prepare(
     `SELECT value FROM site_settings WHERE key = 'csrf_key_rotated_at'`
   ).first<{ value: string }>();
@@ -25,17 +24,21 @@ export async function rotateCsrfKey(
     }
   }
 
-  // In production, this would:
-  // 1. Generate a new CSRF signing key
-  // 2. Store the old key as CSRF_SIGNING_KEY_PREV
-  // 3. Update CSRF_SIGNING_KEY with the new key
-  // 4. Update the rotation timestamp in site_settings
-  // 5. Log the rotation in audit_log
+  try {
+    await rotateCsrfSigningKey(env.DB, env.SESSION_SECRET, now.toISOString().replace('T', ' ').slice(0, 19));
+  } catch (err) {
+    return { ok: false, rotated: false, error: err instanceof Error ? err.message : String(err) };
+  }
 
-  // For now, just update the rotation timestamp
+  // K-36: site_settings.label/created_at are NOT NULL with no default —
+  // the original INSERT OR REPLACE only listed (key, value, updated_at)
+  // and would throw a NOT NULL constraint violation on every call (this
+  // path was never actually exercised before, since rotateCsrfKey had no
+  // caller anywhere until this fix wired it into cron-dispatch.ts).
   await env.DB.prepare(
-    `INSERT OR REPLACE INTO site_settings (key, value, updated_at)
-     VALUES ('csrf_key_rotated_at', ?1, ?1)`
+    `INSERT INTO site_settings (key, value, type, label, description, group_name, sort_order, created_at, updated_at)
+     VALUES ('csrf_key_rotated_at', ?1, 'text', 'CSRF Key Last Rotated', '', 'System', 0, ?1, ?1)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`
   ).bind(now.toISOString()).run();
 
   return { ok: true, rotated: true };

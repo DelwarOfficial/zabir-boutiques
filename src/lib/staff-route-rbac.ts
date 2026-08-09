@@ -15,6 +15,7 @@ export function getRequiredStaffPermission(pathname: string, method: string): Pe
   if (p.includes('/refund')) return 'payments.refund';
   if (p.includes('/orders/create')) return 'orders.create';
   if (p.includes('/orders/') && p.includes('/confirm')) return 'orders.confirm';
+  if (p.includes('/orders/') && p.includes('/cancel')) return 'orders.cancel';
   if (p.includes('/orders/') && p.includes('/label')) return 'orders.pack';
   if (p.includes('/orders/') && p.includes('/ship')) return 'orders.ship';
   if (p.includes('/orders/') && p.includes('/pack')) return 'orders.pack';

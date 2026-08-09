@@ -12,6 +12,8 @@
  * Audit integrity check + checkpoint            | Daily 03:00 UTC        | Hash-chain verification
  * Tinify retry                                   | Daily 03:00 UTC        | Re-compress any uncompressed images
  * D1 backup to R2 (d1-backup queue)             | Hourly                 | DR backup via queue consumer (INV-4)
+ * CSRF signing key rotation                      | Daily 03:00 UTC        | Rotates every 30 days (K-36); daily call is a gated no-op otherwise
+ * Customer deletion processing                   | Daily 03:00 UTC        | Anonymize requests whose 30-day window elapsed, no active hold (N-12)
  * Sitemap generation                            | Daily 02:00 UTC        | sitemap.xml to R2
  * Backup verification on staging                | Weekly Sun 09:00 UTC   | Restore test
  * Monthly archive                                | 1st of month 05:00 UTC | Archive old events to R2
@@ -74,6 +76,17 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
       await recordAuditIntegrityCheck(env.DB);
       await writeAuditCheckpoint(env.DB);
       await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
+
+      // N-12: process customer deletion requests whose 30-day window has
+      // elapsed (and re-check anything previously held).
+      const { processPendingDeletions } = await import('./customer-deletion');
+      await processPendingDeletions(env.DB, nowSql());
+
+      // K-36: was never wired to any cron at all. rotateCsrfKey() is a
+      // safe daily call — it internally gates on a 30-day interval via
+      // site_settings and no-ops otherwise.
+      const { rotateCsrfKey } = await import('./maintenance/csrf-rotation');
+      await rotateCsrfKey(env as unknown as { DB: D1Database; SESSION_SECRET: string });
     }
 
     // INV-4: hourly D1 backup via queue (was every 6 hours — a D1 disaster

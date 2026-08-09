@@ -858,7 +858,7 @@ Forbidden KV use:
 | Bucket | Purpose |
 |---|---|
 | `zabir-product-images` | Product images and generated variants |
-| `zabir-email-templates` | Rendered email HTML templates |
+| `zabir-email-templates-prod` (N-25: this bucket carries a `-prod` suffix in production, unlike the others in this table — confirmed as the real bucket name in the live Cloudflare account, not a naming drift to fix) | Rendered email HTML templates |
 | `zabir-logs` | Redacted structured logs |
 | `zabir-backups` | D1 SQL exports and metadata |
 | `zabir-reports` | Generated reports and CSV exports |

@@ -44,7 +44,7 @@ const RATE_LIMITS: Array<{ pattern: RegExp; limit: number; windowSeconds: number
 export const onRequest: MiddlewareHandler = async (context, next) => {
   const { request } = context;
   const url = new URL(request.url);
-  const runtimeEnv = cloudflareEnv as { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string };
+  const runtimeEnv = cloudflareEnv as { CACHE?: KVNamespace; PUBLIC_SITE_URL?: string; SESSION_SECRET?: string; DB?: D1Database };
 
   // Per-request CSP nonce. Available on context.locals.cspNonce so pages
   // can stamp inline scripts.
@@ -87,7 +87,7 @@ export const onRequest: MiddlewareHandler = async (context, next) => {
   }
 
   if (STAFF_MUTATION_PATHS.test(url.pathname) && !SAFE_METHODS.has(request.method) && !CSRF_EXEMPT_PATHS.has(url.pathname)) {
-    const csrf = await validateCsrfDoubleSubmit(request, runtimeEnv?.SESSION_SECRET);
+    const csrf = await validateCsrfDoubleSubmit(request, runtimeEnv?.SESSION_SECRET, runtimeEnv?.DB);
     if (!csrf.ok) {
       const message = csrf.reason === 'invalid_signature' ? 'Invalid CSRF token signature' : 'Invalid CSRF token';
       return withSecurityHeaders(Response.json({ error: message }, { status: 403 }), cspNonce, request, url.pathname);

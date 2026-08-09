@@ -2,6 +2,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { hashSessionToken, generateSessionToken } from '../../../lib/sessions';
 import { createCsrfToken, hmacSha256Hex, timingSafeEqualHex } from '../../../lib/security';
+import { getCsrfSigningKeys } from '../../../lib/csrf-keys';
 import { hashPassword, verifyPasswordWithUpgrade, legacyHashPassword, PBKDF2_LEGACY_ITERATIONS } from '../../../lib/password';
 import { generateRandomHex } from '../../../lib/security';
 import { nowSql } from '../../../lib/dates';
@@ -44,14 +45,14 @@ export async function POST(context: APIContext): Promise<Response> {
   const loginKv = sessionKv;
   const clientIpAddr = clientIp(context.request) ?? 'unknown';
   const idKey = await sha256Hex(identifier.trim().toLowerCase());
-  const ipLimit = await checkLoginRateLimit(loginKv, 'ip', clientIpAddr);
+  const ipLimit = await checkLoginRateLimit(loginKv, 'ip', clientIpAddr, env.DB);
   if (!ipLimit.ok) {
     return Response.json(
       { error: 'Too many attempts. Please try again later.' },
       { status: 429, headers: { 'Retry-After': String(LOGIN_RATE_LIMIT.perIp.windowSeconds) } },
     );
   }
-  const idLimit = await checkLoginRateLimit(loginKv, 'identifier', idKey);
+  const idLimit = await checkLoginRateLimit(loginKv, 'identifier', idKey, env.DB);
   if (!idLimit.ok) {
     return Response.json(
       { error: 'Too many attempts. Please try again later.' },
@@ -312,7 +313,9 @@ export async function POST(context: APIContext): Promise<Response> {
     userAgent: userAgent(context.request)
   });
 
-  const csrfToken = await createCsrfToken(env.SESSION_SECRET);
+  // K-36: sign with the D1-managed current key, not SESSION_SECRET directly.
+  const { current: csrfSigningKey } = await getCsrfSigningKeys(env.DB, env.SESSION_SECRET);
+  const csrfToken = await createCsrfToken(csrfSigningKey);
 
   // Successful login: clear the rate-limit counters so a legitimate user
   // who mistyped isn't penalized on their next attempt.

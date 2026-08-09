@@ -390,3 +390,54 @@ export async function confirmReservationsForOrder(
   await syncConfirmedReservationsDoState(env, items);
   return { ok: true, items };
 }
+
+/**
+ * K-38 / Master Plan §13.1: compensating transaction for an online order
+ * cancelled AFTER confirm() already shifted its units from reserved to
+ * sold. This is the ONLY way to undo that stock effect — staff must not
+ * hand-edit inventory to compensate. Idempotent per (order_id, variant_id):
+ * an `order_status_history` row recording this exact reversal is the
+ * dedup key, so a retried cancel (or a replayed request) does not double
+ * credit sold_quantity back.
+ */
+export async function reverseConfirm(
+  env: Env,
+  orderId: string,
+  now: string,
+): Promise<{ ok: true; reversed: Array<{ variantId: string; qty: number }> } | { ok: false; reason: 'already_reversed' | 'no_order_items' }> {
+  const db = env.DB;
+
+  const alreadyReversed = await db
+    .prepare(`SELECT id FROM order_status_history WHERE order_id = ?1 AND note = 'reverseConfirm:stock_reversed' LIMIT 1`)
+    .bind(orderId)
+    .first<{ id: string }>();
+  if (alreadyReversed) return { ok: false, reason: 'already_reversed' };
+
+  const itemsRes = await db
+    .prepare(`SELECT variant_id, quantity FROM order_items WHERE order_id = ?1`)
+    .bind(orderId)
+    .all<{ variant_id: string; quantity: number }>();
+  const items = itemsRes.results ?? [];
+  if (items.length === 0) return { ok: false, reason: 'no_order_items' };
+
+  const stmts = items.map((item) =>
+    db.prepare(
+      `UPDATE inventory_items
+       SET sold_quantity = sold_quantity - ?1, updated_at = ?3
+       WHERE variant_id = ?2 AND sold_quantity >= ?1`,
+    ).bind(item.quantity, item.variant_id, now),
+  );
+  // Idempotency marker in the same atomic batch as the stock reversal —
+  // both commit together, or neither does.
+  stmts.push(
+    db.prepare(
+      `INSERT INTO order_status_history (id, order_id, from_status, to_status, changed_by, note, created_at)
+       VALUES (?1, ?2, NULL, 'cancelled', NULL, 'reverseConfirm:stock_reversed', ?3)`,
+    ).bind(crypto.randomUUID(), orderId, now),
+  );
+  await db.batch(stmts, { atomic: true });
+
+  const reversed = items.map((item) => ({ variantId: item.variant_id, qty: item.quantity }));
+  await syncVariantsFromD1(env, reversed.map((r) => r.variantId));
+  return { ok: true, reversed };
+}
