@@ -13,6 +13,18 @@
 
 export type VariantId = string;
 
+/**
+ * N-2 Case A: object ID is `variant:{id}`, not a raw variant ID (Master
+ * Plan object-ID table). Safe as a same-deploy cutover — VariantInventoryDO
+ * already self-hydrates from D1 (`ensureInitialized`, keyed on the
+ * `variantId` passed in the request body, independent of whatever string
+ * addressed the object) on every cold start, so a freshly-named object
+ * correctly picks up current stock/reserved/sold with zero new DO code.
+ */
+function variantObjectKey(variantId: VariantId): string {
+  return `variant:${variantId}`;
+}
+
 export interface ReserveOk { ok: true; reservationId: string; available: number; }
 export interface ReserveFail { ok: false; available: number; requested: number; }
 export type ReserveResult = ReserveOk | ReserveFail;
@@ -37,7 +49,7 @@ export async function doReserve(
   qty: number,
 ): Promise<ReserveResult> {
   if (!env.VARIANT_INVENTORY_DO) return d1OnlyReserve(env, variantId, qty);
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/reserve", {
     method: "POST",
@@ -53,7 +65,7 @@ export async function doRelease(
   reservationId?: string,
 ): Promise<void> {
   if (!env.VARIANT_INVENTORY_DO) return;
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/release", {
     method: "POST",
@@ -69,7 +81,7 @@ export async function doConfirm(
   reservationId?: string,
 ): Promise<{ ok: boolean; error?: string }> {
   if (!env.VARIANT_INVENTORY_DO) return { ok: true };
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/confirm", {
     method: "POST",
@@ -87,7 +99,7 @@ export async function doDirectSale(
   staffId?: string,
 ): Promise<DirectSaleResult> {
   if (!env.VARIANT_INVENTORY_DO) return { ok: true };
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/directSale", {
     method: "POST",
@@ -104,7 +116,7 @@ export async function doReverseDirectSale(
   reason: string,
 ): Promise<ReverseDirectSaleResult> {
   if (!env.VARIANT_INVENTORY_DO) return { ok: false, error: 'DO_NOT_BOUND' };
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/reverseDirectSale", {
     method: "POST",
@@ -128,7 +140,7 @@ export async function doGetAvailability(
     const sold = row?.sold_quantity ?? 0;
     return { ok: true, stock, reserved, sold, available: stock - reserved - sold };
   }
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/availability", {
     method: "POST",
@@ -185,7 +197,7 @@ export async function doAdjustStock(
       .run();
     return { ok: true, previous_stock: currentStock, new_stock: newStock, adjustment_id: adjustmentId };
   }
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   const res = await stub.fetch("https://do/adjustStock", {
     method: "POST",
@@ -203,7 +215,7 @@ export async function doSyncFromD1(
   sold = 0,
 ): Promise<void> {
   if (!env.VARIANT_INVENTORY_DO) return;
-  const id = env.VARIANT_INVENTORY_DO.idFromName(variantId);
+  const id = env.VARIANT_INVENTORY_DO.idFromName(variantObjectKey(variantId));
   const stub = env.VARIANT_INVENTORY_DO.get(id);
   await stub.fetch("https://do/sync", {
     method: "POST",
@@ -221,10 +233,22 @@ export interface ClaimResult {
   responseBody?: string;
 }
 
+/**
+ * N-2 Case C: object ID is `idem:{scope}:{idempotency_key}` (Master Plan
+ * §6.1 step 1 / object-ID table) — a raw client-supplied key is never used
+ * as the global object ID by itself. `scope` is the checkout session
+ * identity: cart session_id (guest checkout), Buy Now session_id, or staff
+ * session id. Two different sessions coincidentally reusing the same
+ * client-generated idempotency key must not collide on one object.
+ */
+function idemObjectKey(scope: string, key: string): string {
+  return `idem:${scope}:${key}`;
+}
+
 /** Read-only idempotency check (Master Plan §6.1 step 1). Does not claim. */
-export async function doPeek(env: DoEnv, key: string): Promise<ClaimResult> {
+export async function doPeek(env: DoEnv, scope: string, key: string): Promise<ClaimResult> {
   if (!env.IDEMPOTENCY_DO) return { ok: true, status: "absent" };
-  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const id = env.IDEMPOTENCY_DO.idFromName(idemObjectKey(scope, key));
   const stub = env.IDEMPOTENCY_DO.get(id);
   const res = await stub.fetch("https://do/peek", {
     method: "POST",
@@ -233,9 +257,9 @@ export async function doPeek(env: DoEnv, key: string): Promise<ClaimResult> {
   return (await res.json()) as ClaimResult;
 }
 
-export async function doClaim(env: DoEnv, key: string): Promise<ClaimResult> {
+export async function doClaim(env: DoEnv, scope: string, key: string): Promise<ClaimResult> {
   if (!env.IDEMPOTENCY_DO) return { ok: true, claimed: true };
-  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const id = env.IDEMPOTENCY_DO.idFromName(idemObjectKey(scope, key));
   const stub = env.IDEMPOTENCY_DO.get(id);
   const res = await stub.fetch("https://do/claim", {
     method: "POST",
@@ -246,12 +270,13 @@ export async function doClaim(env: DoEnv, key: string): Promise<ClaimResult> {
 
 export async function doComplete(
   env: DoEnv,
+  scope: string,
   key: string,
   orderId: string,
   responseBody: string,
 ): Promise<void> {
   if (!env.IDEMPOTENCY_DO) return;
-  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const id = env.IDEMPOTENCY_DO.idFromName(idemObjectKey(scope, key));
   const stub = env.IDEMPOTENCY_DO.get(id);
   await stub.fetch("https://do/complete", {
     method: "POST",
@@ -259,9 +284,9 @@ export async function doComplete(
   });
 }
 
-export async function doFail(env: DoEnv, key: string): Promise<void> {
+export async function doFail(env: DoEnv, scope: string, key: string): Promise<void> {
   if (!env.IDEMPOTENCY_DO) return;
-  const id = env.IDEMPOTENCY_DO.idFromName(key);
+  const id = env.IDEMPOTENCY_DO.idFromName(idemObjectKey(scope, key));
   const stub = env.IDEMPOTENCY_DO.get(id);
   await stub.fetch("https://do/fail", {
     method: "POST",
@@ -297,14 +322,48 @@ import type { CartCustomerContact, CartItem, CartDOState as CartDOStateInternal 
 export type { CartCustomerContact, CartItem };
 export type CartDOState = CartDOStateInternal;
 
+function cartObjectKey(sessionId: string): string {
+  return `cart:${sessionId}`;
+}
+
+/**
+ * N-2 Case A (CartDO): unlike VariantInventoryDO, CartDO has no usable D1
+ * mirror to self-hydrate from — `cart_activity` is an aggregate projection
+ * (item counts only, no item list) and `guest_carts` (which would have
+ * full fidelity) is declared but never actually written or read anywhere.
+ * So this resolves through a real peer-DO migration: probe the new
+ * (prefixed) object's `/init-status`; if it's never been touched, read the
+ * OLD (raw-named) object's real state via its existing `/get` action and
+ * hand it to the new object's `/hydrate` action. The hydrate handler is
+ * idempotent and race-free (CartDO serializes all requests to one object),
+ * so concurrent first-touches are safe.
+ */
+export async function resolveCartStub(
+  namespace: DurableObjectNamespace,
+  sessionId: string,
+): Promise<DurableObjectStub> {
+  const stub = namespace.get(namespace.idFromName(cartObjectKey(sessionId)));
+  const statusRes = await stub.fetch("https://do/init-status", { method: "POST", body: "{}" }).catch(() => null);
+  const status = statusRes ? ((await statusRes.json().catch(() => null)) as { initialized?: boolean } | null) : null;
+  if (status?.initialized === false) {
+    const oldStub = namespace.get(namespace.idFromName(sessionId));
+    const oldRes = await oldStub.fetch("https://do/get", { method: "POST", body: "{}" }).catch(() => null);
+    const oldData = oldRes ? ((await oldRes.json().catch(() => null)) as { ok?: boolean; cart?: CartDOState } | null) : null;
+    await stub.fetch("https://do/hydrate", {
+      method: "POST",
+      body: JSON.stringify({ cart: oldData?.ok ? oldData.cart : null }),
+    }).catch(() => {});
+  }
+  return stub;
+}
+
 /** Get cart from CartDO. Returns null if DO not bound or cart empty. */
 export async function doGetCart(
   env: DoEnv,
   sessionId: string,
 ): Promise<CartDOState | null> {
   if (!env.CART_DO) return null;
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/get", {
     method: "POST",
     body: "{}",
@@ -322,8 +381,7 @@ export async function doAddToCart(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number; error?: string }> {
   if (!env.CART_DO) return { ok: false, error: 'DO_NOT_BOUND' };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/add", {
     method: "POST",
     body: JSON.stringify({ variantId, quantity, clientVersion }),
@@ -339,8 +397,7 @@ export async function doRemoveFromCart(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
   if (!env.CART_DO) return { ok: false };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/remove", {
     method: "POST",
     body: JSON.stringify({ variantId, clientVersion }),
@@ -357,8 +414,7 @@ export async function doChangeCartQuantity(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number; error?: string; code?: string }> {
   if (!env.CART_DO) return { ok: false, error: 'DO_NOT_BOUND' };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/quantity", {
     method: "POST",
     body: JSON.stringify({ variantId, quantity, clientVersion }),
@@ -373,8 +429,7 @@ export async function doClearCart(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
   if (!env.CART_DO) return { ok: false };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/clear", {
     method: "POST",
     body: JSON.stringify({ clientVersion }),
@@ -390,8 +445,7 @@ export async function doApplyCoupon(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
   if (!env.CART_DO) return { ok: false };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/coupon", {
     method: "POST",
     body: JSON.stringify({ couponCode, clientVersion }),
@@ -406,8 +460,7 @@ export async function doRemoveCoupon(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
   if (!env.CART_DO) return { ok: false };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/coupon", {
     method: "POST",
     body: JSON.stringify({ couponCode: null, clientVersion }),
@@ -423,8 +476,7 @@ export async function doUpdateCustomerContact(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
   if (!env.CART_DO) return { ok: false };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/contact", {
     method: "POST",
     body: JSON.stringify({ customerContact, clientVersion }),
@@ -440,8 +492,7 @@ export async function doMergeCart(
   clientVersion?: number,
 ): Promise<{ ok: boolean; cart?: CartDOState; currentVersion?: number }> {
   if (!env.CART_DO) return { ok: false };
-  const id = env.CART_DO.idFromName(sessionId);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId);
   const res = await stub.fetch("https://do/merge", {
     method: "POST",
     body: JSON.stringify({ items, clientVersion }),
@@ -465,14 +516,44 @@ export interface DirectCheckoutState {
   formDraft: { name?: string; phone?: string; address?: string; shippingZone?: string } | null;
 }
 
-/** Create a direct checkout session. */
+export function buyObjectKey(sessionId: string): string {
+  return `buy:${sessionId}`;
+}
+
+/**
+ * N-2 Case A (DirectCheckoutSessionDO): no D1 mirror has full fidelity —
+ * `checkout_sessions` is missing bindingHash and formDraft — and this DO
+ * has no env.DB access at all, so this is pure peer-DO migration like
+ * CartDO. Uses the DO's own `export-for-migration` action (deliberately
+ * not the bindingSecret-gated `get`) to read the old object's real state.
+ */
+export async function resolveDirectCheckoutStub(
+  namespace: DurableObjectNamespace,
+  sessionId: string,
+): Promise<DurableObjectStub> {
+  const stub = namespace.get(namespace.idFromName(buyObjectKey(sessionId)));
+  const statusRes = await stub.fetch("https://do/init-status", { method: "POST", body: "{}" }).catch(() => null);
+  const status = statusRes ? ((await statusRes.json().catch(() => null)) as { initialized?: boolean } | null) : null;
+  if (status?.initialized === false) {
+    const oldStub = namespace.get(namespace.idFromName(sessionId));
+    const oldRes = await oldStub.fetch("https://do/export-for-migration", { method: "POST", body: "{}" }).catch(() => null);
+    const oldData = oldRes ? ((await oldRes.json().catch(() => null)) as { ok?: boolean; session?: DirectCheckoutState | null } | null) : null;
+    await stub.fetch("https://do/hydrate", {
+      method: "POST",
+      body: JSON.stringify({ session: oldData?.ok ? oldData.session : null }),
+    }).catch(() => {});
+  }
+  return stub;
+}
+
+/** Create a direct checkout session. Always a fresh sessionId — never needs migration. */
 export async function doCreateDirectSession(
   env: DoEnv,
   body: { productId: string; variantId: string; quantity: number; selectedOptions?: Record<string, string>; sourcePage?: string; utmParams?: Record<string, string> },
 ): Promise<{ ok: boolean; session?: DirectCheckoutState; error?: string }> {
   if (!env.DIRECT_CHECKOUT_DO) return { ok: false, error: 'DO_NOT_BOUND' };
   const sessionId = crypto.randomUUID();
-  const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+  const id = env.DIRECT_CHECKOUT_DO.idFromName(buyObjectKey(sessionId));
   const stub = env.DIRECT_CHECKOUT_DO.get(id);
   const res = await stub.fetch("https://do/create", {
     method: "POST",
@@ -487,8 +568,7 @@ export async function doGetDirectSession(
   sessionId: string,
 ): Promise<DirectCheckoutState | null> {
   if (!env.DIRECT_CHECKOUT_DO) return null;
-  const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
-  const stub = env.DIRECT_CHECKOUT_DO.get(id);
+  const stub = await resolveDirectCheckoutStub(env.DIRECT_CHECKOUT_DO, sessionId);
   const res = await stub.fetch("https://do/get", {
     method: "POST",
     body: "{}",
@@ -501,13 +581,26 @@ export async function doGetDirectSession(
 
 export type CircuitState = 'closed' | 'open' | 'half_open';
 
+/**
+ * N-2 Case A: object ID is `provider:{name}`. Direct cutover, no hydrate
+ * needed — ensureLoaded() in ProviderHealthDO never reads D1 on cold
+ * start anyway (circuit state is DO-storage-only), so a freshly-addressed
+ * object starting at the default closed/healthy state is exactly what
+ * already happens on any ordinary DO eviction today. Worst case after
+ * cutover: a few requests reach a still-unhealthy provider before its
+ * failures re-open the circuit — bounded, self-correcting, not data loss.
+ */
+function providerObjectKey(provider: string): string {
+  return `provider:${provider}`;
+}
+
 /** Check if a provider's circuit breaker allows a request. */
 export async function doCheckProviderHealth(
   env: DoEnv,
   provider: string,
 ): Promise<{ canProceed: boolean; state: CircuitState }> {
   if (!env.PROVIDER_HEALTH_DO) return { canProceed: true, state: 'closed' };
-  const id = env.PROVIDER_HEALTH_DO.idFromName(provider);
+  const id = env.PROVIDER_HEALTH_DO.idFromName(providerObjectKey(provider));
   const stub = env.PROVIDER_HEALTH_DO.get(id);
   const res = await stub.fetch("https://do/status", {
     method: "POST",
@@ -524,7 +617,7 @@ export async function doRecordProviderResult(
   success: boolean,
 ): Promise<void> {
   if (!env.PROVIDER_HEALTH_DO) return;
-  const id = env.PROVIDER_HEALTH_DO.idFromName(provider);
+  const id = env.PROVIDER_HEALTH_DO.idFromName(providerObjectKey(provider));
   const stub = env.PROVIDER_HEALTH_DO.get(id);
   await stub.fetch("https://do/record", {
     method: "POST",

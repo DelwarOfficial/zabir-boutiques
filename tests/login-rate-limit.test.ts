@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { checkLoginRateLimit, resetLoginRateLimit, sha256Hex, LOGIN_RATE_LIMIT } from '../src/lib/login-rate-limit';
 import { readFileSync } from 'node:fs';
+import { env as cloudflareEnv } from 'cloudflare:workers';
 
 function fakeKv(initial: Record<string, string> = {}) {
   const store = new Map(Object.entries(initial));
@@ -12,14 +13,34 @@ function fakeKv(initial: Record<string, string> = {}) {
   } as unknown as KVNamespace & { store: Map<string, string> };
 }
 
+function fakeDb() {
+  return {
+    prepare: vi.fn().mockReturnThis(),
+    bind: vi.fn().mockReturnThis(),
+    first: vi.fn().mockResolvedValue(null),
+    all: vi.fn().mockResolvedValue({ results: [] }),
+    run: vi.fn().mockResolvedValue({ meta: { changes: 0 } }),
+    batch: vi.fn().mockResolvedValue([]),
+  };
+}
+
 function makeContext(body: Record<string, unknown>, kv: KVNamespace, ip = '1.2.3.4') {
-  const env = { DB: {}, SESSION: kv, SESSION_SECRET: 's', PASSWORD_PEPPER: 'p' } as any;
+  // getEnv() reads the shared `cloudflare:workers` stub directly, not
+  // context — the request/context env field is vestigial (Astro v6
+  // dropped Astro.locals.runtime.env). Populate the actual stub the route
+  // will read from.
+  Object.assign(cloudflareEnv as Record<string, unknown>, {
+    DB: fakeDb(),
+    SESSION: kv,
+    SESSION_SECRET: 's',
+    PASSWORD_PEPPER: 'p',
+  });
   const request = new Request('https://staff.example.com/api/staff/login', {
     method: 'POST',
     headers: { 'content-type': 'application/json', 'CF-Connecting-IP': ip },
     body: JSON.stringify(body),
   });
-  return { request, env } as any;
+  return { request } as any;
 }
 
 describe('AUTH-3: login rate limiting logic', () => {

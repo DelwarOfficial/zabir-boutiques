@@ -39,6 +39,8 @@ function buildDb(): DatabaseSync {
   raw.exec(readFileSync(resolve(MIGRATIONS, '0052_orders_add_email.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0019_cart_activity.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0055_create_pending_deletions.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0056_audit_log_add_redaction.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0057_audit_log_add_redaction_reason.sql'), 'utf8'));
   return raw;
 }
 

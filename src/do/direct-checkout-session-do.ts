@@ -35,6 +35,10 @@ export interface DirectCheckoutSession {
 export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSessionDOContract {
   private state: DurableObjectState;
   private session: DirectCheckoutSession | null = null;
+  /** N-2 Case A: distinct from `session !== null` — an expired/cleared
+   *  session is still a resolved (migrated) object, not one that needs a
+   *  hydrate attempt. */
+  private migrated = false;
 
   constructor(state: DurableObjectState, _env: unknown) {
     this.state = state;
@@ -42,7 +46,11 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
 
   private async ensureLoaded(): Promise<DirectCheckoutSession | null> {
     if (this.session) return this.session;
-    const stored = await this.state.storage.get<DirectCheckoutSession>('session');
+    const [stored, migratedFlag] = await Promise.all([
+      this.state.storage.get<DirectCheckoutSession>('session'),
+      this.state.storage.get<boolean>('migrated'),
+    ]);
+    this.migrated = stored != null || migratedFlag === true;
     this.session = stored ?? null;
     return this.session;
   }
@@ -61,9 +69,42 @@ export class DirectCheckoutSessionDO implements DurableObject, DirectCheckoutSes
       sessionId?: string;
       bindingSecret?: string;
       orderId?: string;
+      session?: DirectCheckoutSession | null;
     };
 
     switch (action) {
+      // N-2 Case A migration support. No env.DB access in this DO at all
+      // (constructor never received one) — this is pure peer-to-peer
+      // hydrate, not D1-backed. Race-free for the same reason as CartDO:
+      // one object, all fetch() calls serialized.
+      case 'init-status': {
+        await this.ensureLoaded();
+        return Response.json({ initialized: this.migrated });
+      }
+      case 'hydrate': {
+        await this.ensureLoaded();
+        if (this.migrated) {
+          return Response.json({ ok: true, alreadyMigrated: true });
+        }
+        if (body.session) {
+          this.session = body.session;
+          await this.state.storage.put('session', this.session);
+        } else {
+          await this.state.storage.put('migrated', true);
+        }
+        this.migrated = true;
+        return Response.json({ ok: true, session: this.session });
+      }
+      // Migration-only read of the OLD (raw-named) object's real state,
+      // deliberately NOT gated on bindingSecret like 'get' is — this is a
+      // server-side infra hop (do-client.ts resolver reading its own old
+      // object to seed the new one), never reachable from a customer
+      // request, so the binding-secret check that protects 'get' from
+      // session-guessing doesn't apply here.
+      case 'export-for-migration': {
+        const session = await this.ensureLoaded();
+        return Response.json({ ok: true, session });
+      }
       case 'create': {
         if (!body.productId || !body.variantId || !body.quantity || body.quantity < 1) {
           return Response.json({ ok: false, error: 'INVALID_INPUT' }, { status: 400 });

@@ -42,6 +42,10 @@ export class CartDO implements DurableObject, CartDOContract {
   private state: DurableObjectState;
   private env: { CART_ACTIVITY?: Queue; DB?: D1Database };
   private cart: CartDOState | null = null;
+  /** N-2 Case A: true once this object has real state — either through a
+   *  normal mutation or a migrate-in hydrate. Distinct from `cart !== null`
+   *  because ensureLoaded() always returns a (possibly empty) cart. */
+  private migrated = false;
 
   constructor(state: DurableObjectState, env: { CART_ACTIVITY?: Queue; DB?: D1Database }) {
     this.state = state;
@@ -50,7 +54,11 @@ export class CartDO implements DurableObject, CartDOContract {
 
   private async ensureLoaded(): Promise<CartDOState> {
     if (this.cart) return this.cart;
-    const stored = await this.state.storage.get<CartDOState>('cart');
+    const [stored, migratedFlag] = await Promise.all([
+      this.state.storage.get<CartDOState>('cart'),
+      this.state.storage.get<boolean>('migrated'),
+    ]);
+    this.migrated = stored != null || migratedFlag === true;
     if (stored) {
       this.cart = stored;
       return this.cart;
@@ -157,6 +165,35 @@ export class CartDO implements DurableObject, CartDOContract {
     const cart = await this.ensureLoaded();
     const wasEmpty = cart.items.length === 0;
     const now = new Date().toISOString();
+
+    // N-2 Case A migration support — checked before the version-conflict
+    // guard below since these two actions don't carry a clientVersion.
+    if (action === 'init-status') {
+      return Response.json({ initialized: this.migrated });
+    }
+    if (action === 'hydrate') {
+      // Idempotent + race-free: CartDO serializes all fetch() calls to one
+      // object, so a second concurrent hydrate attempt sees migrated=true
+      // and no-ops instead of overwriting real data with a second copy of
+      // the same snapshot.
+      if (this.migrated) {
+        return Response.json({ ok: true, alreadyMigrated: true });
+      }
+      const snapshot = body.cart as CartDOState | undefined;
+      if (snapshot) {
+        this.cart = { ...snapshot, session_id: this.state.id.toString() };
+        this.migrated = true;
+        await this.persist();
+        if (this.cart.items.length > 0) await this.armAlarm('persist');
+      } else {
+        // Old DO had no state either — nothing to migrate, but still mark
+        // this object as resolved (persisted, so it survives eviction) so
+        // future requests skip the probe.
+        this.migrated = true;
+        await this.state.storage.put('migrated', true);
+      }
+      return Response.json({ ok: true, cart: this.cart });
+    }
 
     if (action !== 'get' && typeof body.clientVersion === 'number') {
       if ((body.clientVersion as number) < cart.cart_version) {

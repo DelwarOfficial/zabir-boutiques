@@ -3,8 +3,6 @@ import RootLayout from "@/layouts/RootLayout.astro";
 import ProductCard from "@/components/product/ProductCard.astro";
 import { CATALOG_CATEGORIES, productsForCatalogCategory } from "@/data/catalog";
 
-export const prerender = true;
-
 export function getStaticPaths() {
   return CATALOG_CATEGORIES.map((category) => ({ params: { slug: category.slug }, props: { category } }));
 }

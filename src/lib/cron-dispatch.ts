@@ -68,13 +68,16 @@ export const CRON_HANDLERS: Record<string, CronHandler> = {
       const { cleanExpiredSessions: cleanSessionsDaily } = await import('./sessions');
       const { retryUncompressedImages } = await import('./tinify');
       const { cleanExpiredIdempotencyKeys } = await import('./maintenance/idempotency');
-      const { recordAuditIntegrityCheck, writeAuditCheckpoint } = await import('./audit');
+      const { recordAuditIntegrityCheck } = await import('./audit');
       const { reconcileInventory } = await import('./maintenance/inventory-reconcile');
       await cleanSessionsDaily(env.DB);
       await retryUncompressedImages(env.DB, (env as unknown as { MEDIA: R2Bucket; TINIFY_API_KEY: string }).MEDIA, (env as unknown as { MEDIA: R2Bucket; TINIFY_API_KEY: string }).TINIFY_API_KEY);
       await cleanExpiredIdempotencyKeys(env.DB);
+      // K-31: recordAuditIntegrityCheck now checkpoints incrementally at
+      // what it actually verified (see verifyAuditChainIncremental) — a
+      // separate writeAuditCheckpoint(head) call here would overwrite that
+      // with an unverified pointer whenever the log grows past the limit.
       await recordAuditIntegrityCheck(env.DB);
-      await writeAuditCheckpoint(env.DB);
       await reconcileInventory(env.DB, env as unknown as { VARIANT_INVENTORY_DO?: DurableObjectNamespace; ANALYTICS?: AnalyticsEngineDataset });
 
       // N-12: process customer deletion requests whose 30-day window has

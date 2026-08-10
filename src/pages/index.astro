@@ -4,7 +4,6 @@ import ProductCard from "@/components/product/ProductCard.astro";
 import ProductImage from "@/components/product/ProductImage.astro";
 import { CATALOG_CATEGORIES, CATALOG_PRODUCTS } from "@/data/catalog";
 
-export const prerender = true;
 const siteOrigin = Astro.site?.origin;
 const site = siteOrigin ?? 'https://zabirboutiques.com';
 const featured = CATALOG_PRODUCTS.slice(0, 2);

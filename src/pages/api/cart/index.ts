@@ -1,6 +1,6 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
-import { doGetCart } from '../../../lib/do-client';
+import { doGetCart, resolveCartStub } from '../../../lib/do-client';
 import type { Paisa } from '../../../lib/money';
 
 const SID_COOKIE = 'zb_cart_sid';
@@ -123,8 +123,7 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'CART_DO_NOT_BOUND' }, { status: 503 });
   }
 
-  const id = env.CART_DO.idFromName(sessionId!);
-  const stub = env.CART_DO.get(id);
+  const stub = await resolveCartStub(env.CART_DO, sessionId!);
 
   const action = body.action ?? 'get';
 

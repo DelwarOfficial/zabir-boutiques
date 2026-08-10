@@ -23,13 +23,24 @@ class D1Like {
   prepare(sql: string) { return new Stmt(this.db, sql); }
 }
 
+// N-2 Case A: real object IDs are `variant:{id}`, not the raw variant ID.
+// idFromName is still effectively identity here (this fake namespace
+// doesn't model real DO addressing), but strip the prefix before indexing
+// `state` so the fake continues to track by the logical variant ID the
+// same way VariantInventoryDO's own ensureInitialized() does (keyed on
+// the variantId in the request body, independent of the object-ID string).
+function logicalVariantId(objectKey: string): string {
+  return objectKey.startsWith('variant:') ? objectKey.slice('variant:'.length) : objectKey;
+}
+
 /** In-memory fake VariantInventoryDO namespace: variantId -> {stock,reserved,sold}. */
 function fakeDoNamespace(initial: Record<string, { stock: number; reserved: number; sold: number }>) {
   const state = { ...initial };
   const ns = {
-    idFromName: (variantId: string) => variantId,
-    get: (variantId: string) => ({
+    idFromName: (objectKey: string) => objectKey,
+    get: (objectKey: string) => ({
       fetch: async (url: string, init?: { body?: string }) => {
+        const variantId = logicalVariantId(objectKey);
         if (url.includes('/availability')) {
           const s = state[variantId] ?? { stock: 0, reserved: 0, sold: 0 };
           return new Response(JSON.stringify({ ok: true, stock: s.stock, reserved: s.reserved, sold: s.sold, available: s.stock - s.reserved - s.sold }));

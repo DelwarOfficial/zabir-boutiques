@@ -8,6 +8,7 @@ import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { appendBuyNowSessionCookies, sha256Hex } from '../../../lib/buy-now-cookies';
+import { buyObjectKey } from '../../../lib/do-client';
 
 async function createHmacSessionId(secret: string): Promise<string> {
   const random = crypto.getRandomValues(new Uint8Array(32));
@@ -93,7 +94,7 @@ export async function POST(context: APIContext): Promise<Response> {
     }), { status: 201, headers });
   }
 
-  const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+  const id = env.DIRECT_CHECKOUT_DO.idFromName(buyObjectKey(sessionId));
   const stub = env.DIRECT_CHECKOUT_DO.get(id);
   const res = await stub.fetch('https://do/create', {
     method: 'POST',

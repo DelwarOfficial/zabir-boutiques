@@ -4,8 +4,6 @@ import ProductCard from "@/components/product/ProductCard.astro";
 import { COLLECTIONS } from "@/data/collections";
 import { productsForCatalogCategory } from "@/data/catalog";
 
-export const prerender = true;
-
 export function getStaticPaths() {
   return COLLECTIONS.map((collection) => ({ params: { slug: collection.slug }, props: { collection } }));
 }

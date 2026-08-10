@@ -10,6 +10,7 @@ import RootLayout from "@/layouts/RootLayout.astro";
 import { BuyNowLandingForm } from "@/islands/BuyNowLandingForm";
 import { formatPaisa } from "@/lib/money";
 import type { DirectCheckoutState } from "@/lib/do-client";
+import { buyObjectKey, resolveDirectCheckoutStub } from "@/lib/do-client";
 import { env } from "cloudflare:workers";
 import {
   appendBuyNowSessionCookies,
@@ -63,7 +64,7 @@ if (!sid) {
 
   const now = new Date();
   if (env.DIRECT_CHECKOUT_DO) {
-    const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
+    const id = env.DIRECT_CHECKOUT_DO.idFromName(buyObjectKey(sessionId));
     const stub = env.DIRECT_CHECKOUT_DO.get(id);
     await stub.fetch('https://do/create', {
       method: 'POST',
@@ -110,8 +111,7 @@ const turnstileSiteKey: string | undefined = env.TURNSTILE_SITE_KEY;
 let session: DirectCheckoutState | null = null;
 
 if (env.DIRECT_CHECKOUT_DO) {
-  const id = env.DIRECT_CHECKOUT_DO.idFromName(sid);
-  const stub = env.DIRECT_CHECKOUT_DO.get(id);
+  const stub = await resolveDirectCheckoutStub(env.DIRECT_CHECKOUT_DO, sid);
   const response = await stub.fetch("https://do/get", {
     method: "POST",
     body: JSON.stringify({

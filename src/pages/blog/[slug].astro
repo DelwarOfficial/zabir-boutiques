@@ -2,8 +2,6 @@
 import RootLayout from "@/layouts/RootLayout.astro";
 import { BLOG_POSTS } from "@/data/blog-posts";
 
-export const prerender = true;
-
 export function getStaticPaths() {
   return BLOG_POSTS.map((post) => ({ params: { slug: post.slug }, props: { post } }));
 }

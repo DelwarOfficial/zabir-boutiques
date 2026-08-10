@@ -10,7 +10,7 @@
  * each cron pass — "flag and hold", not silently skip forever).
  */
 import { nowSql } from './dates';
-import { writeAuditLog } from './audit';
+import { writeAuditLog, redactAuditLogForOrders } from './audit';
 
 const DELETION_WINDOW_DAYS = 30;
 
@@ -90,10 +90,25 @@ async function findActiveHold(db: D1Database, phone: string, phoneLocal: string)
 
 async function anonymizeCustomer(db: D1Database, phone: string, phoneLocal: string, now: string): Promise<void> {
   const anon = `DELETED-${crypto.randomUUID().slice(0, 8)}`;
+
+  // N-11: collect order IDs before anonymizing (which overwrites
+  // orders.phone) so historical audit_log rows referencing these orders
+  // can be found and redacted too — orders.name/address/email/phone get
+  // scrubbed here, but any earlier audit_log entry that captured the same
+  // customer detail in metadata_json (pre-INV-5 write-time scrub) survives
+  // in the append-only log unless explicitly redacted.
+  const orders = await db
+    .prepare(`SELECT id FROM orders WHERE phone IN (?1, ?2)`)
+    .bind(phone, phoneLocal)
+    .all<{ id: string }>();
+  const orderIds = (orders.results ?? []).map((r) => r.id);
+
   await db.batch([
     db.prepare(`UPDATE orders SET name = ?2, address = ?3, email = NULL, phone = ?2, updated_at = ?4 WHERE phone IN (?1, ?5)`).bind(phone, anon, anon, now, phoneLocal),
     db.prepare(`UPDATE cart_activity SET customer_name = ?2, customer_email = NULL, customer_phone = NULL WHERE customer_phone IN (?1, ?3)`).bind(phone, anon, phoneLocal),
   ]);
+
+  await redactAuditLogForOrders(db, orderIds, 'customer_data_deletion', now);
 }
 
 export interface ProcessDeletionsResult {

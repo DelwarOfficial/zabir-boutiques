@@ -50,6 +50,17 @@ const DEFAULT_LIMITS: Record<BudgetProvider, { dailyUsdCents: number; monthlyUsd
 
 type ProviderLimits = { dailyUsdCents: number; monthlyUsdCents: number; dailyCalls: number; monthlyCalls: number; ownerOverride: boolean };
 
+/**
+ * N-2 Case B: retention for the pruning alarm below. `budget:{provider}`
+ * objects now live forever (see design doc), so keys that used to vanish
+ * for free every 24h via the old per-day object churn need explicit
+ * expiry instead.
+ */
+const DAILY_KEY_RETENTION_DAYS = 2;
+const MONTHLY_KEY_RETENTION_MONTHS = 2;
+const USAGE_DEDUP_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
 export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
   private storage: DurableObjectStorage;
   private env: Env;
@@ -65,6 +76,54 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
       this.totalUsdCents = (await state.storage.get<number>("total")) ?? 0;
       this.periodStartMs = (await state.storage.get<number>("periodStartMs")) ?? 0;
     });
+  }
+
+  /**
+   * N-2 Case B: schedule the pruning alarm on first touch if none is
+   * pending yet. Cheap (one storage.getAlarm() read) and idempotent —
+   * safe to call on every request.
+   */
+  private async ensurePruneAlarmScheduled(): Promise<void> {
+    const existing = await this.storage.getAlarm();
+    if (existing === null) {
+      await this.storage.setAlarm(Date.now() + PRUNE_INTERVAL_MS);
+    }
+  }
+
+  /** N-2 Case B: alarm fires every 24h, prunes stale usage keys, reschedules itself. */
+  async alarm(): Promise<void> {
+    await this.pruneStaleUsageKeys();
+    await this.storage.setAlarm(Date.now() + PRUNE_INTERVAL_MS);
+  }
+
+  private async pruneStaleUsageKeys(): Promise<void> {
+    const now = new Date();
+    const dailyCutoff = new Date(now.getTime() - DAILY_KEY_RETENTION_DAYS * 24 * 60 * 60 * 1000)
+      .toISOString().slice(0, 10);
+    const monthlyCutoffDate = new Date(now.getFullYear(), now.getMonth() - MONTHLY_KEY_RETENTION_MONTHS, 1);
+    const monthlyCutoff = monthlyCutoffDate.toISOString().slice(0, 7);
+    const usageCutoffMs = now.getTime() - USAGE_DEDUP_RETENTION_MS;
+
+    const toDelete: string[] = [];
+
+    const dailyKeys = await this.storage.list<{ calls: number; cents: number }>({ prefix: "daily:" });
+    for (const key of dailyKeys.keys()) {
+      const datePart = key.split(":")[2];
+      if (datePart && datePart < dailyCutoff) toDelete.push(key);
+    }
+
+    const monthlyKeys = await this.storage.list<{ calls: number; cents: number }>({ prefix: "monthly:" });
+    for (const key of monthlyKeys.keys()) {
+      const monthPart = key.split(":")[2];
+      if (monthPart && monthPart < monthlyCutoff) toDelete.push(key);
+    }
+
+    const usageKeys = await this.storage.list<{ dailyUsd: number; monthlyUsd: number; recordedAtMs?: number }>({ prefix: "usage:" });
+    for (const [key, value] of usageKeys) {
+      if ((value.recordedAtMs ?? 0) < usageCutoffMs) toDelete.push(key);
+    }
+
+    if (toDelete.length > 0) await this.storage.delete(toDelete);
   }
 
   async fetch(req: Request): Promise<Response> {
@@ -125,8 +184,9 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
     staff_id: string;
     operation: string;
   }): Promise<{ recorded: boolean; new_daily_total_usd: number; new_monthly_total_usd: number; soft_alert_triggered: boolean; hard_block_reached: boolean }> {
+    await this.ensurePruneAlarmScheduled();
     const key = `usage:${input.provider}:${input.request_id}`;
-    const existing = await this.storage.get<{ dailyUsd: number; monthlyUsd: number }>(key);
+    const existing = await this.storage.get<{ dailyUsd: number; monthlyUsd: number; recordedAtMs?: number }>(key);
     if (existing) {
       return {
         recorded: false,
@@ -146,7 +206,7 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
     daily.cents += costUsdCents;
     monthly.calls += 1;
     monthly.cents += costUsdCents;
-    await this.storage.put({ [dailyKey]: daily, [monthlyKey]: monthly, [key]: { dailyUsd: daily.cents / 100, monthlyUsd: monthly.cents / 100 } });
+    await this.storage.put({ [dailyKey]: daily, [monthlyKey]: monthly, [key]: { dailyUsd: daily.cents / 100, monthlyUsd: monthly.cents / 100, recordedAtMs: Date.now() } });
 
     const limits = await this.getProviderLimits(input.provider);
     const dailyPercent = Math.max((daily.cents / limits.dailyUsdCents) * 100, (daily.calls / limits.dailyCalls) * 100);
@@ -162,6 +222,7 @@ export class BudgetCounterDO implements DurableObject, BudgetCounterDOContract {
   }
 
   private async canUseProvider(provider: BudgetProvider): Promise<boolean> {
+    await this.ensurePruneAlarmScheduled();
     const limits = await this.getProviderLimits(provider);
     if (limits.ownerOverride) return true;
     const dailyKey = `daily:${provider}:${new Date().toISOString().slice(0, 10)}`;
@@ -326,8 +387,21 @@ export async function reconcileBudget(env: Env, scope: string, deltaUsdCents: nu
   }).then(r => r.json())) as IncrementResult;
 }
 
+/**
+ * N-2 Case B: `budget:{provider}` — one object per provider, forever. The
+ * old `${provider}:${date}` addressing created a fresh empty object every
+ * UTC day, which silently discarded the monthly bucket that
+ * recordUsage/canUseProvider already tracked correctly internally (C-04,
+ * C-05 — budgets were "never enforced" because the object holding the
+ * counters never survived past one day, not because the counter logic was
+ * wrong). See docs/audit/N-2-DO-ID-MIGRATION-DESIGN.md, Case B.
+ */
+function providerBudgetObjectKey(provider: BudgetProvider): string {
+  return `budget:${provider}`;
+}
+
 export async function canUseDeepSeekBudget(env: Env): Promise<boolean> {
-  const id = env.AI_BUDGET.idFromName(`deepseek:${new Date().toISOString().slice(0, 10)}`);
+  const id = env.AI_BUDGET.idFromName(providerBudgetObjectKey('deepseek'));
   const stub = env.AI_BUDGET.get(id);
   const res = await stub.fetch("https://budget/can-use-deepseek");
   const data = await res.json() as { allowed?: boolean };
@@ -335,7 +409,7 @@ export async function canUseDeepSeekBudget(env: Env): Promise<boolean> {
 }
 
 export async function canUseWorkersAIBudget(env: Env): Promise<boolean> {
-  const id = env.AI_BUDGET.idFromName(`workers_ai:${new Date().toISOString().slice(0, 10)}`);
+  const id = env.AI_BUDGET.idFromName(providerBudgetObjectKey('workers_ai'));
   const stub = env.AI_BUDGET.get(id);
   const res = await stub.fetch("https://budget/can-use-workers-ai");
   const data = await res.json() as { allowed?: boolean };
@@ -343,7 +417,7 @@ export async function canUseWorkersAIBudget(env: Env): Promise<boolean> {
 }
 
 export async function canUseImagifyBudget(env: Env): Promise<boolean> {
-  const id = env.AI_BUDGET.idFromName(`imagify:${new Date().toISOString().slice(0, 10)}`);
+  const id = env.AI_BUDGET.idFromName(providerBudgetObjectKey('imagify'));
   const stub = env.AI_BUDGET.get(id);
   const res = await stub.fetch("https://budget/can-use-imagify");
   const data = await res.json() as { allowed?: boolean };
@@ -351,7 +425,7 @@ export async function canUseImagifyBudget(env: Env): Promise<boolean> {
 }
 
 export async function recordDeepSeekUsage(env: Env, input: { tokens: number; cost_usd: number; request_id: string; staff_id: string; operation: string }): Promise<void> {
-  const id = env.AI_BUDGET.idFromName(`deepseek:${new Date().toISOString().slice(0, 10)}`);
+  const id = env.AI_BUDGET.idFromName(providerBudgetObjectKey('deepseek'));
   const stub = env.AI_BUDGET.get(id);
   await stub.fetch("https://budget/record-usage", {
     method: "POST",

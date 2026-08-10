@@ -7,8 +7,6 @@ import { formatPaisa } from "@/lib/money";
 import { ogImageFromProduct } from "@/lib/image-resizing";
 import ProductDetails from "@/components/product/ProductDetails.astro";
 
-export const prerender = true;
-
 export function getStaticPaths() {
   return CATALOG_PRODUCTS.map((product) => ({ params: { slug: product.slug }, props: { product } }));
 }

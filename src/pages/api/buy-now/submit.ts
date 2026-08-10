@@ -11,7 +11,7 @@ import { releaseReservedVariants, reserveVariants } from '../../../lib/inventory
 import { insertReservedOrderWithRetry } from '../../../lib/orders';
 import { nowSql } from '../../../lib/dates';
 import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency, recordOrderInProgress } from '../../../lib/idempotency';
-import { doClaim, doComplete, doFail, doPeek } from '../../../lib/do-client';
+import { doClaim, doComplete, doFail, doPeek, resolveDirectCheckoutStub } from '../../../lib/do-client';
 import { assertPaisa } from '../../../lib/money';
 import {
   loadVariantSnapshots,
@@ -63,8 +63,7 @@ export async function POST(context: APIContext): Promise<Response> {
   } | null = null;
 
   if (env.DIRECT_CHECKOUT_DO) {
-    const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
-    const stub = env.DIRECT_CHECKOUT_DO.get(id);
+    const stub = await resolveDirectCheckoutStub(env.DIRECT_CHECKOUT_DO, sessionId);
     const sessionRes = await stub.fetch('https://do/get', { method: 'POST', body: JSON.stringify({ sessionId, bindingSecret }) });
     sessionData = (await sessionRes.json().catch(() => null)) as typeof sessionData;
   } else {
@@ -177,7 +176,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Peek idempotency
-  const peek = await doPeek(env, idempotencyKey);
+  const peek = await doPeek(env, sessionId, idempotencyKey);
   if (peek.replay && peek.responseBody) {
     try { return Response.json(JSON.parse(peek.responseBody), { status: 200 }); } catch {
       return Response.json({ ok: false, code: 'DUPLICATE' }, { status: 409 });
@@ -245,7 +244,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Claim idempotency
-  const doClaimRes = await doClaim(env, idempotencyKey);
+  const doClaimRes = await doClaim(env, sessionId, idempotencyKey);
   if (doClaimRes.replay && doClaimRes.responseBody) {
     try { return Response.json(JSON.parse(doClaimRes.responseBody), { status: 200 }); } catch {
       return Response.json({ ok: false, code: 'DUPLICATE' }, { status: 409 });
@@ -269,7 +268,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     if (fraudDecision === 'blocked') {
       await failIdempotency(env.DB, idempotencyKey);
-      await doFail(env, idempotencyKey);
+      await doFail(env, sessionId, idempotencyKey);
       return Response.json({
         ok: false, code: 'FRAUD_BLOCKED',
         message: 'This order has been flagged. Please contact customer support.',
@@ -280,7 +279,7 @@ export async function POST(context: APIContext): Promise<Response> {
     const reserveResult = await reserveVariants(env, items, now);
     if (!reserveResult.ok) {
       await failIdempotency(env.DB, idempotencyKey);
-      await doFail(env, idempotencyKey);
+      await doFail(env, sessionId, idempotencyKey);
       return Response.json({
         ok: false, code: 'OUT_OF_STOCK',
         message: 'This item just went out of stock.',
@@ -327,8 +326,7 @@ export async function POST(context: APIContext): Promise<Response> {
 
     // Clear the direct checkout session with conversion tracking
     if (env.DIRECT_CHECKOUT_DO) {
-      const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
-      const stub = env.DIRECT_CHECKOUT_DO.get(id);
+      const stub = await resolveDirectCheckoutStub(env.DIRECT_CHECKOUT_DO, sessionId);
       await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId, bindingSecret, orderId }) });
     } else {
       const nowStr = new Date().toISOString();
@@ -381,7 +379,7 @@ export async function POST(context: APIContext): Promise<Response> {
     // If payment checkout creation failed and order was cancelled, return error
     if (!orderPersisted && createdOrderId) {
       await failIdempotency(env.DB, idempotencyKey).catch(() => {});
-      await doFail(env, idempotencyKey).catch(() => {});
+      await doFail(env, sessionId, idempotencyKey).catch(() => {});
       return Response.json({
         ok: false, code: 'PAYMENT_INITIATION_FAILED',
         message: 'Payment could not be initiated. Please try again or contact support.',
@@ -406,7 +404,7 @@ export async function POST(context: APIContext): Promise<Response> {
       checkout_url: checkoutUrl,
     };
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
-    await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
+    await doComplete(env, sessionId, idempotencyKey, orderId, JSON.stringify(response));
 
     // Enqueue order confirmation email
     await enqueueOrderEmail(env, orderId, 'order_confirmed').catch(() => {});
@@ -428,8 +426,7 @@ export async function POST(context: APIContext): Promise<Response> {
         `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
       ).bind(createdOrderId, advancePaisa, balancePaisa, now).run().catch(() => {});
       if (env.DIRECT_CHECKOUT_DO) {
-        const id = env.DIRECT_CHECKOUT_DO.idFromName(sessionId);
-        const stub = env.DIRECT_CHECKOUT_DO.get(id);
+        const stub = await resolveDirectCheckoutStub(env.DIRECT_CHECKOUT_DO, sessionId);
         await stub.fetch('https://do/clear', { method: 'POST', body: JSON.stringify({ sessionId, bindingSecret }) }).catch(() => {});
       } else {
         const nowStr = new Date().toISOString();
@@ -438,7 +435,7 @@ export async function POST(context: APIContext): Promise<Response> {
         ).bind(sessionId, nowStr).run().catch(() => {});
       }
       await completeIdempotency(env.DB, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
-      await doComplete(env, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
+      await doComplete(env, sessionId, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
       safeLog.error('[buy-now/submit] Recovered after post-order failure', { error: err instanceof Error ? err.message : String(err), orderId: createdOrderId });
       return Response.json(response, { status: 201 });
     }
@@ -446,7 +443,7 @@ export async function POST(context: APIContext): Promise<Response> {
       await releaseReservedVariants(env, items, now);
     }
     await failIdempotency(env.DB, idempotencyKey);
-    await doFail(env, idempotencyKey);
+    await doFail(env, sessionId, idempotencyKey);
     safeLog.error('[buy-now/submit] Error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'CHECKOUT_FAILED', message: 'Internal error.' }, { status: 500 });
   }

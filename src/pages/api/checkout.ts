@@ -12,7 +12,7 @@ import { releaseReservedVariants, reserveVariants } from '../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../lib/orders';
 import { nowSql } from '../../lib/dates';
 import { checkIdempotency, claimIdempotency, completeIdempotency, failIdempotency, recordOrderInProgress } from '../../lib/idempotency';
-import { doClaim, doComplete, doFail, doPeek } from '../../lib/do-client';
+import { doClaim, doComplete, doFail, doPeek, resolveCartStub } from '../../lib/do-client';
 import { assertPaisa, applyCouponAtomic, releaseCouponUsageAtomic, recordCouponClaim, type CouponClaim } from '../../lib/money';
 import { getVatRatePercent, calculateVatPaisa as calculateVatPaisaCanonical, allocateVatByLargestRemainder } from '../../lib/vat';
 import {
@@ -50,9 +50,9 @@ function processingResponse(): Response {
   );
 }
 
-async function releaseClaim(env: ReturnType<typeof getEnv>, idempotencyKey: string): Promise<void> {
+async function releaseClaim(env: ReturnType<typeof getEnv>, scope: string, idempotencyKey: string): Promise<void> {
   await failIdempotency(env.DB, idempotencyKey);
-  await doFail(env, idempotencyKey);
+  await doFail(env, scope, idempotencyKey);
 }
 
 export async function POST(context: APIContext): Promise<Response> {
@@ -93,8 +93,7 @@ export async function POST(context: APIContext): Promise<Response> {
   if (!sessionId || !env.CART_DO) {
     return Response.json({ ok: false, code: 'MISSING_CART_SESSION', message: 'Cart session is required. Please add items to your cart and try again.' }, { status: 400 });
   }
-  const cartId = env.CART_DO.idFromName(sessionId);
-  const cartStub = env.CART_DO.get(cartId);
+  const cartStub = await resolveCartStub(env.CART_DO, sessionId);
   const cartRes = await cartStub.fetch('https://do/get', { method: 'POST', body: '{}' });
   const cartData = (await cartRes.json().catch(() => null)) as { ok?: boolean; cart?: { items?: Array<{ variantId: string; quantity: number }> } } | null;
   if (!cartData?.ok || !cartData.cart?.items || cartData.cart.items.length === 0) {
@@ -124,7 +123,7 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'MISSING_IDEMPOTENCY_KEY', message: 'Please try again.' }, { status: 400 });
   }
 
-  const peek = await doPeek(env, idempotencyKey);
+  const peek = await doPeek(env, sessionId, idempotencyKey);
   if (peek.replay && peek.responseBody) {
     return replayResponse(peek.responseBody);
   }
@@ -219,7 +218,7 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   // Master Plan §6.1 step 6: atomic idempotency claim before mutations.
-  const doClaimRes = await doClaim(env, idempotencyKey);
+  const doClaimRes = await doClaim(env, sessionId, idempotencyKey);
   if (doClaimRes.replay && doClaimRes.responseBody) {
     return replayResponse(doClaimRes.responseBody);
   }
@@ -234,7 +233,7 @@ export async function POST(context: APIContext): Promise<Response> {
     if (parsed.couponCode) {
       const couponResult = await applyCouponAtomic(env.DB, parsed.couponCode, subtotalPaisa, now);
       if (!couponResult.ok) {
-        await releaseClaim(env, idempotencyKey);
+        await releaseClaim(env, sessionId, idempotencyKey);
         claimHeld = false;
         return Response.json({ ok: false, code: couponResult.reason, message: 'Coupon could not be applied.' }, { status: 409 });
       }
@@ -261,7 +260,7 @@ export async function POST(context: APIContext): Promise<Response> {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
         couponClaimed = false;
       }
-      await releaseClaim(env, idempotencyKey);
+      await releaseClaim(env, sessionId, idempotencyKey);
       claimHeld = false;
       return Response.json({
         ok: false,
@@ -287,7 +286,7 @@ export async function POST(context: APIContext): Promise<Response> {
           await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
           couponClaimed = false;
         }
-        await releaseClaim(env, idempotencyKey);
+        await releaseClaim(env, sessionId, idempotencyKey);
         claimHeld = false;
         return Response.json({
           ok: false,
@@ -317,7 +316,7 @@ export async function POST(context: APIContext): Promise<Response> {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
         couponClaimed = false;
       }
-      await releaseClaim(env, idempotencyKey);
+      await releaseClaim(env, sessionId, idempotencyKey);
       claimHeld = false;
       return Response.json({
         ok: false, code: 'FRAUD_BLOCKED',
@@ -331,7 +330,7 @@ export async function POST(context: APIContext): Promise<Response> {
         await releaseCouponUsageAtomic(env.DB, idempotencyKey, couponClaim);
         couponClaimed = false;
       }
-      await releaseClaim(env, idempotencyKey);
+      await releaseClaim(env, sessionId, idempotencyKey);
       claimHeld = false;
       const failedIndex = items.findIndex(i => i.variantId === reserveResult.failedVariantId);
       return Response.json({
@@ -438,7 +437,7 @@ export async function POST(context: APIContext): Promise<Response> {
       ...(checkoutUrl ? { checkout_url: checkoutUrl } : {}),
     };
     await completeIdempotency(env.DB, idempotencyKey, orderId, JSON.stringify(response));
-    await doComplete(env, idempotencyKey, orderId, JSON.stringify(response));
+    await doComplete(env, sessionId, idempotencyKey, orderId, JSON.stringify(response));
     claimHeld = false;
 
     // Mark cart_activity as converted (AUDIT-B-004/B-002)
@@ -468,7 +467,7 @@ export async function POST(context: APIContext): Promise<Response> {
         `UPDATE orders SET advance_paisa = ?2, balance_paisa = ?3, updated_at = ?4 WHERE id = ?1`,
       ).bind(createdOrderId, advancePaisa, balancePaisa, now).run().catch(() => {});
       await completeIdempotency(env.DB, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
-      await doComplete(env, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
+      await doComplete(env, sessionId, idempotencyKey, createdOrderId, JSON.stringify(response)).catch(() => {});
       safeLog.error('[checkout] Recovered after post-order failure', { error: err instanceof Error ? err.message : String(err), orderId: createdOrderId });
       return Response.json(response, { status: 201 });
     }
@@ -480,7 +479,7 @@ export async function POST(context: APIContext): Promise<Response> {
       await releaseReservedVariants(env, items, now);
     }
     if (claimHeld) {
-      await releaseClaim(env, idempotencyKey);
+      await releaseClaim(env, sessionId, idempotencyKey);
     }
     safeLog.error('[checkout] Error', { error: err instanceof Error ? err.message : String(err) });
     return Response.json({ ok: false, code: 'CHECKOUT_FAILED', message: 'Internal checkout error.' }, { status: 500 });
