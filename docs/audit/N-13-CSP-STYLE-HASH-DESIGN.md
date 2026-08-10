@@ -1,5 +1,11 @@
 # N-13: Removing `style-src 'unsafe-inline'` — design
 
+**Status: cutover shipped.** Phase 1 (hash mechanism) and phase 2 (convert
+the 218 dynamic `.tsx` sites, flip `csp.ts`) are both done. Production
+`style-src` no longer contains `'unsafe-inline'` — see the bottom of this
+doc. Local dev keeps `'unsafe-inline'` (Vite HMR can inject its own inline
+styles outside the hash list).
+
 ## Scope, measured
 
 - 148 literal `style="..."` attribute occurrences across `src/pages`,
@@ -56,18 +62,32 @@ reviewed deploy.
    in-app WebViews — Facebook/Messenger browser — which can lag behind
    stock Safari/Chrome) before removing the `'unsafe-inline'` fallback.
 
-## Phase 2 (separate, future deploy)
+## Phase 2 — done
 
-1. Convert the 218 dynamic `.tsx` `style={...}` sites to CSS custom
-   properties set via `className`/`data-*` + a stylesheet rule (e.g.
-   `style={{'--w': pct}}` → CSS `width: var(--w)` — note CSS custom
-   *properties* themselves are exempt from `style-src` entirely, only the
-   literal declarations are checked, so this specific pattern is CSP-safe
-   without needing a hash at all).
-2. Re-run the hash collector against a real build, confirm `reachedHead`-
-   style coverage (no residual literal `style=` sites without a matching
-   hash).
-3. Flip `src/lib/security/csp.ts`'s `style-src` to
-   `'self' 'unsafe-hashes' ${styleHashes.join(' ')}` (dropping
-   `'unsafe-inline'`) in one atomic deploy, gated on step 1 being fully
-   complete — a partial cutover is worse than not doing it at all.
+1. **Converted, not just re-pointed.** All 218 `.tsx` `style={...}` sites
+   (`InventoryAdjustmentManager.tsx`: 115, `ProductForm.tsx`: 102,
+   `MergedProductUpload.tsx`: 1) became Tailwind arbitrary-property
+   classes (`className="[padding:0.6rem_1.2rem] ..."` — one class per CSS
+   property, exact same value). This turned out to be a *better* outcome
+   than the CSS-custom-property plan sketched above: Tailwind classes
+   compile into the already-bundled `global.css` (loaded via `<link>`,
+   `@tailwindcss/vite`), so these sites never needed a hash at all —
+   they're no longer inline styles in any sense CSP cares about, static or
+   dynamic. Confirmed no `dangerouslySetInnerHTML` or `.style.` DOM writes
+   remained in any of the three files.
+2. Spread-and-override call sites (e.g. `{...inputStyle, fontSize:
+   '0.78rem'}`) were resolved to a single final value per property before
+   emitting a class — never two classes for the same CSS property, since
+   Tailwind's generated stylesheet order (not JSX className string order)
+   decides precedence, unlike a JS object spread which is always
+   deterministic.
+3. `src/lib/security/csp.ts`'s `style-src` flipped in one deploy:
+   production is now `'self' 'unsafe-hashes' ${styleHashes.join(' ')}`
+   (no `'unsafe-inline'`); local dev keeps `'self' 'unsafe-inline'`
+   unconditionally, gated on `localDev` the same way `script-src` already
+   was. `src/middleware.ts` wires `getCspStyleHashes()` through to both
+   `generatePublicCSP`/`generateStaffCSP` calls.
+4. 14 tests added/updated in `tests/csp-style-hash-mechanism.test.ts`
+   covering the cutover directly: no `unsafe-inline` in prod, `unsafe-
+   hashes` + every hash present, dev-mode unaffected, middleware wiring,
+   and that the real generated hash set (not a stub) is what's asserted.

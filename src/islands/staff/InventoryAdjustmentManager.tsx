@@ -176,19 +176,15 @@ export default function InventoryAdjustmentManager() {
   const selectedReason = ADJUSTMENT_REASONS.find(r => r.value === adjReason);
 
   return (
-    <div style={{ fontFamily: 'system-ui, sans-serif' }}>
+    <div className="[font-family:system-ui,_sans-serif]">
       {/* Tab bar */}
-      <div style={{ display: 'flex', gap: '0', borderBottom: '2px solid var(--line, #e5e7eb)', marginBottom: '1rem' }}>
+      <div className="flex [gap:0] [border-bottom:2px_solid_var(--line,_#e5e7eb)] [margin-bottom:1rem]">
         <button onClick={() => setTab('variants')}
-          style={{ padding: '0.6rem 1.2rem', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', border: 'none', background: 'none',
-            borderBottom: tab === 'variants' ? '2px solid var(--brand, #6366f1)' : '2px solid transparent',
-            color: tab === 'variants' ? 'var(--brand, #6366f1)' : 'var(--muted, #6b7280)', marginBottom: '-2px' }}>
+          className={`[padding:0.6rem_1.2rem] [font-size:0.85rem] [font-weight:600] cursor-pointer [border:none] [background:none] [margin-bottom:-2px] ${tab === 'variants' ? '[border-bottom:2px_solid_var(--brand,_#6366f1)] [color:var(--brand,_#6366f1)]' : '[border-bottom:2px_solid_transparent] [color:var(--muted,_#6b7280)]'}`}>
           Variants
         </button>
         <button onClick={() => setTab('movements')}
-          style={{ padding: '0.6rem 1.2rem', fontSize: '0.85rem', fontWeight: 600, cursor: 'pointer', border: 'none', background: 'none',
-            borderBottom: tab === 'movements' ? '2px solid var(--brand, #6366f1)' : '2px solid transparent',
-            color: tab === 'movements' ? 'var(--brand, #6366f1)' : 'var(--muted, #6b7280)', marginBottom: '-2px' }}>
+          className={`[padding:0.6rem_1.2rem] [font-size:0.85rem] [font-weight:600] cursor-pointer [border:none] [background:none] [margin-bottom:-2px] ${tab === 'movements' ? '[border-bottom:2px_solid_var(--brand,_#6366f1)] [color:var(--brand,_#6366f1)]' : '[border-bottom:2px_solid_transparent] [color:var(--muted,_#6b7280)]'}`}>
           Movement Log
         </button>
       </div>
@@ -196,59 +192,59 @@ export default function InventoryAdjustmentManager() {
       {/* ───── VARIANT SEARCH TAB ───── */}
       {tab === 'variants' && (
         <div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', alignItems: 'center' }}>
-            <div style={{ position: 'relative', flex: 1, maxWidth: '320px' }}>
-              <span style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', opacity: 0.4 }}>
+          <div className="flex [gap:0.5rem] [margin-bottom:0.75rem] items-center">
+            <div className="relative flex-1 [max-width:320px]">
+              <span className="absolute [left:8px] [top:50%] [transform:translateY(-50%)] [opacity:0.4]">
                 <SearchIcon />
               </span>
               <input
                 type="text" placeholder="Search by product name, SKU, size, color..."
                 value={search} onChange={e => setSearch(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && fetchVariants(1)}
-                style={{ width: '100%', padding: '0.45rem 0.45rem 0.45rem 1.8rem', fontSize: '0.8rem', border: '1px solid var(--line, #d1d5db)', borderRadius: '6px', outline: 'none' }}
+                className="[width:100%] [padding:0.45rem_0.45rem_0.45rem_1.8rem] [font-size:0.8rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:6px] [outline:none]"
               />
             </div>
             <button onClick={() => fetchVariants(1)}
-              style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', border: '1px solid var(--brand, #6366f1)', borderRadius: '6px', background: 'var(--brand, #6366f1)', color: '#fff' }}>
+              className="[padding:0.45rem_0.9rem] [font-size:0.8rem] [font-weight:600] cursor-pointer [border:1px_solid_var(--brand,_#6366f1)] [border-radius:6px] [background:var(--brand,_#6366f1)] [color:#fff]">
               Search
             </button>
           </div>
 
           {vError && (
-            <div style={{ padding: '0.5rem 0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.8rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <div className="[padding:0.5rem_0.75rem] [background:#fef2f2] [border:1px_solid_#fecaca] [border-radius:6px] [color:#991b1b] [font-size:0.8rem] [margin-bottom:0.75rem] flex items-center [gap:0.4rem]">
               <AlertIcon /> {vError}
             </div>
           )}
 
-          <div style={{ overflowX: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: '8px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <div className="overflow-x-auto [border:1px_solid_var(--line,_#e5e7eb)] [border-radius:8px]">
+            <table className="[width:100%] border-collapse [font-size:0.8rem]">
               <thead>
-                <tr style={{ background: 'var(--surface-soft, #f9fafb)', textAlign: 'left' }}>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Product</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>SKU</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Size/Color</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>On Hand</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>Reserved</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>Available</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>Action</th>
+                <tr className="[background:var(--surface-soft,_#f9fafb)] text-left">
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">Product</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">SKU</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">Size/Color</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">On Hand</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">Reserved</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">Available</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">Action</th>
                 </tr>
               </thead>
               <tbody>
                 {vLoading ? (
-                  <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted, #6b7280)' }}>Loading...</td></tr>
+                  <tr><td colSpan={7} className="[padding:2rem] text-center [color:var(--muted,_#6b7280)]">Loading...</td></tr>
                 ) : variants.length === 0 ? (
-                  <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted, #6b7280)' }}>No variants found.</td></tr>
+                  <tr><td colSpan={7} className="[padding:2rem] text-center [color:var(--muted,_#6b7280)]">No variants found.</td></tr>
                 ) : variants.map(v => (
-                  <tr key={v.id} style={{ borderTop: '1px solid var(--line-soft, #f3f4f6)' }}>
-                    <td style={{ padding: '0.5rem 0.6rem', fontWeight: 500, color: 'var(--brand, #6366f1)' }}>{v.productName}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', fontFamily: 'monospace', fontSize: '0.75rem' }}>{v.sku}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', color: 'var(--muted, #6b7280)' }}>{[v.size, v.color].filter(Boolean).join(' / ') || '—'}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', fontWeight: 600, color: v.quantity === 0 ? '#dc2626' : '#92400e' }}>{v.quantity}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', color: 'var(--muted, #6b7280)' }}>{v.reserved}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', fontWeight: 600, color: v.available <= 0 ? '#dc2626' : v.available <= 5 ? '#f59e0b' : '#16a34a' }}>{v.available}</td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
+                  <tr key={v.id} className="[border-top:1px_solid_var(--line-soft,_#f3f4f6)]">
+                    <td className="[padding:0.5rem_0.6rem] [font-weight:500] [color:var(--brand,_#6366f1)]">{v.productName}</td>
+                    <td className="[padding:0.5rem_0.6rem] font-mono [font-size:0.75rem]">{v.sku}</td>
+                    <td className="[padding:0.5rem_0.6rem] [color:var(--muted,_#6b7280)]">{[v.size, v.color].filter(Boolean).join(' / ') || '—'}</td>
+                    <td className={`[padding:0.5rem_0.6rem] text-right [font-weight:600] ${v.quantity === 0 ? '[color:#dc2626]' : '[color:#92400e]'}`}>{v.quantity}</td>
+                    <td className="[padding:0.5rem_0.6rem] text-right [color:var(--muted,_#6b7280)]">{v.reserved}</td>
+                    <td className={`[padding:0.5rem_0.6rem] text-right [font-weight:600] ${v.available <= 0 ? '[color:#dc2626]' : v.available <= 5 ? '[color:#f59e0b]' : '[color:#16a34a]'}`}>{v.available}</td>
+                    <td className="[padding:0.5rem_0.6rem] text-right">
                       <button onClick={() => openAdjust(v)}
-                        style={{ padding: '0.3rem 0.7rem', fontSize: '0.75rem', fontWeight: 600, cursor: 'pointer', border: '1px solid var(--brand, #6366f1)', borderRadius: '5px', background: 'var(--brand, #6366f1)', color: '#fff' }}>
+                        className="[padding:0.3rem_0.7rem] [font-size:0.75rem] [font-weight:600] cursor-pointer [border:1px_solid_var(--brand,_#6366f1)] [border-radius:5px] [background:var(--brand,_#6366f1)] [color:#fff]">
                         Adjust
                       </button>
                     </td>
@@ -259,14 +255,14 @@ export default function InventoryAdjustmentManager() {
           </div>
 
           {vTotalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.25rem', marginTop: '0.75rem', alignItems: 'center', fontSize: '0.8rem' }}>
+            <div className="flex justify-center [gap:0.25rem] [margin-top:0.75rem] items-center [font-size:0.8rem]">
               <button disabled={vPage <= 1} onClick={() => fetchVariants(vPage - 1)}
-                style={{ padding: '0.3rem 0.6rem', cursor: vPage > 1 ? 'pointer' : 'default', border: '1px solid var(--line, #d1d5db)', borderRadius: '4px', background: vPage > 1 ? '#fff' : '#f3f4f6', opacity: vPage > 1 ? 1 : 0.5 }}>
+                className={`[padding:0.3rem_0.6rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:4px] ${vPage > 1 ? '[cursor:pointer] [background:#fff] [opacity:1]' : '[cursor:default] [background:#f3f4f6] [opacity:0.5]'}`}>
                 Prev
               </button>
-              <span style={{ color: 'var(--muted, #6b7280)' }}>Page {vPage} of {vTotalPages} ({vTotal} variants)</span>
+              <span className="[color:var(--muted,_#6b7280)]">Page {vPage} of {vTotalPages} ({vTotal} variants)</span>
               <button disabled={vPage >= vTotalPages} onClick={() => fetchVariants(vPage + 1)}
-                style={{ padding: '0.3rem 0.6rem', cursor: vPage < vTotalPages ? 'pointer' : 'default', border: '1px solid var(--line, #d1d5db)', borderRadius: '4px', background: vPage < vTotalPages ? '#fff' : '#f3f4f6', opacity: vPage < vTotalPages ? 1 : 0.5 }}>
+                className={`[padding:0.3rem_0.6rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:4px] ${vPage < vTotalPages ? '[cursor:pointer] [background:#fff] [opacity:1]' : '[cursor:default] [background:#f3f4f6] [opacity:0.5]'}`}>
                 Next
               </button>
             </div>
@@ -277,79 +273,78 @@ export default function InventoryAdjustmentManager() {
       {/* ───── MOVEMENT LOG TAB ───── */}
       {tab === 'movements' && (
         <div>
-          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap', alignItems: 'center' }}>
+          <div className="flex [gap:0.5rem] [margin-bottom:0.75rem] flex-wrap items-center">
             <input type="text" placeholder="Filter by variant ID..." value={mFilterVariant}
               onChange={e => setMFilterVariant(e.target.value)}
-              style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', border: '1px solid var(--line, #d1d5db)', borderRadius: '6px', outline: 'none', width: '180px' }} />
+              className="[padding:0.4rem_0.6rem] [font-size:0.8rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:6px] [outline:none] [width:180px]" />
             <select value={mFilterReason} onChange={e => setMFilterReason(e.target.value)}
-              style={{ padding: '0.4rem 0.6rem', fontSize: '0.8rem', border: '1px solid var(--line, #d1d5db)', borderRadius: '6px', outline: 'none', background: '#fff' }}>
+              className="[padding:0.4rem_0.6rem] [font-size:0.8rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:6px] [outline:none] [background:#fff]">
               <option value="">All reasons</option>
               {ADJUSTMENT_REASONS.map(r => (
                 <option key={r.value} value={r.value}>{r.label}</option>
               ))}
             </select>
             <button onClick={() => fetchMovements(1)}
-              style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', fontWeight: 600, cursor: 'pointer', border: '1px solid var(--brand, #6366f1)', borderRadius: '6px', background: 'var(--brand, #6366f1)', color: '#fff' }}>
+              className="[padding:0.4rem_0.8rem] [font-size:0.8rem] [font-weight:600] cursor-pointer [border:1px_solid_var(--brand,_#6366f1)] [border-radius:6px] [background:var(--brand,_#6366f1)] [color:#fff]">
               Filter
             </button>
           </div>
 
           {mError && (
-            <div style={{ padding: '0.5rem 0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.8rem', marginBottom: '0.75rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+            <div className="[padding:0.5rem_0.75rem] [background:#fef2f2] [border:1px_solid_#fecaca] [border-radius:6px] [color:#991b1b] [font-size:0.8rem] [margin-bottom:0.75rem] flex items-center [gap:0.4rem]">
               <AlertIcon /> {mError}
             </div>
           )}
 
-          <div style={{ overflowX: 'auto', border: '1px solid var(--line, #e5e7eb)', borderRadius: '8px' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+          <div className="overflow-x-auto [border:1px_solid_var(--line,_#e5e7eb)] [border-radius:8px]">
+            <table className="[width:100%] border-collapse [font-size:0.8rem]">
               <thead>
-                <tr style={{ background: 'var(--surface-soft, #f9fafb)', textAlign: 'left' }}>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Type</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Product / SKU</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Reason</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap' }}>Notes</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>Change</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>By</th>
-                  <th style={{ padding: '0.5rem 0.6rem', fontWeight: 600, whiteSpace: 'nowrap', textAlign: 'right' }}>Time</th>
+                <tr className="[background:var(--surface-soft,_#f9fafb)] text-left">
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">Type</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">Product / SKU</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">Reason</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap">Notes</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">Change</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">By</th>
+                  <th className="[padding:0.5rem_0.6rem] [font-weight:600] whitespace-nowrap text-right">Time</th>
                 </tr>
               </thead>
               <tbody>
                 {mLoading ? (
-                  <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted, #6b7280)' }}>Loading...</td></tr>
+                  <tr><td colSpan={7} className="[padding:2rem] text-center [color:var(--muted,_#6b7280)]">Loading...</td></tr>
                 ) : movements.length === 0 ? (
-                  <tr><td colSpan={7} style={{ padding: '2rem', textAlign: 'center', color: 'var(--muted, #6b7280)' }}>No movements recorded yet.</td></tr>
+                  <tr><td colSpan={7} className="[padding:2rem] text-center [color:var(--muted,_#6b7280)]">No movements recorded yet.</td></tr>
                 ) : movements.map(m => (
-                  <tr key={m.id} style={{ borderTop: '1px solid var(--line-soft, #f3f4f6)' }}>
-                    <td style={{ padding: '0.5rem 0.6rem' }}>
-                      <span style={{ display: 'inline-block', padding: '1px 6px', borderRadius: '4px', fontSize: '0.7rem', fontWeight: 600, whiteSpace: 'nowrap',
-                        background: m.delta > 0 ? '#dcfce7' : '#fee2e2', color: m.delta > 0 ? '#166534' : '#991b1b' }}>
+                  <tr key={m.id} className="[border-top:1px_solid_var(--line-soft,_#f3f4f6)]">
+                    <td className="[padding:0.5rem_0.6rem]">
+                      <span className={`inline-block [padding:1px_6px] [border-radius:4px] [font-size:0.7rem] [font-weight:600] whitespace-nowrap ${m.delta > 0 ? '[background:#dcfce7] [color:#166534]' : '[background:#fee2e2] [color:#991b1b]'}`}>
                         {m.delta > 0 ? 'Addition' : 'Removal'}
                       </span>
                     </td>
-                    <td style={{ padding: '0.5rem 0.6rem' }}>
-                      <div style={{ fontWeight: 500 }}>{m.productName}</div>
-                      <div style={{ fontFamily: 'monospace', fontSize: '0.7rem', color: 'var(--muted, #6b7280)' }}>{m.sku}</div>
+                    <td className="[padding:0.5rem_0.6rem]">
+                      <div className="[font-weight:500]">{m.productName}</div>
+                      <div className="font-mono [font-size:0.7rem] [color:var(--muted,_#6b7280)]">{m.sku}</div>
                     </td>
-                    <td style={{ padding: '0.5rem 0.6rem', whiteSpace: 'nowrap' }}>
-                      <span style={{ fontSize: '0.7rem', color: 'var(--muted, #6b7280)' }}>{reasonLabel(m.reason)}</span>
+                    <td className="[padding:0.5rem_0.6rem] whitespace-nowrap">
+                      <span className="[font-size:0.7rem] [color:var(--muted,_#6b7280)]">{reasonLabel(m.reason)}</span>
                     </td>
-                    <td style={{ padding: '0.5rem 0.6rem', color: 'var(--muted, #6b7280)', fontSize: '0.75rem', maxWidth: '150px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    <td className="[padding:0.5rem_0.6rem] [color:var(--muted,_#6b7280)] [font-size:0.75rem] [max-width:150px] overflow-hidden text-ellipsis whitespace-nowrap">
                       {m.notes || '—'}
                     </td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right' }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.85rem', color: m.delta > 0 ? '#16a34a' : '#dc2626' }}>
+                    <td className="[padding:0.5rem_0.6rem] text-right">
+                      <div className={`[font-weight:700] [font-size:0.85rem] ${m.delta > 0 ? '[color:#16a34a]' : '[color:#dc2626]'}`}>
                         {m.delta > 0 ? '+' : ''}{m.delta}
                       </div>
                       {(m.prevQuantity != null && m.newQuantity != null) && (
-                        <div style={{ fontSize: '0.65rem', color: 'var(--muted, #6b7280)' }}>
+                        <div className="[font-size:0.65rem] [color:var(--muted,_#6b7280)]">
                           {m.prevQuantity} → {m.newQuantity}
                         </div>
                       )}
                     </td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', fontSize: '0.75rem', color: 'var(--muted, #6b7280)' }}>
+                    <td className="[padding:0.5rem_0.6rem] text-right [font-size:0.75rem] [color:var(--muted,_#6b7280)]">
                       {m.adjustedByName || shortId(m.adjustedBy) || '—'}
                     </td>
-                    <td style={{ padding: '0.5rem 0.6rem', textAlign: 'right', fontSize: '0.7rem', color: 'var(--muted, #6b7280)', whiteSpace: 'nowrap' }}>
+                    <td className="[padding:0.5rem_0.6rem] text-right [font-size:0.7rem] [color:var(--muted,_#6b7280)] whitespace-nowrap">
                       <span title={formatDate(m.createdAt)}>{timeAgo(m.createdAt)}</span>
                     </td>
                   </tr>
@@ -359,14 +354,14 @@ export default function InventoryAdjustmentManager() {
           </div>
 
           {mTotalPages > 1 && (
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '0.25rem', marginTop: '0.75rem', alignItems: 'center', fontSize: '0.8rem' }}>
+            <div className="flex justify-center [gap:0.25rem] [margin-top:0.75rem] items-center [font-size:0.8rem]">
               <button disabled={mPage <= 1} onClick={() => fetchMovements(mPage - 1)}
-                style={{ padding: '0.3rem 0.6rem', cursor: mPage > 1 ? 'pointer' : 'default', border: '1px solid var(--line, #d1d5db)', borderRadius: '4px', background: mPage > 1 ? '#fff' : '#f3f4f6', opacity: mPage > 1 ? 1 : 0.5 }}>
+                className={`[padding:0.3rem_0.6rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:4px] ${mPage > 1 ? '[cursor:pointer] [background:#fff] [opacity:1]' : '[cursor:default] [background:#f3f4f6] [opacity:0.5]'}`}>
                 Prev
               </button>
-              <span style={{ color: 'var(--muted, #6b7280)' }}>Page {mPage} of {mTotalPages} ({mTotal} entries)</span>
+              <span className="[color:var(--muted,_#6b7280)]">Page {mPage} of {mTotalPages} ({mTotal} entries)</span>
               <button disabled={mPage >= mTotalPages} onClick={() => fetchMovements(mPage + 1)}
-                style={{ padding: '0.3rem 0.6rem', cursor: mPage < mTotalPages ? 'pointer' : 'default', border: '1px solid var(--line, #d1d5db)', borderRadius: '4px', background: mPage < mTotalPages ? '#fff' : '#f3f4f6', opacity: mPage < mTotalPages ? 1 : 0.5 }}>
+                className={`[padding:0.3rem_0.6rem] [border:1px_solid_var(--line,_#d1d5db)] [border-radius:4px] ${mPage < mTotalPages ? '[cursor:pointer] [background:#fff] [opacity:1]' : '[cursor:default] [background:#f3f4f6] [opacity:0.5]'}`}>
                 Next
               </button>
             </div>
@@ -376,62 +371,62 @@ export default function InventoryAdjustmentManager() {
 
       {/* ───── ADJUSTMENT DIALOG ───── */}
       {adjustTarget && !adjSuccess && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        <div className="fixed inset-0 [background:rgba(0,0,0,0.4)] flex items-center justify-center [z-index:1000]"
           onClick={e => e.target === e.currentTarget && !adjSubmitting && closeAdjust()}>
-          <div style={{ background: '#fff', borderRadius: '12px', width: '420px', maxWidth: '94vw', maxHeight: '90vh', overflow: 'auto', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ padding: '1rem 1.25rem', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="[background:#fff] [border-radius:12px] [width:420px] [max-width:94vw] [max-height:90vh] [overflow:auto] [box-shadow:0_20px_60px_rgba(0,0,0,0.2)]">
+            <div className="[padding:1rem_1.25rem] [border-bottom:1px_solid_#e5e7eb] flex justify-between items-center">
               <div>
-                <h3 style={{ margin: 0, fontSize: '1rem', fontWeight: 700 }}>
+                <h3 className="[margin:0] [font-size:1rem] [font-weight:700]">
                   {confirmStep ? 'Confirm Adjustment' : 'Adjust Stock'}
                 </h3>
-                <p style={{ margin: '0.15rem 0 0', fontSize: '0.78rem', color: 'var(--muted, #6b7280)' }}>
+                <p className="[margin:0.15rem_0_0] [font-size:0.78rem] [color:var(--muted,_#6b7280)]">
                   {adjustTarget.productName}
-                  <span style={{ fontFamily: 'monospace', marginLeft: '0.4rem' }}>{adjustTarget.sku}</span>
+                  <span className="font-mono [margin-left:0.4rem]">{adjustTarget.sku}</span>
                 </p>
               </div>
               <button onClick={closeAdjust} disabled={adjSubmitting}
-                style={{ padding: '0.3rem', cursor: 'pointer', border: 'none', background: 'none', color: '#9ca3af', opacity: adjSubmitting ? 0.5 : 1 }}>
+                className={`[padding:0.3rem] cursor-pointer [border:none] [background:none] [color:#9ca3af] ${adjSubmitting ? '[opacity:0.5]' : '[opacity:1]'}`}>
                 <XIcon />
               </button>
             </div>
 
-            <div style={{ padding: '1rem 1.25rem' }}>
+            <div className="[padding:1rem_1.25rem]">
               {!confirmStep ? (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                <div className="flex flex-col [gap:1rem]">
                   {/* Current stock cards */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '0.5rem' }}>
+                  <div className="grid [grid-template-columns:1fr_1fr_1fr] [gap:0.5rem]">
                     {[
-                      { label: 'On Hand', value: adjustTarget.quantity, color: '#92400e' },
-                      { label: 'Reserved', value: adjustTarget.reserved, color: 'var(--muted, #6b7280)' },
-                      { label: 'Available', value: adjustTarget.available, color: adjustTarget.available <= 0 ? '#dc2626' : '#16a34a' },
+                      { label: 'On Hand', value: adjustTarget.quantity, colorClass: '[color:#92400e]' },
+                      { label: 'Reserved', value: adjustTarget.reserved, colorClass: '[color:var(--muted,_#6b7280)]' },
+                      { label: 'Available', value: adjustTarget.available, colorClass: adjustTarget.available <= 0 ? '[color:#dc2626]' : '[color:#16a34a]' },
                     ].map(c => (
-                      <div key={c.label} style={{ textAlign: 'center', padding: '0.5rem', background: '#f9fafb', borderRadius: '6px', border: '1px solid #f3f4f6' }}>
-                        <div style={{ fontSize: '0.65rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--muted, #6b7280)' }}>{c.label}</div>
-                        <div style={{ fontSize: '1rem', fontWeight: 700, marginTop: '0.15rem', color: c.color }}>{c.value}</div>
+                      <div key={c.label} className="text-center [padding:0.5rem] [background:#f9fafb] [border-radius:6px] [border:1px_solid_#f3f4f6]">
+                        <div className="[font-size:0.65rem] uppercase [letter-spacing:0.05em] [color:var(--muted,_#6b7280)]">{c.label}</div>
+                        <div className={`[font-size:1rem] [font-weight:700] [margin-top:0.15rem] ${c.colorClass}`}>{c.value}</div>
                       </div>
                     ))}
                   </div>
 
                   {/* Delta input with +/- buttons */}
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Adjustment Amount</label>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                    <label className="[font-size:0.78rem] [font-weight:600] [margin-bottom:0.3rem] block">Adjustment Amount</label>
+                    <div className="flex items-center [gap:0.5rem]">
                       <button onClick={() => setDelta(d => d - 1)}
-                        style={{ padding: '0.4rem', cursor: 'pointer', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px' }}>
+                        className="[padding:0.4rem] cursor-pointer [border:1px_solid_#d1d5db] [border-radius:6px] [background:#fff] flex items-center justify-center [width:36px] [height:36px]">
                         <MinusIcon />
                       </button>
                       <input type="number" value={delta}
                         onChange={e => { const v = parseInt(e.target.value); setDelta(Number.isFinite(v) ? v : 0); }}
-                        style={{ flex: 1, textAlign: 'center', fontWeight: 700, fontSize: '1rem', padding: '0.4rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none', height: '36px', boxSizing: 'border-box', MozAppearance: 'textfield' }} />
+                        className="flex-1 text-center [font-weight:700] [font-size:1rem] [padding:0.4rem] [border:1px_solid_#d1d5db] [border-radius:6px] [outline:none] [height:36px] box-border [-moz-appearance:textfield]" />
                       <button onClick={() => setDelta(d => d + 1)}
-                        style={{ padding: '0.4rem', cursor: 'pointer', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', width: '36px', height: '36px' }}>
+                        className="[padding:0.4rem] cursor-pointer [border:1px_solid_#d1d5db] [border-radius:6px] [background:#fff] flex items-center justify-center [width:36px] [height:36px]">
                         <PlusIcon />
                       </button>
                     </div>
                     {delta !== 0 && (
-                      <div style={{ marginTop: '0.4rem', textAlign: 'center', fontSize: '0.78rem', color: 'var(--muted, #6b7280)' }}>
+                      <div className="[margin-top:0.4rem] text-center [font-size:0.78rem] [color:var(--muted,_#6b7280)]">
                         New on hand: <b>{adjustTarget.quantity + delta}</b>
-                        &nbsp;→&nbsp; New available: <b style={{ color: (adjustTarget.available + delta) <= 0 ? '#dc2626' : '#16a34a' }}>
+                        &nbsp;→&nbsp; New available: <b className={(adjustTarget.available + delta) <= 0 ? '[color:#dc2626]' : '[color:#16a34a]'}>
                           {Math.max(0, adjustTarget.available + delta)}
                         </b>
                       </div>
@@ -440,45 +435,45 @@ export default function InventoryAdjustmentManager() {
 
                   {/* Reason dropdown */}
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Reason</label>
+                    <label className="[font-size:0.78rem] [font-weight:600] [margin-bottom:0.3rem] block">Reason</label>
                     <select value={adjReason} onChange={e => { setAdjReason(e.target.value); setDelta(0); }}
-                      style={{ width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.8rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none', background: '#fff' }}>
+                      className="[width:100%] [padding:0.4rem_0.6rem] [font-size:0.8rem] [border:1px_solid_#d1d5db] [border-radius:6px] [outline:none] [background:#fff]">
                       {ADJUSTMENT_REASONS.map(r => (
                         <option key={r.value} value={r.value}>{r.label}</option>
                       ))}
                     </select>
                     {selectedReason && (
-                      <p style={{ margin: '0.3rem 0 0', fontSize: '0.72rem', color: 'var(--muted, #6b7280)' }}>{selectedReason.description}</p>
+                      <p className="[margin:0.3rem_0_0] [font-size:0.72rem] [color:var(--muted,_#6b7280)]">{selectedReason.description}</p>
                     )}
                   </div>
 
                   {/* Notes */}
                   <div>
-                    <label style={{ fontSize: '0.78rem', fontWeight: 600, marginBottom: '0.3rem', display: 'block' }}>Notes <span style={{ fontWeight: 400, color: 'var(--muted, #6b7280)' }}>(optional)</span></label>
+                    <label className="[font-size:0.78rem] [font-weight:600] [margin-bottom:0.3rem] block">Notes <span className="[font-weight:400] [color:var(--muted,_#6b7280)]">(optional)</span></label>
                     <textarea value={adjNotes} onChange={e => setAdjNotes(e.target.value)} maxLength={1000} rows={2}
                       placeholder="Add context for audit trail..."
-                      style={{ width: '100%', padding: '0.4rem 0.6rem', fontSize: '0.8rem', border: '1px solid #d1d5db', borderRadius: '6px', outline: 'none', resize: 'vertical', fontFamily: 'inherit' }} />
+                      className="[width:100%] [padding:0.4rem_0.6rem] [font-size:0.8rem] [border:1px_solid_#d1d5db] [border-radius:6px] [outline:none] resize-y [font-family:inherit]" />
                   </div>
                 </div>
               ) : (
                 /* Confirmation step */
                 <div>
-                  <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '8px', padding: '0.75rem 1rem', marginBottom: '1rem', fontSize: '0.8rem', display: 'flex', gap: '0.4rem', alignItems: 'flex-start' }}>
+                  <div className="[background:#fffbeb] [border:1px_solid_#fde68a] [border-radius:8px] [padding:0.75rem_1rem] [margin-bottom:1rem] [font-size:0.8rem] flex [gap:0.4rem] items-start">
                     <AlertIcon />
                     <div>
                       <strong>Confirm stock change</strong><br />
                       This action is irreversible and will be recorded in the audit trail.
                     </div>
                   </div>
-                  <table style={{ width: '100%', fontSize: '0.8rem', borderCollapse: 'collapse' }}>
+                  <table className="[width:100%] [font-size:0.8rem] border-collapse">
                     <tbody>
-                      <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>Product</td><td style={{ padding: '0.4rem 0', textAlign: 'right', fontWeight: 500 }}>{adjustTarget.productName}</td></tr>
-                      <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>SKU</td><td style={{ padding: '0.4rem 0', textAlign: 'right', fontFamily: 'monospace' }}>{adjustTarget.sku}</td></tr>
-                      <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>Change</td><td style={{ padding: '0.4rem 0', textAlign: 'right', fontWeight: 700, color: delta > 0 ? '#16a34a' : '#dc2626' }}>{delta > 0 ? '+' : ''}{delta}</td></tr>
-                      <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>Current Stock</td><td style={{ padding: '0.4rem 0', textAlign: 'right' }}>{adjustTarget.quantity}</td></tr>
-                      <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>New Stock</td><td style={{ padding: '0.4rem 0', textAlign: 'right', fontWeight: 700 }}>{adjustTarget.quantity + delta}</td></tr>
-                      <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>Reason</td><td style={{ padding: '0.4rem 0', textAlign: 'right' }}>{selectedReason?.label || adjReason}</td></tr>
-                      {adjNotes && <tr><td style={{ padding: '0.4rem 0', color: 'var(--muted, #6b7280)' }}>Notes</td><td style={{ padding: '0.4rem 0', textAlign: 'right', maxWidth: '200px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{adjNotes}</td></tr>}
+                      <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">Product</td><td className="[padding:0.4rem_0] text-right [font-weight:500]">{adjustTarget.productName}</td></tr>
+                      <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">SKU</td><td className="[padding:0.4rem_0] text-right font-mono">{adjustTarget.sku}</td></tr>
+                      <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">Change</td><td className={`[padding:0.4rem_0] text-right [font-weight:700] ${delta > 0 ? '[color:#16a34a]' : '[color:#dc2626]'}`}>{delta > 0 ? '+' : ''}{delta}</td></tr>
+                      <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">Current Stock</td><td className="[padding:0.4rem_0] text-right">{adjustTarget.quantity}</td></tr>
+                      <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">New Stock</td><td className="[padding:0.4rem_0] text-right [font-weight:700]">{adjustTarget.quantity + delta}</td></tr>
+                      <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">Reason</td><td className="[padding:0.4rem_0] text-right">{selectedReason?.label || adjReason}</td></tr>
+                      {adjNotes && <tr><td className="[padding:0.4rem_0] [color:var(--muted,_#6b7280)]">Notes</td><td className="[padding:0.4rem_0] text-right [max-width:200px] overflow-hidden text-ellipsis whitespace-nowrap">{adjNotes}</td></tr>}
                     </tbody>
                   </table>
                 </div>
@@ -486,25 +481,25 @@ export default function InventoryAdjustmentManager() {
             </div>
 
             {adjError && (
-              <div style={{ margin: '0 1.25rem 0.75rem', padding: '0.5rem 0.75rem', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', color: '#991b1b', fontSize: '0.78rem' }}>
+              <div className="[margin:0_1.25rem_0.75rem] [padding:0.5rem_0.75rem] [background:#fef2f2] [border:1px_solid_#fecaca] [border-radius:6px] [color:#991b1b] [font-size:0.78rem]">
                 {adjError}
               </div>
             )}
 
-            <div style={{ padding: '0.75rem 1.25rem', borderTop: '1px solid #e5e7eb', display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+            <div className="[padding:0.75rem_1.25rem] [border-top:1px_solid_#e5e7eb] flex justify-end [gap:0.5rem]">
               <button onClick={closeAdjust} disabled={adjSubmitting}
-                style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem', cursor: 'pointer', border: '1px solid #d1d5db', borderRadius: '6px', background: '#fff', fontWeight: 500, opacity: adjSubmitting ? 0.5 : 1 }}>
+                className={`[padding:0.45rem_0.9rem] [font-size:0.8rem] cursor-pointer [border:1px_solid_#d1d5db] [border-radius:6px] [background:#fff] [font-weight:500] ${adjSubmitting ? '[opacity:0.5]' : '[opacity:1]'}`}>
                 Cancel
               </button>
               {!confirmStep ? (
                 <button onClick={() => { if (delta === 0) { setAdjError('Adjustment amount cannot be zero'); return; } setConfirmStep(true); setAdjError(''); }}
                   disabled={delta === 0}
-                  style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem', cursor: delta !== 0 ? 'pointer' : 'default', border: 'none', borderRadius: '6px', background: delta !== 0 ? 'var(--brand, #6366f1)' : '#d1d5db', color: delta !== 0 ? '#fff' : '#9ca3af', fontWeight: 600 }}>
+                  className={`[padding:0.45rem_0.9rem] [font-size:0.8rem] [border:none] [border-radius:6px] [font-weight:600] ${delta !== 0 ? '[cursor:pointer] [background:var(--brand,_#6366f1)] [color:#fff]' : '[cursor:default] [background:#d1d5db] [color:#9ca3af]'}`}>
                   Continue
                 </button>
               ) : (
                 <button onClick={submitAdjust} disabled={adjSubmitting}
-                  style={{ padding: '0.45rem 0.9rem', fontSize: '0.8rem', cursor: adjSubmitting ? 'default' : 'pointer', border: 'none', borderRadius: '6px', background: adjSubmitting ? '#9ca3af' : (delta > 0 ? '#16a34a' : '#dc2626'), color: '#fff', fontWeight: 600, opacity: adjSubmitting ? 0.7 : 1 }}>
+                  className={`[padding:0.45rem_0.9rem] [font-size:0.8rem] [border:none] [border-radius:6px] [color:#fff] [font-weight:600] ${adjSubmitting ? '[cursor:default] [background:#9ca3af] [opacity:0.7]' : `[cursor:pointer] [opacity:1] ${delta > 0 ? '[background:#16a34a]' : '[background:#dc2626]'}`}`}>
                   {adjSubmitting ? 'Applying...' : `Confirm ${delta > 0 ? '+' : ''}${delta}`}
                 </button>
               )}
@@ -515,18 +510,18 @@ export default function InventoryAdjustmentManager() {
 
       {/* Success confirmation */}
       {adjSuccess && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}
+        <div className="fixed inset-0 [background:rgba(0,0,0,0.4)] flex items-center justify-center [z-index:1000]"
           onClick={e => e.target === e.currentTarget && (closeAdjust())}>
-          <div style={{ background: '#fff', borderRadius: '12px', width: '380px', maxWidth: '90vw', padding: '1.5rem', textAlign: 'center', boxShadow: '0 20px 60px rgba(0,0,0,0.2)' }}>
-            <div style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.75rem' }}>
+          <div className="[background:#fff] [border-radius:12px] [width:380px] [max-width:90vw] [padding:1.5rem] text-center [box-shadow:0_20px_60px_rgba(0,0,0,0.2)]">
+            <div className="[width:48px] [height:48px] [border-radius:50%] [background:#dcfce7] flex items-center justify-center [margin:0_auto_0.75rem]">
               <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2"><path d="M20 6 9 17l-5-5"/></svg>
             </div>
-            <h3 style={{ margin: '0 0 0.25rem', fontSize: '1rem', fontWeight: 700 }}>Stock Adjusted</h3>
-            <p style={{ margin: 0, fontSize: '0.85rem', color: 'var(--muted, #6b7280)' }}>
+            <h3 className="[margin:0_0_0.25rem] [font-size:1rem] [font-weight:700]">Stock Adjusted</h3>
+            <p className="[margin:0] [font-size:0.85rem] [color:var(--muted,_#6b7280)]">
               {adjSuccess.previousStock} → {adjSuccess.newStock} ({adjSuccess.delta > 0 ? '+' : ''}{adjSuccess.delta})
             </p>
             <button onClick={closeAdjust}
-              style={{ marginTop: '1rem', padding: '0.5rem 1.5rem', fontSize: '0.85rem', cursor: 'pointer', border: 'none', borderRadius: '6px', background: 'var(--brand, #6366f1)', color: '#fff', fontWeight: 600 }}>
+              className="[margin-top:1rem] [padding:0.5rem_1.5rem] [font-size:0.85rem] cursor-pointer [border:none] [border-radius:6px] [background:var(--brand,_#6366f1)] [color:#fff] [font-weight:600]">
               Done
             </button>
           </div>

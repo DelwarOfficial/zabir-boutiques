@@ -4,6 +4,7 @@ import { resolve } from 'node:path';
 import { createHash } from 'node:crypto';
 import { collectStyleAttrHashes } from '../scripts/csp-hashes-plugin.mjs';
 import { getCspStyleHashes, getCspStyleHashesVersion } from '../src/lib/csp-hashes';
+import { generatePublicCSP, generateStaffCSP } from '../src/lib/security/csp';
 
 function sha256Base64(value: string): string {
   return "'sha256-" + createHash('sha256').update(Buffer.from(value, 'utf8')).digest('base64') + "'";
@@ -11,7 +12,7 @@ function sha256Base64(value: string): string {
 
 const SCRATCH = resolve('./tests/.scratch-csp-style');
 
-describe('N-13 phase 1: static style-attribute hash collection (ship dark, not wired into live CSP yet)', () => {
+describe('N-13: static style-attribute hash collection', () => {
   it('hashes a literal quoted style="..." attribute', () => {
     mkdirSync(SCRATCH, { recursive: true });
     writeFileSync(resolve(SCRATCH, 'a.astro'), '<div style="color:red;padding:4px"></div>');
@@ -68,16 +69,61 @@ describe('N-13 phase 1: static style-attribute hash collection (ship dark, not w
     expect(getCspStyleHashesVersion().length).toBeGreaterThan(0);
   });
 
-  it('ship-dark invariant: src/lib/security/csp.ts does not consume the style hashes yet — style-src is unchanged this deploy', () => {
-    const src = readFileSync(resolve('./src/lib/security/csp.ts'), 'utf8');
-    expect(src).not.toContain('getCspStyleHashes');
-    expect(src).not.toContain('unsafe-hashes');
-    expect(src).toContain("style-src 'self' 'unsafe-inline'");
-  });
-
   it('the build plugin writes CSP_STYLE_HASHES alongside CSP_SCRIPT_HASHES into the same generated module', () => {
     const src = readFileSync(resolve('./scripts/csp-hashes-plugin.mjs'), 'utf8');
     expect(src).toContain('CSP_STYLE_HASHES');
     expect(src).toContain('buildStyleHashes');
+  });
+});
+
+describe('N-13 phase 2 cutover: style-src drops unsafe-inline in production, keeps it in local dev', () => {
+  const styleHashes = ["'sha256-fakehash1='", "'sha256-fakehash2='"];
+
+  it('generatePublicCSP: production style-src has no unsafe-inline, includes unsafe-hashes and every provided hash', () => {
+    const csp = generatePublicCSP('nonce123', false, [], styleHashes);
+    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+    expect(styleSrc).toBeTruthy();
+    expect(styleSrc).not.toContain('unsafe-inline');
+    expect(styleSrc).toContain("'unsafe-hashes'");
+    expect(styleSrc).toContain("'self'");
+    for (const h of styleHashes) expect(styleSrc).toContain(h);
+  });
+
+  it('generateStaffCSP: same cutover applies to the staff CSP', () => {
+    const csp = generateStaffCSP('nonce123', false, [], styleHashes);
+    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+    expect(styleSrc).not.toContain('unsafe-inline');
+    expect(styleSrc).toContain("'unsafe-hashes'");
+    for (const h of styleHashes) expect(styleSrc).toContain(h);
+  });
+
+  it('local dev keeps unsafe-inline (Vite HMR can inject inline styles outside the hash list) and does not need the hash list', () => {
+    const publicCsp = generatePublicCSP('nonce123', true, [], styleHashes);
+    const staffCsp = generateStaffCSP('nonce123', true, [], styleHashes);
+    for (const csp of [publicCsp, staffCsp]) {
+      const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+      expect(styleSrc).toBe("style-src 'self' 'unsafe-inline'");
+    }
+  });
+
+  it('an empty style hash list still produces a well-formed style-src (defaults to [] via the function signature)', () => {
+    const csp = generatePublicCSP('nonce123', false, []);
+    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+    expect(styleSrc).toBe("style-src 'self' 'unsafe-hashes'");
+  });
+
+  it('middleware.ts wires getCspStyleHashes() into both generatePublicCSP and generateStaffCSP calls', () => {
+    const src = readFileSync(resolve('./src/middleware.ts'), 'utf8');
+    expect(src).toContain('getCspStyleHashes');
+    expect(src).toContain('generateStaffCSP(nonce, localDev, scriptHashes, styleHashes)');
+    expect(src).toContain('generatePublicCSP(nonce, localDev, scriptHashes, styleHashes)');
+  });
+
+  it('the live production style-src actually contains every hash currently generated from source — real cutover, not a stub list', () => {
+    const csp = generatePublicCSP('nonce123', false, [], [...getCspStyleHashes()]);
+    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'))!;
+    for (const h of getCspStyleHashes()) {
+      expect(styleSrc).toContain(h);
+    }
   });
 });

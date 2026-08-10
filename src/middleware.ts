@@ -10,7 +10,7 @@
 import type { MiddlewareHandler } from 'astro';
 import { generateRandomHex } from './lib/security';
 import { getCurrentStaffUser, can } from './lib/rbac';
-import { getCspScriptHashes } from './lib/csp-hashes';
+import { getCspScriptHashes, getCspStyleHashes } from './lib/csp-hashes';
 import { safeLog } from './lib/pii-scrubber';
 import { isLocalHttpDev } from './lib/staff-cookies';
 import { validateCsrfDoubleSubmit } from './lib/csrf';
@@ -166,7 +166,8 @@ function withSecurityHeaders(response: Response, nonce: string, request: Request
 
   const isStaff = pathname ? /^\/staff(?:\/|$)/.test(pathname) || /^\/api\/staff/.test(pathname) : false;
   const scriptHashes = [...getCspScriptHashes()];
-  const csp = isStaff ? generateStaffCSP(nonce, localDev, scriptHashes) : generatePublicCSP(nonce, localDev, scriptHashes);
+  const styleHashes = [...getCspStyleHashes()];
+  const csp = isStaff ? generateStaffCSP(nonce, localDev, scriptHashes, styleHashes) : generatePublicCSP(nonce, localDev, scriptHashes, styleHashes);
 
   headers.set('Content-Security-Policy', csp);
   headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');

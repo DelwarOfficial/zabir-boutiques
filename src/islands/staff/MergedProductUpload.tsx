@@ -420,8 +420,7 @@ export default function MergedProductUpload() {
                     </td>
                     <td className="px-2.5 py-1.5">
                       <button onClick={() => removeVariant(i)} disabled={variants.length <= 1}
-                        className="p-1 border-0 bg-none cursor-pointer disabled:cursor-default"
-                        style={{ color: variants.length > 1 ? '#ef4444' : '#d1d5db' }}>
+                        className={`p-1 border-0 bg-none cursor-pointer disabled:cursor-default ${variants.length > 1 ? 'text-[#ef4444]' : 'text-[#d1d5db]'}`}>
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
                       </button>
                     </td>
