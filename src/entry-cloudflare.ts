@@ -25,7 +25,6 @@ import {
 import { VariantInventoryDO } from "./do/variant-inventory-do";
 import { IdempotencyDO } from "./do/idempotency-do";
 import { BudgetCounterDO } from "./do/budget-counter-do";
-import { WafRules } from "./do/waf-rules";
 import { CartDO } from "./do/cart-do";
 import { DirectCheckoutSessionDO } from "./do/direct-checkout-session-do";
 import { ProviderHealthDO } from "./do/provider-health-do";
@@ -34,7 +33,7 @@ import { safeLog } from "./lib/pii-scrubber";
 import type { Env } from "./env";
 
 // Required by Cloudflare: DO classes must be top-level exports.
-export { VariantInventoryDO, IdempotencyDO, BudgetCounterDO, WafRules, CartDO, DirectCheckoutSessionDO, ProviderHealthDO, InvoiceCounterDO };
+export { VariantInventoryDO, IdempotencyDO, BudgetCounterDO, CartDO, DirectCheckoutSessionDO, ProviderHealthDO, InvoiceCounterDO };
 
 /**
  * Normalize a queue name to its environment-agnostic base by stripping the

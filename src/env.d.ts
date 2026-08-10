@@ -58,7 +58,6 @@ declare global {
       VARIANT_INVENTORY_DO: DurableObjectNamespace;
       IDEMPOTENCY_DO: DurableObjectNamespace;
       AI_BUDGET: DurableObjectNamespace;
-      WAF_RULES: DurableObjectNamespace;
       CART_DO: DurableObjectNamespace;
       DIRECT_CHECKOUT_DO: DurableObjectNamespace;
       PROVIDER_HEALTH_DO: DurableObjectNamespace;

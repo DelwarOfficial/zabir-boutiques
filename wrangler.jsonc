@@ -79,14 +79,18 @@
 
   // ── Durable Objects ────────────────────────────────────────────────
   // 7 classes: VariantInventoryDO, IdempotencyDO, BudgetCounterDO,
-  // WafRules, CartDO, DirectCheckoutSessionDO, ProviderHealthDO.
+  // CartDO, DirectCheckoutSessionDO, ProviderHealthDO, InvoiceCounterDO.
   // See migrations below — new_sqlite_classes is REQUIRED for each.
+  // N-1: WafRules had zero call sites anywhere in the codebase (dead
+  // binding, never actually used for WAF enforcement — Cloudflare's edge
+  // WAF runs before the Worker regardless). Removed via the v5
+  // deleted_classes migration below rather than deleting it from v2's
+  // new_sqlite_classes, which already shipped and must never be edited.
   "durable_objects": {
     "bindings": [
       { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
       { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
       { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-      { "name": "WAF_RULES", "class_name": "WafRules" },
       { "name": "CART_DO", "class_name": "CartDO" },
       { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
       { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" },
@@ -102,7 +106,8 @@
     { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
     { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
     { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] },
-    { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] }
+    { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] },
+    { "tag": "v5", "deleted_classes": ["WafRules"] }
   ],
 
   // ── Queues ─────────────────────────────────────────────────────────
@@ -175,7 +180,6 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" },
           { "name": "CART_DO", "class_name": "CartDO" },
           { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
           { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" },
@@ -186,7 +190,8 @@
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
         { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
         { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] },
-        { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] }
+        { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] },
+        { "tag": "v5", "deleted_classes": ["WafRules"] }
       ],
       "queues": {
         "producers": [
@@ -236,7 +241,6 @@
           { "name": "VARIANT_INVENTORY_DO", "class_name": "VariantInventoryDO" },
           { "name": "IDEMPOTENCY_DO", "class_name": "IdempotencyDO" },
           { "name": "AI_BUDGET", "class_name": "BudgetCounterDO" },
-          { "name": "WAF_RULES", "class_name": "WafRules" },
           { "name": "CART_DO", "class_name": "CartDO" },
           { "name": "DIRECT_CHECKOUT_DO", "class_name": "DirectCheckoutSessionDO" },
           { "name": "PROVIDER_HEALTH_DO", "class_name": "ProviderHealthDO" },
@@ -247,7 +251,8 @@
         { "tag": "v1", "new_sqlite_classes": ["VariantInventoryDO", "IdempotencyDO"] },
         { "tag": "v2", "new_sqlite_classes": ["BudgetCounterDO", "WafRules"] },
         { "tag": "v3", "new_sqlite_classes": ["CartDO", "DirectCheckoutSessionDO", "ProviderHealthDO"] },
-        { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] }
+        { "tag": "v4", "new_sqlite_classes": ["InvoiceCounterDO"] },
+        { "tag": "v5", "deleted_classes": ["WafRules"] }
       ],
       "queues": {
         "producers": [
