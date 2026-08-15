@@ -10,13 +10,17 @@ export function validatePasswordPolicy(password: string): { ok: true } | { ok: f
   return { ok: true };
 }
 
-// K-25: OWASP recommends >=600,000 PBKDF2-SHA256 iterations; this was
-// 100,000 (~6x below). PBKDF2_ITERATIONS is the current/target count for
-// every new hash. PBKDF2_LEGACY_ITERATIONS is kept only so verifyPassword
-// can still validate rows hashed before this change (no per-row iteration
-// count is stored) and transparently upgrade them on next successful
-// login, the same pattern already used for the pre-PBKDF2 HMAC hashes.
-export const PBKDF2_ITERATIONS = 600_000;
+// N-17: K-25 raised this to 600,000 citing OWASP's PBKDF2-SHA256
+// recommendation, but Cloudflare Workers' WebCrypto PBKDF2 implementation
+// hard-caps at 100,000 iterations (crypto.subtle.deriveBits throws
+// NotSupportedError above that, unconditionally) — this made every login
+// attempt 500, both new and legacy hashes, since deriveHash throws before
+// verifyPasswordWithUpgrade ever reaches its legacy fallback. 100,000 is
+// the actual ceiling this runtime supports, not a stopgap; OWASP's number
+// assumes a platform without this cap. PBKDF2_LEGACY_ITERATIONS is kept
+// (now equal) so verifyPasswordWithUpgrade's dual-check/upgrade path and
+// its callers don't need to change.
+export const PBKDF2_ITERATIONS = 100_000;
 export const PBKDF2_LEGACY_ITERATIONS = 100_000;
 
 async function deriveHash(password: string, salt: string, pepper: string, iterations: number): Promise<string> {
