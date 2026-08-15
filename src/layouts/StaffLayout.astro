@@ -14,6 +14,8 @@ type Props = {
 const { title, user } = Astro.props;
 const csrfToken = readCsrfCookie(Astro.request) ?? "";
 const currentPath = Astro.url.pathname;
+// N-15: hoist out of the template — see src/pages/staff/login.astro.
+const cspNonce = Astro.locals.cspNonce;
 const menu = menuForRole(user.role).map((item) => ({
   ...item,
   active: item.href === currentPath || (item.href !== "/staff" && currentPath.startsWith(item.href)),
@@ -39,7 +41,7 @@ const roleColor: Record<string, string> = {
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>{title} — Zabir Boutiques Staff</title>
-    <script is:inline define:vars={{ csrfToken }} nonce={Astro.locals.cspNonce}>
+    <script is:inline define:vars={{ csrfToken }} nonce={cspNonce}>
       window.__ZB_CSRF__ = csrfToken;
       try { if (csrfToken) sessionStorage.setItem('zb-csrf', csrfToken); } catch (_) {}
       (function(){
@@ -63,7 +65,7 @@ const roleColor: Record<string, string> = {
       </div>
     </div>
 
-    <script is:inline nonce={Astro.locals.cspNonce}>
+    <script is:inline nonce={cspNonce}>
       document.addEventListener('submit', (e) => {
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;

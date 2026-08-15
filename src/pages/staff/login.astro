@@ -3,6 +3,12 @@ import "@/styles/global.css";
 import { env } from "cloudflare:workers";
 
 const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
+// N-15: Astro.locals.cspNonce referenced directly inside a parenthesized
+// conditional JSX block (`{cond ? (<script nonce={Astro.locals.cspNonce}>) : null}`)
+// throws "ReferenceError: Astro is not defined" — the compiler doesn't
+// carry the Astro global into that scope. Hoisting to a plain frontmatter
+// variable (same pattern already used for TURNSTILE_SITE_KEY) sidesteps it.
+const cspNonce = Astro.locals.cspNonce;
 ---
 
 <!doctype html>
@@ -15,7 +21,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
     {TURNSTILE_SITE_KEY ? (
-      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce={Astro.locals.cspNonce}></script>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce={cspNonce}></script>
     ) : null}
     <style is:global>
       :root {
@@ -70,7 +76,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
       .back-link { font-size:0.75rem; color:var(--muted); cursor:pointer; text-decoration:none; display:inline-block; margin-top:0.75rem; }
       .back-link:hover { color:var(--ink-secondary); }
     </style>
-    <script nonce={Astro.locals.cspNonce} is:inline>
+    <script nonce={cspNonce} is:inline>
       (function(){
         var t = localStorage.getItem('zb-theme');
         if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches)) {
@@ -144,7 +150,7 @@ const TURNSTILE_SITE_KEY: string | undefined = env.TURNSTILE_SITE_KEY;
       <p style="text-align:center;color:var(--muted);font-size:0.75rem;margin-top:1.5rem;">Zabir Boutiques &copy; 2026</p>
     </main>
 
-    <script nonce={Astro.locals.cspNonce} is:inline>
+    <script nonce={cspNonce} is:inline>
       (function(){
         const params = new URLSearchParams(window.location.search);
         if (params.has('identifier') || params.has('totp')) {

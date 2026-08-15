@@ -19,6 +19,8 @@ const variants = await env.DB.prepare(
    ORDER BY p.name, pv.size`
 ).all<any>();
 const rows = variants.results ?? [];
+// N-15: hoist out of the template — see src/pages/staff/login.astro.
+const cspNonce = Astro.locals.cspNonce;
 ---
 <StaffLayout title="POS Invoice" user={user}>
   <PageHeader title="POS Invoice" subtitle="In-store sale with thermal receipt." />
@@ -149,7 +151,7 @@ const rows = variants.results ?? [];
   <p class="text-xs text-muted mt-5">POS invoices are separate from online orders. Stock is deducted immediately and the receipt is auto-printed. Refunds go through the Returns flow.</p>
 </StaffLayout>
 
-<script nonce={Astro.locals.cspNonce} is:inline>
+<script nonce={cspNonce} is:inline>
   // Cart state. variantId → { name, label, pricePaisa, qty }.
   const cart = new Map();
 

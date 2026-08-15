@@ -15,6 +15,8 @@ if (!staffUser?.id) {
 // expose to the inline logout handler. Mirrors StaffLayout/Navbar.
 import { readCsrfCookie } from "../lib/csrf";
 const csrfToken = readCsrfCookie(Astro.request) ?? "";
+// N-15: hoist out of the template — see src/pages/staff/login.astro.
+const cspNonce = Astro.locals.cspNonce;
 ---
 
 <!doctype html>
@@ -73,7 +75,7 @@ const csrfToken = readCsrfCookie(Astro.request) ?? "";
       </main>
     </div>
 
-    <script is:inline define:vars={{ csrfToken }} nonce={Astro.locals.cspNonce}>
+    <script is:inline define:vars={{ csrfToken }} nonce={cspNonce}>
       document.querySelectorAll('[data-staff-logout]').forEach((btn) => {
         btn.addEventListener('click', async () => {
           try {

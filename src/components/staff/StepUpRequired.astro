@@ -10,6 +10,8 @@ interface Props {
   message?: string;
 }
 const { message = 'This section requires recent authentication for security.' } = Astro.props;
+// N-15: hoist out of the template — see src/pages/staff/login.astro.
+const cspNonce = Astro.locals.cspNonce;
 ---
 <div class="max-w-md mx-auto mt-8">
   <div class="border border-line rounded-xl bg-surface p-6 shadow-sm">
@@ -37,7 +39,7 @@ const { message = 'This section requires recent authentication for security.' } 
   <p class="text-xs text-muted text-center mt-4">Your session is still active. This step confirms your identity for sensitive operations.</p>
 </div>
 
-<script is:inline nonce={Astro.locals.cspNonce}>
+<script is:inline nonce={cspNonce}>
   (function() {
     const form = document.getElementById('step-up-form');
     const btn = document.getElementById('step-up-btn');
