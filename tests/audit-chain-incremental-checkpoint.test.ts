@@ -29,6 +29,7 @@ function buildDb(): DatabaseSync {
   raw.exec(readFileSync(resolve(MIGRATIONS, '0007_audit_chain.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0056_audit_log_add_redaction.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0057_audit_log_add_redaction_reason.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0059_audit_log_redaction_hash.sql'), 'utf8'));
   raw.exec(`
     CREATE TABLE IF NOT EXISTS audit_integrity_alerts (
       id TEXT PRIMARY KEY,

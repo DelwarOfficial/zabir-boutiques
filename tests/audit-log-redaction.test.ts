@@ -47,6 +47,8 @@ function buildDb(): DatabaseSync {
   raw.exec(readFileSync(resolve(MIGRATIONS, '0056_audit_log_add_redaction.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0057_audit_log_add_redaction_reason.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0058_audit_log_redaction_triggers.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0059_audit_log_redaction_hash.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0060_audit_log_redaction_hash_write_once.sql'), 'utf8'));
   raw.exec(`
     CREATE TABLE IF NOT EXISTS audit_integrity_alerts (
       id TEXT PRIMARY KEY,
@@ -118,6 +120,62 @@ describe('N-11: audit_log redaction preserves hash-chain integrity', () => {
     const raw = buildDb();
     const db = new D1Like(raw) as unknown as D1Database;
     expect(await redactAuditLogEntry(db, 'does-not-exist', 'r')).toBe('not_found');
+  });
+
+  it('N-20: redaction stores a redaction_hash covering the surviving columns', async () => {
+    const raw = buildDb();
+    const db = new D1Like(raw) as unknown as D1Database;
+    const id = await writeOrderEntry(db, 'o1', { name: 'Karim' });
+    await recordAuditIntegrityCheck(db, 1000);
+    await redactAuditLogEntry(db, id, 'customer_data_deletion');
+
+    const row = raw.prepare(`SELECT redaction_hash, chain_hash FROM audit_log WHERE id = ?`).get(id) as any;
+    expect(row.redaction_hash).toBeTruthy();
+    expect(row.redaction_hash).not.toBe(row.chain_hash);
+  });
+
+  it('N-20: tampering with a REDACTED row\'s forensic columns is now caught (was silently accepted before)', async () => {
+    const raw = buildDb();
+    const db = new D1Like(raw) as unknown as D1Database;
+    const id = await writeOrderEntry(db, 'o1', { name: 'Karim' });
+    await writeOrderEntry(db, 'o2', { name: 'Rahim' });
+    await recordAuditIntegrityCheck(db, 1000);
+    await redactAuditLogEntry(db, id, 'customer_data_deletion');
+    expect((await verifyAuditChain(db, 1000)).valid).toBe(true);
+
+    // Model an attacker with direct D1 write who has defeated the triggers:
+    // rewrite the actor on a redacted row to frame someone else.
+    raw.exec('DROP TRIGGER trg_audit_log_immutable_columns;');
+    raw.prepare(`UPDATE audit_log SET actor_role = 'framed-other-employee' WHERE id = ?`).run(id);
+
+    expect((await verifyAuditChain(db, 1000)).valid).toBe(false);
+  });
+
+  it('N-20: marking a row redacted without a valid redaction_hash is rejected, not trusted', async () => {
+    const raw = buildDb();
+    const db = new D1Like(raw) as unknown as D1Database;
+    const id = await writeOrderEntry(db, 'o1', { name: 'Karim' });
+    await writeOrderEntry(db, 'o2', { name: 'Rahim' });
+    await recordAuditIntegrityCheck(db, 1000);
+    expect((await verifyAuditChain(db, 1000)).valid).toBe(true);
+
+    // The exact pre-N-20 exploit: set redacted_at to disable verification.
+    raw.exec('DROP TRIGGER trg_audit_log_immutable_columns;');
+    raw.prepare(`UPDATE audit_log SET actor_role = 'tampered', redacted_at = '2026-01-01 00:00:00' WHERE id = ?`).run(id);
+
+    expect((await verifyAuditChain(db, 1000)).valid).toBe(false);
+  });
+
+  it('N-20: redaction_hash is write-once at the database layer', async () => {
+    const raw = buildDb();
+    const db = new D1Like(raw) as unknown as D1Database;
+    const id = await writeOrderEntry(db, 'o1', { name: 'Karim' });
+    await recordAuditIntegrityCheck(db, 1000);
+    await redactAuditLogEntry(db, id, 'customer_data_deletion');
+
+    expect(() => {
+      raw.prepare(`UPDATE audit_log SET redaction_hash = 'forged' WHERE id = ?`).run(id);
+    }).toThrow();
   });
 
   it('chain re-verifies as valid after redaction — verifyAuditChain skips literal recompute for redacted rows but still checks previous_hash linkage', async () => {

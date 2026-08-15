@@ -116,7 +116,7 @@ export async function writeCriticalAuditLog(db: D1Database, entry: AuditEntry): 
 export async function verifyAuditChain(db: D1Database, limit = 1000): Promise<{ valid: boolean; checked: number; firstBadIndex?: number }> {
   const rows = await db.prepare(
     `SELECT id, previous_hash, chain_hash, actor_staff_id, actor_role, action, entity_type, entity_id,
-            metadata_json, ip_address, user_agent, created_at, redacted_at
+            metadata_json, ip_address, user_agent, created_at, redacted_at, redaction_hash
      FROM audit_log ORDER BY created_at ASC, rowid ASC LIMIT ?1`
   ).bind(limit).all<AuditChainRow>();
 
@@ -128,33 +128,8 @@ export async function verifyAuditChain(db: D1Database, limit = 1000): Promise<{ 
     if (r.previous_hash !== expectedPreviousHash) {
       return { valid: false, checked: i, firstBadIndex: i };
     }
-    // N-11: a redacted row's metadata_json no longer matches what was
-    // hashed at write time (that's the point — the PII is gone). Its
-    // chain_hash was captured BEFORE redaction and never touched by
-    // redactAuditLogEntry, so re-deriving it from the now-blanked payload
-    // would always fail. Trust the stored chain_hash for redacted rows —
-    // it was already proven correct once (redaction requires the row to
-    // already sit behind a verified checkpoint) — and only re-check the
-    // previous_hash linkage, same as every other row.
-    if (!r.redacted_at) {
-      const payload = serializeForHash({
-        previousHash: expectedPreviousHash,
-        actorStaffId: r.actor_staff_id,
-        actorRole: r.actor_role,
-        action: r.action,
-        entityType: r.entity_type,
-        entityId: r.entity_id,
-        metadata: r.metadata_json,
-        ipAddress: r.ip_address,
-        userAgent: r.user_agent,
-        now: r.created_at
-      });
-      const secret = (cloudflareEnv as { AUDIT_LEDGER_SECRET?: string })?.AUDIT_LEDGER_SECRET;
-      const computedSha = await sha256Hex(payload);
-      const computedHmac = secret ? await hmacSha256Hex(payload, secret) : null;
-      if (computedSha !== r.chain_hash && computedHmac !== r.chain_hash) {
-        return { valid: false, checked: i + 1, firstBadIndex: i };
-      }
+    if (!(await verifyRowIntegrity(r, expectedPreviousHash))) {
+      return { valid: false, checked: i + 1, firstBadIndex: i };
     }
     expectedPreviousHash = r.chain_hash;
   }
@@ -207,7 +182,7 @@ export async function verifyAuditChainIncremental(
     ? await db
         .prepare(
           `SELECT id, previous_hash, chain_hash, actor_staff_id, actor_role, action, entity_type, entity_id,
-                  metadata_json, ip_address, user_agent, created_at, redacted_at
+                  metadata_json, ip_address, user_agent, created_at, redacted_at, redaction_hash
            FROM audit_log
            WHERE rowid > (SELECT rowid FROM audit_log WHERE id = ?1)
            ORDER BY created_at ASC, rowid ASC LIMIT ?2`,
@@ -217,7 +192,7 @@ export async function verifyAuditChainIncremental(
     : await db
         .prepare(
           `SELECT id, previous_hash, chain_hash, actor_staff_id, actor_role, action, entity_type, entity_id,
-                  metadata_json, ip_address, user_agent, created_at, redacted_at
+                  metadata_json, ip_address, user_agent, created_at, redacted_at, redaction_hash
            FROM audit_log ORDER BY created_at ASC, rowid ASC LIMIT ?1`,
         )
         .bind(maxRows)
@@ -234,27 +209,8 @@ export async function verifyAuditChainIncremental(
     if (r.previous_hash !== expectedPreviousHash) {
       return { valid: false, checked: i, firstBadIndex: i, lastVerified, reachedHead: false };
     }
-    // N-11: skip literal-payload recomputation for redacted rows — see the
-    // matching comment in verifyAuditChain above.
-    if (!r.redacted_at) {
-      const payload = serializeForHash({
-        previousHash: expectedPreviousHash,
-        actorStaffId: r.actor_staff_id,
-        actorRole: r.actor_role,
-        action: r.action,
-        entityType: r.entity_type,
-        entityId: r.entity_id,
-        metadata: r.metadata_json,
-        ipAddress: r.ip_address,
-        userAgent: r.user_agent,
-        now: r.created_at,
-      });
-      const secret = (cloudflareEnv as { AUDIT_LEDGER_SECRET?: string })?.AUDIT_LEDGER_SECRET;
-      const computedSha = await sha256Hex(payload);
-      const computedHmac = secret ? await hmacSha256Hex(payload, secret) : null;
-      if (computedSha !== r.chain_hash && computedHmac !== r.chain_hash) {
-        return { valid: false, checked: i + 1, firstBadIndex: i, lastVerified, reachedHead: false };
-      }
+    if (!(await verifyRowIntegrity(r, expectedPreviousHash))) {
+      return { valid: false, checked: i + 1, firstBadIndex: i, lastVerified, reachedHead: false };
     }
     expectedPreviousHash = r.chain_hash;
     lastVerified = { id: r.id, chainHash: r.chain_hash };
@@ -269,6 +225,60 @@ interface AuditChainRow {
   action: string; entity_type: string; entity_id: string;
   metadata_json: string | null; ip_address: string | null; user_agent: string | null; created_at: string;
   redacted_at: string | null;
+  redaction_hash: string | null;
+}
+
+/**
+ * N-20: verify one chain row's content hash.
+ *
+ * A non-redacted row is checked the original way: recompute over the literal
+ * payload and compare against chain_hash.
+ *
+ * A redacted row cannot be checked that way — its metadata_json was blanked
+ * after chain_hash was computed, so re-deriving chain_hash is impossible by
+ * construction. N-11 handled that by skipping verification entirely, which
+ * left actor_staff_id, actor_role, action, entity_type, entity_id,
+ * ip_address, user_agent and created_at unverified for any row where
+ * redacted_at was set. Because chain_hash is HMAC'd with a secret that never
+ * lives in the database, recomputation was the only thing making those
+ * columns unforgeable to an attacker with D1 write access — so setting one
+ * column turned any row into a freely rewritable one that still reported
+ * valid.
+ *
+ * Instead we recompute over the POST-redaction payload (metadata
+ * canonicalized to null, exactly as redactAuditLogEntry wrote it) and compare
+ * against redaction_hash, which was computed with the same secret at
+ * redaction time and is write-once at the database layer
+ * (trg_audit_log_redaction_hash_write_once). Every surviving column stays
+ * covered. A row claiming to be redacted with no redaction_hash is treated as
+ * invalid rather than trusted — otherwise an attacker could re-open the hole
+ * simply by omitting the column.
+ */
+async function verifyRowIntegrity(r: AuditChainRow, expectedPreviousHash: string): Promise<boolean> {
+  const isRedacted = r.redacted_at != null;
+
+  // A redacted row with no integrity hash is unverifiable, not trustworthy.
+  if (isRedacted && !r.redaction_hash) return false;
+
+  const payload = serializeForHash({
+    previousHash: expectedPreviousHash,
+    actorStaffId: r.actor_staff_id,
+    actorRole: r.actor_role,
+    action: r.action,
+    entityType: r.entity_type,
+    entityId: r.entity_id,
+    metadata: isRedacted ? null : r.metadata_json,
+    ipAddress: r.ip_address,
+    userAgent: r.user_agent,
+    now: r.created_at,
+  });
+
+  const expected = isRedacted ? r.redaction_hash : r.chain_hash;
+  const secret = (cloudflareEnv as { AUDIT_LEDGER_SECRET?: string })?.AUDIT_LEDGER_SECRET;
+  const computedSha = await sha256Hex(payload);
+  if (computedSha === expected) return true;
+  if (!secret) return false;
+  return (await hmacSha256Hex(payload, secret)) === expected;
 }
 
 export type RedactionOutcome = 'redacted' | 'already_redacted' | 'not_found' | 'not_yet_verified';
@@ -292,9 +302,18 @@ export async function redactAuditLogEntry(
   now = nowSql(),
 ): Promise<RedactionOutcome> {
   const row = await db
-    .prepare(`SELECT rowid, redacted_at FROM audit_log WHERE id = ?1`)
+    .prepare(
+      `SELECT rowid, redacted_at, previous_hash, actor_staff_id, actor_role, action,
+              entity_type, entity_id, ip_address, user_agent, created_at
+       FROM audit_log WHERE id = ?1`,
+    )
     .bind(auditLogId)
-    .first<{ rowid: number; redacted_at: string | null }>();
+    .first<{
+      rowid: number; redacted_at: string | null; previous_hash: string;
+      actor_staff_id: string | null; actor_role: string | null; action: string;
+      entity_type: string; entity_id: string; ip_address: string | null;
+      user_agent: string | null; created_at: string;
+    }>();
   if (!row) return 'not_found';
   if (row.redacted_at) return 'already_redacted';
 
@@ -308,9 +327,33 @@ export async function redactAuditLogEntry(
     .first<{ rowid: number }>();
   if (!checkpointRow || row.rowid > checkpointRow.rowid) return 'not_yet_verified';
 
+  // N-20: hash the row as it will look AFTER redaction (metadata null) so
+  // every surviving column stays covered by an HMAC the database itself
+  // cannot forge. chain_hash is deliberately left untouched — subsequent
+  // rows' previous_hash points at it, so rewriting it would break the chain.
+  const redactedPayload = serializeForHash({
+    previousHash: row.previous_hash,
+    actorStaffId: row.actor_staff_id,
+    actorRole: row.actor_role,
+    action: row.action,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    metadata: null,
+    ipAddress: row.ip_address,
+    userAgent: row.user_agent,
+    now: row.created_at,
+  });
+  const secret = (cloudflareEnv as { AUDIT_LEDGER_SECRET?: string })?.AUDIT_LEDGER_SECRET;
+  const redactionHash = secret
+    ? await hmacSha256Hex(redactedPayload, secret)
+    : await sha256Hex(redactedPayload);
+
   await db
-    .prepare(`UPDATE audit_log SET metadata_json = NULL, redacted_at = ?2, redacted_reason = ?3 WHERE id = ?1`)
-    .bind(auditLogId, now, reason)
+    .prepare(
+      `UPDATE audit_log SET metadata_json = NULL, redacted_at = ?2, redacted_reason = ?3,
+              redaction_hash = ?4 WHERE id = ?1`,
+    )
+    .bind(auditLogId, now, reason, redactionHash)
     .run();
 
   // The redaction itself is a normal, new, chain-verified append — proof

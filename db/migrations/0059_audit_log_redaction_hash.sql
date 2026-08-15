@@ -1,0 +1,19 @@
+-- N-20: add a write-once integrity hash covering a redacted row's surviving
+-- fields.
+--
+-- N-11 made both chain verifiers skip payload recomputation entirely for any
+-- row with redacted_at set, because a redacted row's chain_hash was computed
+-- over the ORIGINAL metadata and can never be re-derived once that metadata
+-- is blanked. But the skip was unscoped: it also stopped verifying
+-- actor_staff_id, actor_role, action, entity_type, entity_id, ip_address,
+-- user_agent and created_at. Since chain_hash is HMAC'd with
+-- AUDIT_LEDGER_SECRET (a value not present in the database), recomputation
+-- was the only thing making those columns unforgeable to an attacker holding
+-- D1 write access. Setting one column turned any row into a permanently
+-- unverifiable one.
+--
+-- redaction_hash is computed at redaction time over the post-redaction
+-- payload (metadata canonicalized to NULL) using the same secret, so every
+-- surviving column stays covered. chain_hash is still left untouched so the
+-- forward linkage into subsequent rows is preserved.
+ALTER TABLE audit_log ADD COLUMN redaction_hash TEXT;
