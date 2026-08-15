@@ -58,6 +58,16 @@ describe('migration-single-statement (V8 discipline, T-27)', () => {
         const isRebuild = /^\s*BEGIN TRANSACTION/im.test(sql) && /DROP TABLE/i.test(sql) && /RENAME TO/i.test(sql);
         return !isRebuild;
       })
+      //   4. Trigger definitions. countStatements() splits on `;`, and a
+      //      trigger's BEGIN...END body contains its own statement
+      //      terminators, so the heuristic counts one CREATE TRIGGER as
+      //      several. This exemption was always implied — the docblock above
+      //      countStatements() states the rule only holds for files "known
+      //      not to contain triggers" — but 0058_audit_log_redaction_triggers
+      //      is the first V8 migration that does, so it now has to be
+      //      explicit. Trigger files are still covered by the ALTER TABLE
+      //      assertion below and by their own behavioural tests.
+      .filter((f) => !/CREATE\s+TRIGGER/i.test(readFileSync(resolve(MIGRATIONS, f), 'utf8')))
       .sort();
 
     expect(files.length).toBeGreaterThanOrEqual(7); // 0040, 0042-0047
@@ -77,6 +87,23 @@ describe('migration-single-statement (V8 discipline, T-27)', () => {
         const total = countStatements(sql);
         expect(total, `${file} is an ALTER TABLE and must not share a file with anything else`).toBe(1);
       }
+    }
+  });
+
+  it('trigger migrations (exempt from the statement count) still never mix in an ALTER TABLE', () => {
+    // The CREATE TRIGGER exemption above skips the `;`-splitting statement
+    // count, so this asserts the property that exemption would otherwise
+    // drop: a trigger file must not also carry a schema-altering statement,
+    // which is the partial-apply risk the whole rule exists to prevent.
+    const triggerFiles = readdirSync(MIGRATIONS)
+      .filter((f) => /^\d{4}_.+\.sql$/.test(f))
+      .filter((f) => Number(f.slice(0, 4)) >= 40)
+      .filter((f) => /CREATE\s+TRIGGER/i.test(readFileSync(resolve(MIGRATIONS, f), 'utf8')));
+
+    for (const file of triggerFiles) {
+      const sql = readFileSync(resolve(MIGRATIONS, file), 'utf8');
+      expect(/^\s*ALTER TABLE/im.test(sql), `${file} mixes ALTER TABLE with trigger definitions`).toBe(false);
+      expect(/^\s*CREATE TABLE/im.test(sql), `${file} mixes CREATE TABLE with trigger definitions`).toBe(false);
     }
   });
 

@@ -36,9 +36,17 @@ class D1Like {
 function buildDb(): DatabaseSync {
   const raw = new DatabaseSync(':memory:');
   raw.exec(readFileSync(resolve(MIGRATIONS, '0001_initial_v6_8a_schema.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0006_api_keys.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0007_audit_chain.sql'), 'utf8'));
+  // N-19: 0008 installs the append-only triggers on audit_log. Omitting it
+  // here is what let the N-11 redaction feature ship broken — its blanket
+  // `BEFORE UPDATE ON audit_log` aborts every redaction UPDATE in
+  // production. 0058 rescopes those triggers; both must be present for this
+  // fixture to match the real schema.
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0008_security_hardening.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0056_audit_log_add_redaction.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0057_audit_log_add_redaction_reason.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0058_audit_log_redaction_triggers.sql'), 'utf8'));
   raw.exec(`
     CREATE TABLE IF NOT EXISTS audit_integrity_alerts (
       id TEXT PRIMARY KEY,
@@ -136,10 +144,59 @@ describe('N-11: audit_log redaction preserves hash-chain integrity', () => {
     await redactAuditLogEntry(db, id1, 'customer_data_deletion');
 
     // Tamper with a different, non-redacted row's metadata_json directly.
+    // N-19: the 0058 triggers now block this UPDATE at the database layer, so
+    // to exercise the VERIFIER we have to model an attacker who has already
+    // defeated those triggers — which is exactly the threat the hash chain
+    // exists for. Drop them, tamper, restore, then verify.
+    raw.exec('DROP TRIGGER trg_audit_log_metadata_redact_only;');
     raw.prepare(`UPDATE audit_log SET metadata_json = '{"name":"tampered"}' WHERE id = ?`).run(id2);
+    raw.exec(
+      `CREATE TRIGGER trg_audit_log_metadata_redact_only
+       BEFORE UPDATE OF metadata_json ON audit_log
+       WHEN NEW.metadata_json IS NOT NULL
+       BEGIN SELECT RAISE(ABORT, 'audit_log.metadata_json may only be cleared, never rewritten'); END;`,
+    );
 
     const result = await verifyAuditChain(db, 1000);
     expect(result.valid).toBe(false);
+  });
+
+  it('N-19: the append-only triggers permit the redaction UPDATE but still block every forensic column', () => {
+    const raw = buildDb();
+
+    raw.prepare(
+      `INSERT INTO audit_log (id, actor_staff_id, actor_role, action, entity_type, entity_id,
+                              metadata_json, ip_address, user_agent, created_at, previous_hash, chain_hash)
+       VALUES ('t1', NULL, 'owner', 'order.created', 'order', 'o1', '{"a":1}', '1.1.1.1', 'ua',
+               '2026-01-01 00:00:00', 'p', 'c')`,
+    ).run();
+
+    // Permitted: the exact write redactAuditLogEntry performs.
+    expect(() => {
+      raw.prepare(`UPDATE audit_log SET metadata_json = NULL, redacted_at = '2026-01-02 00:00:00', redacted_reason = 'r' WHERE id = 't1'`).run();
+    }).not.toThrow();
+
+    // Blocked: every forensically meaningful column.
+    for (const col of ['actor_staff_id', 'actor_role', 'action', 'entity_type', 'entity_id', 'ip_address', 'user_agent', 'created_at', 'previous_hash', 'chain_hash']) {
+      expect(() => {
+        raw.prepare(`UPDATE audit_log SET ${col} = 'x' WHERE id = 't1'`).run();
+      }, `${col} must stay immutable`).toThrow();
+    }
+
+    // Blocked: rewriting metadata_json to anything non-NULL.
+    expect(() => {
+      raw.prepare(`UPDATE audit_log SET metadata_json = '{"tampered":1}' WHERE id = 't1'`).run();
+    }).toThrow();
+
+    // Blocked: un-redacting or re-redacting an already-redacted row.
+    expect(() => {
+      raw.prepare(`UPDATE audit_log SET redacted_at = NULL WHERE id = 't1'`).run();
+    }).toThrow();
+
+    // Still blocked: deletes (0008's trg_audit_log_no_delete, left untouched).
+    expect(() => {
+      raw.prepare(`DELETE FROM audit_log WHERE id = 't1'`).run();
+    }).toThrow();
   });
 
   it('redactAuditLogForOrders only touches order rows with matching IDs and non-null metadata, and skips already-redacted rows', async () => {
