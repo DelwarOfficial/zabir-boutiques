@@ -15,6 +15,36 @@ import { safeLog } from '../../../lib/pii-scrubber';
 import { appendStaffAuthCookies } from '../../../lib/staff-cookies';
 import { checkLoginRateLimit, resetLoginRateLimit, sha256Hex, LOGIN_RATE_LIMIT } from '../../../lib/login-rate-limit';
 import type { StaffUser } from '../../../lib/rbac';
+
+/**
+ * N-21: record WHY a login was rejected, server-side only.
+ *
+ * The client always receives the same generic 'Invalid credentials' so no
+ * account-existence or failure-mode signal leaks to an attacker. But an
+ * operator staring at that message has no way to tell a wrong password from
+ * a rotated PASSWORD_PEPPER, a deactivated row, or a missing account — which
+ * is exactly the situation this codebase just spent a debugging session in.
+ *
+ * The identifier is an email/phone (PII), so it is logged as a short HMAC
+ * prefix, never in the clear: enough to correlate repeated attempts against
+ * one account across log lines, not enough to recover the address. The
+ * password, its hash, and the salt are never logged. Logging must never be
+ * able to break authentication, so every failure here is swallowed.
+ */
+async function logLoginRejection(
+  reason: string,
+  identifier: string,
+  sessionSecret: string,
+  extra: Record<string, unknown> = {},
+): Promise<void> {
+  try {
+    const identifierRef = (await hmacSha256Hex(identifier, sessionSecret)).slice(0, 12);
+    safeLog.warn('[staff.login] rejected', { reason, identifierRef, ...extra });
+  } catch {
+    safeLog.warn('[staff.login] rejected', { reason, identifierRef: 'unavailable', ...extra });
+  }
+}
+
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
   const sessionKv = (env as typeof env & { SESSION?: KVNamespace }).SESSION;
@@ -88,6 +118,13 @@ export async function POST(context: APIContext): Promise<Response> {
       }
     }
   }
+  // N-21: TURNSTILE_SECRET_KEY missing means every check below is skipped and
+  // the widget on the login page becomes decorative — solved client-side,
+  // never verified server-side. That is a silently-disabled security control,
+  // so say so loudly on each attempt rather than failing open in silence.
+  if (!env.TURNSTILE_SECRET_KEY) {
+    safeLog.error('[staff.login] TURNSTILE_SECRET_KEY is not configured — bot protection is DISABLED for staff login', {});
+  }
   if (env.TURNSTILE_SECRET_KEY && !step2Verified) {
     const token = typeof body.turnstile === "string" ? body.turnstile : context.request.headers.get("CF-Turnstile-Token");
     if (!token) {
@@ -135,6 +172,9 @@ export async function POST(context: APIContext): Promise<Response> {
     // generic 'Invalid credentials' message is identical to the wrong-password
     // path, so no account-existence signal leaks through the body either.
     await hashPassword(password, generateRandomHex(16), env.PASSWORD_PEPPER);
+    await logLoginRejection('no_active_account_for_identifier', identifier, env.SESSION_SECRET, {
+      hint: 'no staff_users row matched (email or phone) with is_active = 1',
+    });
     return Response.json({ error: 'Invalid credentials' }, { status: 401 });
   }
 
@@ -143,7 +183,18 @@ export async function POST(context: APIContext): Promise<Response> {
   // legacy HMAC and re-hash with PBKDF2 on success.
   if (staff.password_salt) {
     const { valid, matchedIterations } = await verifyPasswordWithUpgrade(password, staff.password_hash, staff.password_salt, env.PASSWORD_PEPPER);
-    if (!valid) return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+    if (!valid) {
+      // The account exists and is active, so the derived hash simply did not
+      // match. In practice that is either a genuinely wrong password or a
+      // PASSWORD_PEPPER that has been rotated since this row was hashed —
+      // indistinguishable from here by design, but worth stating explicitly
+      // so an operator knows to check the pepper before assuming user error.
+      await logLoginRejection('password_hash_mismatch', identifier, env.SESSION_SECRET, {
+        staffId: staff.id,
+        hint: 'wrong password, or PASSWORD_PEPPER rotated since this row was hashed',
+      });
+      return Response.json({ error: 'Invalid credentials' }, { status: 401 });
+    }
     // K-25: transparently re-hash at the current (600k) iteration count if
     // this row was still hashed at the old 100k count.
     if (matchedIterations === PBKDF2_LEGACY_ITERATIONS) {
@@ -156,6 +207,10 @@ export async function POST(context: APIContext): Promise<Response> {
     const legacyHash = await legacyHashPassword(password, env.SESSION_SECRET);
     // K-29: constant-time compare.
     if (staff.password_hash.length !== legacyHash.length || !timingSafeEqualHex(staff.password_hash, legacyHash)) {
+      await logLoginRejection('legacy_password_hash_mismatch', identifier, env.SESSION_SECRET, {
+        staffId: staff.id,
+        hint: 'row has no password_salt (pre-PBKDF2); legacy HMAC compare failed',
+      });
       return Response.json({ error: 'Invalid credentials' }, { status: 401 });
     }
     const newSalt = generateRandomHex(16);

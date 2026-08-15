@@ -1,6 +1,7 @@
 import type { SendEmailRequest, SendResponse } from '../types';
 import type { ResendEnv } from './types';
 import { writeApiAuditLog } from '../../../api-audit';
+import { safeLog } from '../../../pii-scrubber';
 import { doCheckProviderHealth, doRecordProviderResult } from '../../../do-client';
 
 export class ResendClient {
@@ -8,6 +9,15 @@ export class ResendClient {
 
   async send(request: SendEmailRequest): Promise<SendResponse> {
     if (!this.env.RESEND_API_KEY) {
+      // N-21: this returns status 'queued', which reads like a success on the
+      // way out — nothing is queued and nothing will ever retry. Password
+      // reset emails silently vanished this way. Log it as the outright
+      // delivery failure it is; the recipient address is PII so it is not
+      // included here (email_log already records it under access control).
+      safeLog.error('[email] RESEND_API_KEY is not configured — email NOT sent', {
+        provider: 'resend',
+        emailType: request.custom_args?.email_type ?? 'unknown',
+      });
       return { accepted: false, provider: 'resend', status: 'queued', error_code: 'NO_RESEND_API_KEY' };
     }
 
