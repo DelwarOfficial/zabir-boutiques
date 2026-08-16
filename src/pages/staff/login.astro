@@ -21,7 +21,7 @@ const cspNonce = Astro.locals.cspNonce;
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
     <title>Staff Login — Zabir Boutiques</title>
     {TURNSTILE_SITE_KEY ? (
-      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer nonce={cspNonce}></script>
+      <script src="https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit" async defer nonce={cspNonce}></script>
     ) : null}
     <style is:global>
       :root {
@@ -121,7 +121,7 @@ const cspNonce = Astro.locals.cspNonce;
                 <a href="/staff/forgot-password" style="font-size:0.75rem;color:var(--ink-secondary);text-decoration:none;">Forgot password?</a>
               </div>
             </div>
-            {TURNSTILE_SITE_KEY ? <div class="cf-turnstile mb-3 flex justify-center" data-sitekey={TURNSTILE_SITE_KEY}></div> : null}
+            {TURNSTILE_SITE_KEY ? <div id="login-turnstile" class="mb-3 flex justify-center" data-sitekey={TURNSTILE_SITE_KEY}></div> : null}
             <button type="submit" id="login-btn" class="brand-btn">Sign in</button>
             <p id="error1" class="error-msg"></p>
           </form>
@@ -161,6 +161,8 @@ const cspNonce = Astro.locals.cspNonce;
         let identifier = params.get('identifier') || '';
         let password = '';
         let step2Token = '';
+        let turnstileToken = '';
+        let turnstileWidgetId = null;
 
         // DOM refs
         const step1 = document.getElementById('step1');
@@ -176,8 +178,40 @@ const cspNonce = Astro.locals.cspNonce;
         const err2 = document.getElementById('error2');
         const backLink = document.getElementById('back-to-creds');
         const digitInputs = Array.from(document.querySelectorAll('.digit-box'));
+        const turnstileContainer = document.getElementById('login-turnstile');
 
         if (identifier) idInput.value = identifier;
+
+        function renderTurnstile() {
+          if (!turnstileContainer || turnstileWidgetId !== null) return;
+          if (!window.turnstile || !turnstileContainer.dataset.sitekey) {
+            setTimeout(renderTurnstile, 100);
+            return;
+          }
+          turnstileWidgetId = window.turnstile.render(turnstileContainer, {
+            sitekey: turnstileContainer.dataset.sitekey,
+            callback: function(token) {
+              turnstileToken = token || '';
+            },
+            'expired-callback': function() {
+              turnstileToken = '';
+            },
+            'timeout-callback': function() {
+              turnstileToken = '';
+            },
+            'error-callback': function() {
+              turnstileToken = '';
+            },
+          });
+        }
+
+        function resetTurnstile() {
+          turnstileToken = '';
+          if (turnstileWidgetId === null || !window.turnstile) return;
+          try { window.turnstile.reset(turnstileWidgetId); } catch (_) {}
+        }
+
+        renderTurnstile();
 
         function showStep(n) {
           const show = n === 1 ? step1 : step2;
@@ -210,11 +244,12 @@ const cspNonce = Astro.locals.cspNonce;
           identifier = idInput.value.trim();
           password = pwInput.value;
 
-          var turnstileToken = '';
-          try {
-            const turnstileInput = document.querySelector('[name="cf-turnstile-response"]');
-            turnstileToken = turnstileInput && turnstileInput.value ? turnstileInput.value : turnstile.getResponse();
-          } catch (_) {}
+          if (turnstileContainer && !turnstileToken) {
+            loginBtn.disabled = false;
+            loginBtn.textContent = 'Sign in';
+            showError(err1, 'Complete the bot check.');
+            return;
+          }
 
           const res = await fetch('/api/staff/login', {
             method: 'POST',
@@ -230,11 +265,12 @@ const cspNonce = Astro.locals.cspNonce;
             // totp_required —> move to step 2
             if (body.totp_required) {
               step2Token = body.step2_token || '';
+              resetTurnstile();
               void showStep(2);
               return;
             }
             showError(err1, body.error || 'Invalid credentials');
-            try { turnstile.reset(); } catch (_) {}
+            resetTurnstile();
             return;
           }
 
@@ -252,7 +288,7 @@ const cspNonce = Astro.locals.cspNonce;
           loginBtn.disabled = false;
           loginBtn.textContent = 'Sign in';
           showError(err1, body.error || 'Login failed');
-          try { turnstile.reset(); } catch (_) {}
+          resetTurnstile();
         }
 
         document.getElementById('login-form').addEventListener('submit', submitLogin);
@@ -338,6 +374,8 @@ const cspNonce = Astro.locals.cspNonce;
 
         backLink.addEventListener('click', (e) => {
           e.preventDefault();
+          step2Token = '';
+          resetTurnstile();
           showStep(1);
           loginBtn.disabled = false;
           loginBtn.textContent = 'Sign in';
