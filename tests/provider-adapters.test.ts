@@ -46,17 +46,50 @@ describe('Turnstile adapter', () => {
     await expect(verifyTurnstile({}, 'token')).resolves.toEqual({ ok: true });
   });
 
-  it('verifies token through Cloudflare adapter', async () => {
+  it('maps a successful Cloudflare siteverify response into the internal contract', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
-      json: () => Promise.resolve({ ok: true, hostname: 'example.com' }),
+      json: () => Promise.resolve({ success: true, hostname: 'example.com', action: 'forgot_password', cdata: 'staff' }),
     } as Response);
     global.fetch = fetchMock;
 
     const result = await verifyTurnstile({ TURNSTILE_SECRET_KEY: 'secret' }, 'token-1', '127.0.0.1');
-    expect(result.ok).toBe(true);
+    expect(result).toEqual({
+      ok: true,
+      errors: undefined,
+      hostname: 'example.com',
+      action: 'forgot_password',
+      cdata: 'staff',
+    });
     const [, init] = fetchMock.mock.calls[0];
     expect(String((init as RequestInit).body)).toContain('response=token-1');
+  });
+
+  it('maps Cloudflare error-codes into the internal errors field on failed verification', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: false, 'error-codes': ['invalid-input-response'], hostname: 'example.com' }),
+    } as Response);
+
+    await expect(verifyTurnstile({ TURNSTILE_SECRET_KEY: 'secret' }, 'token-2')).resolves.toEqual({
+      ok: false,
+      errors: ['invalid-input-response'],
+      hostname: 'example.com',
+      action: undefined,
+      cdata: undefined,
+    });
+  });
+
+  it('fails closed on non-2xx siteverify responses', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 500,
+    } as Response);
+
+    await expect(verifyTurnstile({ TURNSTILE_SECRET_KEY: 'secret' }, 'token-3')).resolves.toEqual({
+      ok: false,
+      errors: ['http_500'],
+    });
   });
 });
 

@@ -1,7 +1,7 @@
 import { writeApiAuditLog } from '../../api-audit';
 import { doCheckProviderHealth, doRecordProviderResult } from '../../do-client';
 import type { TurnstileResult } from '../../turnstile';
-import type { CloudflareTurnstileEnv } from './types';
+import type { CloudflareSiteverifyResponse, CloudflareTurnstileEnv } from './types';
 
 export class CloudflareTurnstileClient {
   constructor(private readonly env: CloudflareTurnstileEnv) {}
@@ -33,10 +33,25 @@ export class CloudflareTurnstileClient {
         await this.audit(requestId, startedAt, 'error', `HTTP_${res.status}`, JSON.stringify({ remote_ip: remoteIp ? '[redacted]' : null }), '{}', health.state);
         return { ok: false, errors: [`http_${res.status}`] };
       }
-      const data = (await res.json()) as TurnstileResult;
-      await this.record(Boolean(data.ok));
-      await this.audit(requestId, startedAt, data.ok ? 'success' : 'error', data.ok ? null : (data.errors?.[0] ?? 'VERIFY_FAILED'), JSON.stringify({ remote_ip: remoteIp ? '[redacted]' : null }), JSON.stringify({ ok: data.ok, errors: data.errors ?? [] }), health.state);
-      return data;
+      const data = (await res.json()) as CloudflareSiteverifyResponse;
+      const result: TurnstileResult = {
+        ok: data.success === true,
+        errors: data['error-codes'],
+        hostname: data.hostname,
+        action: data.action,
+        cdata: data.cdata,
+      };
+      await this.record(result.ok);
+      await this.audit(
+        requestId,
+        startedAt,
+        result.ok ? 'success' : 'error',
+        result.ok ? null : (result.errors?.[0] ?? 'VERIFY_FAILED'),
+        JSON.stringify({ remote_ip: remoteIp ? '[redacted]' : null }),
+        JSON.stringify({ ok: result.ok, errors: result.errors ?? [], hostname: result.hostname ?? null, action: result.action ?? null }),
+        health.state,
+      );
+      return result;
     } catch (err) {
       await this.record(false);
       await this.audit(requestId, startedAt, 'error', 'REQUEST_FAILED', JSON.stringify({ remote_ip: remoteIp ? '[redacted]' : null }), JSON.stringify({ error: err instanceof Error ? err.message : 'unknown' }), health.state);
