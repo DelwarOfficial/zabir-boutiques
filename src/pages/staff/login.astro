@@ -190,6 +190,8 @@ const cspNonce = Astro.locals.cspNonce;
           }
           turnstileWidgetId = window.turnstile.render(turnstileContainer, {
             sitekey: turnstileContainer.dataset.sitekey,
+            // Must match the expectedAction the login API validates.
+            action: 'staff-login',
             callback: function(token) {
               turnstileToken = token || '';
             },

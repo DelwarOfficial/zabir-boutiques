@@ -71,6 +71,8 @@ declare global {
       ANALYTICS: AnalyticsEngineDataset;
       TURNSTILE_SITE_KEY?: string;
       TURNSTILE_SECRET_KEY?: string;
+      /** Comma-separated frontend hostnames siteverify results are accepted from. */
+      TURNSTILE_HOSTNAMES?: string;
       ALLOW_DEV_PHONE_OTP?: string;
       RESEND_API_KEY?: string;
       RESEND_FROM_EMAIL?: string;

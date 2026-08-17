@@ -130,7 +130,9 @@ export async function POST(context: APIContext): Promise<Response> {
     if (!token) {
       return Response.json({ error: "Bot check required." }, { status: 403 });
     }
-    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+    // N-23: bind the token to this surface — a token solved on any other
+    // domain or widget registered to this sitekey is rejected here.
+    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined, 'staff-login');
     if (!r.ok) {
       await writeAuditLog(env.DB, {
         actorStaffId: null,

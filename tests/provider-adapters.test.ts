@@ -53,7 +53,11 @@ describe('Turnstile adapter', () => {
     } as Response);
     global.fetch = fetchMock;
 
-    const result = await verifyTurnstile({ TURNSTILE_SECRET_KEY: 'secret' }, 'token-1', '127.0.0.1');
+    const result = await verifyTurnstile(
+      { TURNSTILE_SECRET_KEY: 'secret', TURNSTILE_HOSTNAMES: 'example.com' },
+      'token-1',
+      '127.0.0.1',
+    );
     expect(result).toEqual({
       ok: true,
       errors: undefined,
@@ -63,6 +67,56 @@ describe('Turnstile adapter', () => {
     });
     const [, init] = fetchMock.mock.calls[0];
     expect(String((init as RequestInit).body)).toContain('response=token-1');
+    // N-23: siteverify rejects a body it cannot parse with a bare HTTP 400.
+    expect((init as RequestInit).headers).toEqual({ 'Content-Type': 'application/x-www-form-urlencoded' });
+  });
+
+  it('N-23: rejects a token solved on a hostname outside the allowlist', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, hostname: 'evil.example.net', action: 'staff-login' }),
+    } as Response);
+
+    const result = await verifyTurnstile(
+      { TURNSTILE_SECRET_KEY: 'secret', TURNSTILE_HOSTNAMES: 'zabirboutiques.com' },
+      'token-x',
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(['hostname-mismatch']);
+  });
+
+  it('N-23: rejects a token minted for a different surface (action mismatch)', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, hostname: 'zabirboutiques.com', action: 'staff-forgot-password' }),
+    } as Response);
+
+    const result = await verifyTurnstile(
+      { TURNSTILE_SECRET_KEY: 'secret', TURNSTILE_HOSTNAMES: 'zabirboutiques.com' },
+      'token-y',
+      undefined,
+      'staff-login',
+    );
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(['action-mismatch']);
+  });
+
+  it('N-23: fails closed when the hostname allowlist is not configured', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({ success: true, hostname: 'zabirboutiques.com', action: 'staff-login' }),
+    } as Response);
+
+    const result = await verifyTurnstile({ TURNSTILE_SECRET_KEY: 'secret' }, 'token-z');
+    expect(result.ok).toBe(false);
+    expect(result.errors).toEqual(['hostname-allowlist-not-configured']);
+  });
+
+  it('N-23: stays a no-op pass in dev when no secret is configured', async () => {
+    const fetchSpy = vi.fn();
+    global.fetch = fetchSpy;
+    await expect(verifyTurnstile({}, 'token-dev')).resolves.toEqual({ ok: true });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it('maps Cloudflare error-codes into the internal errors field on failed verification', async () => {

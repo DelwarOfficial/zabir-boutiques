@@ -26,6 +26,16 @@ export class CloudflareTurnstileClient {
     try {
       const res = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
         method: 'POST',
+        // N-23: the Content-Type was left implicit. Passing URLSearchParams as
+        // a body usually makes the runtime infer
+        // `application/x-www-form-urlencoded`, but that inference is not
+        // guaranteed in the Workers runtime, and siteverify answers a request
+        // it cannot parse with a bare HTTP 400 — which is exactly what
+        // production was returning. Set it explicitly, per the canonical
+        // integration in Cloudflare's own Turnstile setup flow.
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        // Fail fast rather than hanging a login request on a stalled upstream.
+        signal: AbortSignal.timeout(10_000),
         body: form,
       });
       if (!res.ok) {

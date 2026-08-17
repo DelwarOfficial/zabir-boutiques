@@ -29,7 +29,8 @@ export async function POST(context: APIContext): Promise<Response> {
     if (!token) {
       return Response.json({ error: 'Bot check required.' }, { status: 403 });
     }
-    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined);
+    // N-23: see login.ts — token must come from this surface's widget.
+    const r = await verifyTurnstile(env, token, clientIp(context.request) ?? undefined, 'staff-forgot-password');
     if (!r.ok) {
       await writeAuditLog(env.DB, {
         actorStaffId: null,

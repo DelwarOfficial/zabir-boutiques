@@ -154,6 +154,11 @@
     "PUBLIC_SITE_URL": "https://zabirboutiques.com",
     "PUBLIC_SITE_NAME": "Zabir Boutiques",
     "TURNSTILE_SITE_KEY": "0x4AAAAAADoo-u5k0v_ErzCi",
+    // N-23: hostnames siteverify results are accepted from. Production must
+    // never include localhost/127.0.0.1 — the widget is registered for both
+    // local and production domains, so without this a token solved against a
+    // dev host would satisfy the production login endpoint.
+    "TURNSTILE_HOSTNAMES": "zabirboutiques.com,www.zabirboutiques.com",
     "EMAIL_PROVIDER": "cloudflare_email"
   },
 
