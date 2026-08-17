@@ -29,8 +29,23 @@ export class CloudflareTurnstileClient {
         body: form,
       });
       if (!res.ok) {
+        // N-22: this discarded the response body, so a non-2xx from
+        // siteverify surfaced only as a bare status with no cause. Cloudflare
+        // returns its complaint (malformed secret, bad parameters) in the
+        // body, which is the one thing needed to tell a misconfigured secret
+        // from a genuinely broken request. Capture it; siteverify never
+        // echoes the secret back, so there is nothing sensitive to leak here.
+        const rawBody = await res.text().catch(() => '');
         await this.record(false);
-        await this.audit(requestId, startedAt, 'error', `HTTP_${res.status}`, JSON.stringify({ remote_ip: remoteIp ? '[redacted]' : null }), '{}', health.state);
+        await this.audit(
+          requestId,
+          startedAt,
+          'error',
+          `HTTP_${res.status}`,
+          JSON.stringify({ remote_ip: remoteIp ? '[redacted]' : null }),
+          JSON.stringify({ status: res.status, body: rawBody.slice(0, 500) }),
+          health.state,
+        );
         return { ok: false, errors: [`http_${res.status}`] };
       }
       const data = (await res.json()) as CloudflareSiteverifyResponse;

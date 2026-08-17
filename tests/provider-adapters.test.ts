@@ -84,7 +84,10 @@ describe('Turnstile adapter', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
-    } as Response);
+      // N-22: the client now reads the error body to surface Cloudflare's
+      // actual complaint, so a non-2xx mock has to provide one.
+      text: async () => 'upstream failure',
+    } as unknown as Response);
 
     await expect(verifyTurnstile({ TURNSTILE_SECRET_KEY: 'secret' }, 'token-3')).resolves.toEqual({
       ok: false,
