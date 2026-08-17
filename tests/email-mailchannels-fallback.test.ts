@@ -78,7 +78,8 @@ describe('CloudflareEmailProvider MailChannels fallback behavior', () => {
         },
       ],
       from: {
-        email: 'noreply@zabirboutiques.com',
+        // Falls back to the shared default when RESEND_FROM_EMAIL is unset.
+        email: 'orders@zabirboutiques.com',
         name: 'Zabir Boutiques',
       },
       subject: 'Order confirmed',
@@ -89,6 +90,42 @@ describe('CloudflareEmailProvider MailChannels fallback behavior', () => {
         },
       ],
     });
+  });
+
+  it('uses RESEND_FROM_EMAIL as the MailChannels sender so both providers send from one address', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    const provider = new CloudflareEmailProvider({ RESEND_FROM_EMAIL: 'support@zabirboutiques.com' });
+    await provider.sendEmail(baseRequest);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).from).toEqual({
+      email: 'support@zabirboutiques.com',
+      name: 'Zabir Boutiques',
+    });
+  });
+
+  it('strips a display name from RESEND_FROM_EMAIL — MailChannels rejects "Name <addr>" in from.email', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    const provider = new CloudflareEmailProvider({ RESEND_FROM_EMAIL: 'Zabir Boutiques <orders@zabirboutiques.com>' });
+    await provider.sendEmail(baseRequest);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).from.email).toBe('orders@zabirboutiques.com');
+  });
+
+  it('ignores a blank RESEND_FROM_EMAIL rather than sending an empty From', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    const provider = new CloudflareEmailProvider({ RESEND_FROM_EMAIL: '   ' });
+    await provider.sendEmail(baseRequest);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).from.email).toBe('orders@zabirboutiques.com');
   });
 
   it('falls back to Resend when MailChannels returns a non-2xx response', async () => {
