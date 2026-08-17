@@ -10,7 +10,6 @@ interface Props {
   message?: string;
 }
 const { message = 'This section requires recent authentication for security.' } = Astro.props;
-// N-15: hoist out of the template — see src/pages/staff/login.astro.
 const cspNonce = Astro.locals.cspNonce;
 ---
 <div class="max-w-md mx-auto mt-8">
@@ -50,10 +49,9 @@ const cspNonce = Astro.locals.cspNonce;
       const pw = input ? input.value : '';
       if (!pw) return;
       if (!btn || !errEl) return;
-      btn.disabled = true; btn.textContent = 'Verifying…';
+      btn.disabled = true; btn.textContent = 'Verifying...';
       errEl.classList.add('hidden');
       try {
-        // Re-authenticate via step-up to stamp recent auth (does not create new session)
         const res = await fetch('/api/staff/step-up', {
           method: 'POST',
           headers: {

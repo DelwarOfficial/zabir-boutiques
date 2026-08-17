@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const tabs = [
   { value: 'general', label: 'General & Brand' },
@@ -23,6 +23,12 @@ interface SettingsResponse {
 function getCsrf(): string {
   if (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) return window.__ZB_CSRF__;
   try { return sessionStorage.getItem('zb-csrf') || ''; } catch { return ''; }
+}
+
+function showToast(message: string, variant: 'success' | 'error' | 'info' = 'success'): void {
+  if (typeof window.showToast === 'function') {
+    window.showToast(message, variant);
+  }
 }
 
 interface SettingsTabsProps {
@@ -68,11 +74,12 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
       const data = await res.json() as SettingsResponse;
       if (data.ok) {
         setSettings((prev) => ({ ...prev, [key]: value }));
+        showToast('Setting updated.', 'success');
       } else {
-        alert(data.error || 'Failed to update setting');
+        showToast(data.error || 'Failed to update setting', 'error');
       }
     } catch {
-      alert('Network error while updating');
+      showToast('Network error while updating', 'error');
     } finally {
       setSaving(null);
     }
@@ -89,30 +96,34 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
       });
       const data = await res.json() as SettingsResponse;
       if (!res.ok || !data.ok) throw new Error(data.error || 'Cache purge failed');
-      alert('Cache purge requested.');
+      showToast('Cache purge requested.', 'success');
     } catch (err) {
-      alert(err instanceof Error ? err.message : 'Cache purge failed');
+      showToast(err instanceof Error ? err.message : 'Cache purge failed', 'error');
     } finally {
       setSaving(null);
     }
   };
 
   if (loading) {
-    return <div className="text-center py-8 text-muted-foreground text-sm">Loading settings...</div>;
+    return <div className="py-8 text-center text-sm text-muted">Loading settings...</div>;
   }
+
+  const inputClass = 'w-full rounded-lg border border-line bg-surface p-2 text-sm outline-none focus:ring-2 focus:ring-brand/20';
+  const inputWideClass = `${inputClass} max-w-lg`;
+  const inputNarrowClass = `${inputClass} max-w-xs`;
+  const savingClass = 'block text-xs text-muted';
 
   return (
     <div className="grid grid-cols-1 gap-8 md:grid-cols-4">
-      {/* Sidebar Nav */}
       <nav className="flex flex-col gap-1 md:col-span-1">
         {visibleTabs.map((tab) => (
           <button
             key={tab.value}
             onClick={() => setActiveTab(tab.value)}
-            className={`flex w-full items-center rounded-lg px-3 py-2.5 text-sm font-medium transition-all text-left ${
+            className={`flex w-full items-center rounded-lg px-3 py-2.5 text-left text-sm font-medium transition-all ${
               activeTab === tab.value
-                ? 'bg-primary/10 text-primary'
-                : 'text-muted-foreground hover:bg-muted hover:text-foreground'
+                ? 'bg-brand-light text-brand-strong'
+                : 'text-muted hover:bg-surface-soft hover:text-ink'
             }`}
           >
             {tab.label}
@@ -120,15 +131,14 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
         ))}
       </nav>
 
-      {/* Main Content Area */}
-      <main className="md:col-span-3 border rounded-2xl bg-card p-6 shadow-sm">
+      <main className="rounded-2xl border border-line bg-surface p-6 shadow-sm md:col-span-3">
         {activeTab === 'general' && (
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-medium text-foreground">General Settings</h3>
-              <p className="text-sm text-muted-foreground">Modify store branding, tagline, and contact information.</p>
+              <h3 className="text-lg font-medium text-ink">General Settings</h3>
+              <p className="text-sm text-muted">Modify store branding, tagline, and contact information.</p>
             </div>
-            <div className="h-px bg-border" />
+            <div className="h-px bg-line" />
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm font-medium">Store Name</label>
@@ -137,9 +147,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.name'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.name': e.target.value })}
                   onBlur={(e) => handleUpdate('store.name', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.name' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.name' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -149,9 +159,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.tagline'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.tagline': e.target.value })}
                   onBlur={(e) => handleUpdate('store.tagline', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.tagline' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.tagline' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -161,9 +171,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.phone'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.phone': e.target.value })}
                   onBlur={(e) => handleUpdate('store.phone', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.phone' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.phone' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -173,9 +183,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.social_facebook'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.social_facebook': e.target.value })}
                   onBlur={(e) => handleUpdate('store.social_facebook', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.social_facebook' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.social_facebook' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -185,9 +195,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.social_instagram'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.social_instagram': e.target.value })}
                   onBlur={(e) => handleUpdate('store.social_instagram', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.social_instagram' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.social_instagram' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -197,9 +207,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.social_whatsapp'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.social_whatsapp': e.target.value })}
                   onBlur={(e) => handleUpdate('store.social_whatsapp', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.social_whatsapp' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.social_whatsapp' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -209,9 +219,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['store.email'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'store.email': e.target.value })}
                   onBlur={(e) => handleUpdate('store.email', e.target.value)}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.email' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.email' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -221,9 +231,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   onChange={(e) => setSettings({ ...settings, 'store.address': e.target.value })}
                   onBlur={(e) => handleUpdate('store.address', e.target.value)}
                   rows={3}
-                  className="w-full max-w-lg rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputWideClass}
                 />
-                {saving === 'store.address' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'store.address' && <span className={savingClass}>Saving...</span>}
               </div>
             </div>
           </div>
@@ -232,10 +242,10 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
         {activeTab === 'delivery' && (
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-medium text-foreground">Delivery Rules</h3>
-              <p className="text-sm text-muted-foreground">Manage shipping fees for inside and outside Dhaka in Paisa (100 Paisa = ৳1).</p>
+              <h3 className="text-lg font-medium text-ink">Delivery Rules</h3>
+              <p className="text-sm text-muted">Manage shipping fees for inside and outside Dhaka in Paisa (100 Paisa = ৳1).</p>
             </div>
-            <div className="h-px bg-border" />
+            <div className="h-px bg-line" />
             <div className="space-y-4">
               <div className="space-y-1">
                 <label className="text-sm font-medium">Delivery Inside Dhaka (Paisa)</label>
@@ -244,9 +254,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['delivery_inside_dhaka_paisa'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'delivery_inside_dhaka_paisa': e.target.value })}
                   onBlur={(e) => handleUpdate('delivery_inside_dhaka_paisa', e.target.value)}
-                  className="w-full max-w-xs rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputNarrowClass}
                 />
-                {saving === 'delivery_inside_dhaka_paisa' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'delivery_inside_dhaka_paisa' && <span className={savingClass}>Saving...</span>}
               </div>
 
               <div className="space-y-1">
@@ -256,9 +266,9 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
                   value={settings['delivery_outside_dhaka_paisa'] || ''}
                   onChange={(e) => setSettings({ ...settings, 'delivery_outside_dhaka_paisa': e.target.value })}
                   onBlur={(e) => handleUpdate('delivery_outside_dhaka_paisa', e.target.value)}
-                  className="w-full max-w-xs rounded-lg border border-input p-2 bg-background outline-none focus:ring-2 focus:ring-ring text-sm"
+                  className={inputNarrowClass}
                 />
-                {saving === 'delivery_outside_dhaka_paisa' && <span className="text-xs text-muted-foreground block">Saving...</span>}
+                {saving === 'delivery_outside_dhaka_paisa' && <span className={savingClass}>Saving...</span>}
               </div>
             </div>
           </div>
@@ -267,16 +277,16 @@ export const SettingsTabs: React.FC<SettingsTabsProps> = ({ role }) => {
         {isSuperAdmin && activeTab === 'cache' && (
           <div className="space-y-6">
             <div>
-              <h3 className="text-lg font-medium text-foreground">Cache & Systems</h3>
-              <p className="text-sm text-muted-foreground">Manage CDN assets cache lifetime and triggers.</p>
+              <h3 className="text-lg font-medium text-ink">Cache & Systems</h3>
+              <p className="text-sm text-muted">Manage CDN assets cache lifetime and triggers.</p>
             </div>
-            <div className="h-px bg-border" />
+            <div className="h-px bg-line" />
             <div className="space-y-4">
-              <button 
+              <button
                 type="button"
                 onClick={handlePurgeCache}
                 disabled={saving === 'cache.purge'}
-                className="rounded-lg bg-destructive px-4 py-2 text-sm font-semibold text-destructive-foreground hover:bg-destructive/90"
+                className="rounded-lg bg-danger px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
               >
                 {saving === 'cache.purge' ? 'Purging...' : 'Purge CDN Edge Cache'}
               </button>

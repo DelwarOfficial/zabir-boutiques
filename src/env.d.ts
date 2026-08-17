@@ -97,6 +97,7 @@ declare global {
   interface Window {
     /** HttpOnly CSRF token injected by StaffLayout (double-submit header value). */
     __ZB_CSRF__?: string;
+    showToast?: (message: string, variant?: 'success' | 'error' | 'info', duration?: number) => void;
   }
 
   namespace App {

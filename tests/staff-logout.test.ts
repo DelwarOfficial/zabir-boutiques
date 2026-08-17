@@ -38,20 +38,21 @@ describe('AUTH-1: staff logout CSRF enforcement (the protection the route relies
   });
 });
 
-describe('AUTH-1: StaffShell logout calls the correct endpoint with CSRF', () => {
-  const source = readFileSync(resolve('./src/layouts/StaffShell.astro'), 'utf-8');
+describe('AUTH-1: active staff shell logout calls the correct endpoint with CSRF', () => {
+  const layout = readFileSync(resolve('./src/layouts/StaffLayout.astro'), 'utf-8');
+  const navbar = readFileSync(resolve('./src/components/staff/layout/Navbar.astro'), 'utf-8');
 
   it('posts to /api/staff/logout (not the broken /staff/logout path)', () => {
-    expect(source).toContain("fetch('/api/staff/logout'");
-    expect(source).not.toContain("fetch('/staff/logout'");
+    expect(navbar).toContain("fetch('/api/staff/logout'");
+    expect(navbar).not.toContain("fetch('/staff/logout'");
   });
 
   it('sends the X-CSRF-Token header', () => {
-    expect(source).toContain("'X-CSRF-Token': csrfToken");
+    expect(navbar).toContain("'X-CSRF-Token': csrfToken");
   });
 
   it('reads the CSRF token server-side and injects it', () => {
-    expect(source).toContain('readCsrfCookie(Astro.request)');
-    expect(source).toContain('define:vars={{ csrfToken }}');
+    expect(layout).toContain('readCsrfCookie(Astro.request)');
+    expect(layout).toContain('define:vars={{ csrfToken }}');
   });
 });

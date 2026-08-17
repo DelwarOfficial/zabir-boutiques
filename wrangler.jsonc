@@ -159,7 +159,19 @@
     // local and production domains, so without this a token solved against a
     // dev host would satisfy the production login endpoint.
     "TURNSTILE_HOSTNAMES": "zabirboutiques.com,www.zabirboutiques.com",
-    "EMAIL_PROVIDER": "cloudflare_email"
+    // N-25: Resend is the live sender. Cloudflare removed the free
+    // MailChannels relay for Workers in 2024 — api.mailchannels.net now
+    // returns HTTP 401 for every unauthenticated request, verified against
+    // this exact sender domain. Pointing at cloudflare_email therefore bought
+    // a guaranteed-failing round-trip before every single email.
+    //
+    // The MailChannels client and its Resend fallback are deliberately left
+    // in place: switching back is a one-value change once
+    // `wrangler email sending enable zabirboutiques.com` onboards the domain
+    // to Cloudflare Email Sending (the binding-based service that replaced
+    // MailChannels), at which point the client should target that binding
+    // rather than the dead relay.
+    "EMAIL_PROVIDER": "resend"
   },
 
   // ── Environment overrides ──────────────────────────────────────────

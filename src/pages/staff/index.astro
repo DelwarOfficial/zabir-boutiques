@@ -16,7 +16,9 @@ const env = getEnv(Astro);
 const today = nowSql().slice(0, 10);
 
 const roleLabel: Record<string, string> = {
-  super_admin: "Super Admin", owner: "Owner", manager: "Manager",
+  super_admin: "Super Admin",
+  owner: "Owner",
+  manager: "Manager",
   staff: "Staff",
   viewer: "Viewer",
 };
@@ -37,7 +39,10 @@ try {
   const ls = await env.DB.prepare(`SELECT COUNT(*) as c FROM low_stock_alerts WHERE is_acknowledged = 0`).first<{c:number}>();
   if (ls) stats.lowStockAlerts = ls.c;
   const td = await env.DB.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(total_paisa),0) as rev FROM orders WHERE created_at >= ?`).bind(today + " 00:00:00").first<{c:number, rev:number}>();
-  if (td) { stats.todayOrders = td.c; stats.todayRevenue = td.rev ?? 0; }
+  if (td) {
+    stats.todayOrders = td.c;
+    stats.todayRevenue = td.rev ?? 0;
+  }
 
   const ro = await env.DB.prepare(`SELECT id, order_number, name, total_paisa, status, created_at FROM orders ORDER BY created_at DESC LIMIT 6`).all<any>();
   if (ro?.results) recentOrders = ro.results;
@@ -59,36 +64,36 @@ const perms = {
 ---
 
 <StaffLayout title="Dashboard" user={user}>
-  <p class="text-[11px] font-extrabold uppercase tracking-wider text-brand mb-0 fade-up">{greeting}</p>
+  <p class="mb-0 text-[11px] font-extrabold uppercase tracking-wider text-brand fade-up">{greeting}</p>
   <PageHeader title={user.fullName} subtitle={`${roleLabel[user.role] ?? user.role} · ${today}`} />
 
-  {dbError && <div class="bg-red-100 text-red-800 px-4 py-2 rounded-md text-sm mb-4">{dbError}</div>}
+  {dbError && <div class="mb-4 rounded-md bg-red-100 px-4 py-2 text-sm text-red-800">{dbError}</div>}
 
-  <div class="stagger grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+  <div class="stagger mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
     <MetricCard title="Today's orders" value={stats.todayOrders} description={`৳ ${(stats.todayRevenue / 100).toFixed(0)} revenue`} />
     <MetricCard title="Pending review" value={stats.pendingReview} description="orders waiting" />
     <MetricCard title="Packing queue" value={stats.packingQueue} description="ready to pack" />
     <MetricCard title="Low-stock alerts" value={stats.lowStockAlerts} description="needs restock" />
   </div>
 
-  <div class="grid grid-cols-1 lg:grid-cols-5 gap-4 mb-6">
-    <div class="lg:col-span-3 fade-up">
+  <div class="mb-6 grid grid-cols-1 gap-4 lg:grid-cols-5">
+    <div class="fade-up lg:col-span-3">
       <Card title="Recent orders">
         {perms.orders && (
           <a slot="action" href="/staff/orders" class="press text-sm font-bold text-brand hover:opacity-80 no-underline">View all →</a>
         )}
         {recentOrders.length > 0 ? (
           <>
-            <ul class="grid sm:hidden gap-2 stagger">
-              {recentOrders.map(o => (
+            <ul class="stagger grid gap-2 sm:hidden">
+              {recentOrders.map((o) => (
                 <li>
                   <a href={`/staff/orders/${o.id}`} class="press flex items-center justify-between gap-3 rounded-xl border border-line p-3 no-underline">
                     <div class="min-w-0">
-                      <p class="font-bold text-sm tabular text-brand">{o.order_number}</p>
-                      <p class="text-xs text-muted truncate">{o.name}</p>
+                      <p class="text-sm font-bold tabular text-brand">{o.order_number}</p>
+                      <p class="truncate text-xs text-muted">{o.name}</p>
                     </div>
-                    <div class="text-right shrink-0">
-                      <p class="font-extrabold tabular">৳{(o.total_paisa/100).toFixed(0)}</p>
+                    <div class="shrink-0 text-right">
+                      <p class="font-extrabold tabular">৳{(o.total_paisa / 100).toFixed(0)}</p>
                       <Badge variant="default">{String(o.status).replace(/_/g, " ")}</Badge>
                     </div>
                   </a>
@@ -96,15 +101,15 @@ const perms = {
               ))}
             </ul>
             <div class="hidden sm:block">
-              <table class="w-full text-sm border-collapse">
+              <table class="w-full border-collapse text-sm">
                 <tbody>
-                  {recentOrders.map(o => (
-                    <tr class="border-t border-line-soft hover:bg-surface-soft transition-colors">
-                      <td class="py-2"><a href={`/staff/orders/${o.id}`} class="text-brand font-bold no-underline">{o.order_number}</a></td>
+                  {recentOrders.map((o) => (
+                    <tr class="border-t border-line-soft transition-colors hover:bg-surface-soft">
+                      <td class="py-2"><a href={`/staff/orders/${o.id}`} class="font-bold text-brand no-underline">{o.order_number}</a></td>
                       <td class="py-2 text-muted">{o.name}</td>
-                      <td class="py-2 text-right font-bold tabular">৳{(o.total_paisa/100).toFixed(0)}</td>
+                      <td class="py-2 text-right font-bold tabular">৳{(o.total_paisa / 100).toFixed(0)}</td>
                       <td class="py-2 pl-2 text-xs text-muted">{o.created_at?.split(" ")[0]}</td>
-                      <td class="py-2"><Badge variant="default">{o.status.replace(/_/g," ")}</Badge></td>
+                      <td class="py-2"><Badge variant="default">{o.status.replace(/_/g, " ")}</Badge></td>
                     </tr>
                   ))}
                 </tbody>
@@ -117,40 +122,40 @@ const perms = {
       </Card>
     </div>
 
-    <div class="lg:col-span-2 fade-up">
+    <div class="fade-up lg:col-span-2">
       <Card title="Attention needed">
         {flagged.length > 0 && perms.fraud ? (
-          <ul class="text-sm pl-0 m-0 space-y-1.5 stagger">
-            {flagged.map(f => (
+          <ul class="stagger m-0 space-y-1.5 pl-0 text-sm">
+            {flagged.map((f) => (
               <li class="flex items-center gap-2">
-                <a href={`/staff/orders/${f.id}`} class="text-brand font-bold no-underline">{f.order_number}</a>
-                <span class="text-muted truncate">{f.name}</span>
+                <a href={`/staff/orders/${f.id}`} class="font-bold text-brand no-underline">{f.order_number}</a>
+                <span class="truncate text-muted">{f.name}</span>
                 <span class="ml-auto"><Badge variant={f.fraud_decision === "blocked" ? "danger" : "warning"}>{f.fraud_decision}</Badge></span>
               </li>
             ))}
           </ul>
         ) : (
-          <p class="text-muted text-sm m-0">No fraud flags.</p>
+          <p class="m-0 text-sm text-muted">No fraud flags.</p>
         )}
 
-        <div class="mt-4 pt-4 border-t border-line">
-          <p class="text-xs font-extrabold uppercase tracking-wider text-muted mb-2">Quick actions</p>
+        <div class="mt-4 border-t border-line pt-4">
+          <p class="mb-2 text-xs font-extrabold uppercase tracking-wider text-muted">Quick actions</p>
           <div class="flex flex-wrap gap-2 text-sm">
-            {perms.sales && <a href="/staff/sales/new" class="press tap-44 inline-flex items-center gap-1 rounded-full bg-brand text-white px-3 h-9 text-xs font-bold no-underline">+ New order</a>}
-            {perms.sales && <a href="/staff/sales/instore" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-line bg-surface px-3 h-9 text-xs font-bold text-ink no-underline">In-store</a>}
-            {perms.packing && <a href="/staff/packing" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-line bg-surface px-3 h-9 text-xs font-bold text-ink no-underline">Packing</a>}
-            {perms.products && <a href="/staff/products" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-line bg-surface px-3 h-9 text-xs font-bold text-ink no-underline">Products</a>}
-            {perms.orders && <a href="/staff/orders" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-line bg-surface px-3 h-9 text-xs font-bold text-ink no-underline">All orders</a>}
-            <a href="/staff/support" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-line bg-surface px-3 h-9 text-xs font-bold text-ink no-underline">Support</a>
-            {perms.security && <a href="/staff/settings/totp" class="press tap-44 inline-flex items-center gap-1 rounded-full border border-brand bg-surface px-3 h-9 text-xs font-bold text-brand no-underline">Security / 2FA</a>}
+            {perms.sales && <a href="/staff/sales/new" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full bg-brand px-3 text-xs font-bold text-white no-underline">+ New order</a>}
+            {perms.sales && <a href="/staff/sales/instore" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full border border-line bg-surface px-3 text-xs font-bold text-ink no-underline">In-store</a>}
+            {perms.packing && <a href="/staff/packing" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full border border-line bg-surface px-3 text-xs font-bold text-ink no-underline">Packing</a>}
+            {perms.products && <a href="/staff/products" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full border border-line bg-surface px-3 text-xs font-bold text-ink no-underline">Products</a>}
+            {perms.orders && <a href="/staff/orders" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full border border-line bg-surface px-3 text-xs font-bold text-ink no-underline">All orders</a>}
+            <a href="/staff/support" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full border border-line bg-surface px-3 text-xs font-bold text-ink no-underline">Support</a>
+            {perms.security && <a href="/staff/settings/totp" class="press tap-44 inline-flex h-9 items-center gap-1 rounded-full border border-brand bg-surface px-3 text-xs font-bold text-brand no-underline">Security / 2FA</a>}
           </div>
         </div>
       </Card>
     </div>
   </div>
 
-  <p class="text-muted text-xs mt-4 flex items-center gap-1.5">
+  <p class="mt-4 flex items-center gap-1.5 text-xs text-muted">
     <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9.4-8 10-4.5-.6-8-5-8-10V6z"/></svg>
-    All staff actions are audited. Use the left navigation for your full toolset.
+    All staff actions are audited. Use left navigation for full toolset.
   </p>
 </StaffLayout>

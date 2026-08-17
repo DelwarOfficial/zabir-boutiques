@@ -5,6 +5,7 @@ import { menuForRole } from "@/lib/staff-menu";
 import { readCsrfCookie } from "@/lib/csrf";
 import Navbar from "@/components/staff/layout/Navbar.astro";
 import Sidebar from "@/components/staff/layout/Sidebar.astro";
+import Toast from "@/components/primitives/Toast.astro";
 
 type Props = {
   title: string;
@@ -14,7 +15,6 @@ type Props = {
 const { title, user } = Astro.props;
 const csrfToken = readCsrfCookie(Astro.request) ?? "";
 const currentPath = Astro.url.pathname;
-// N-15: hoist out of the template — see src/pages/staff/login.astro.
 const cspNonce = Astro.locals.cspNonce;
 const menu = menuForRole(user.role).map((item) => ({
   ...item,
@@ -22,13 +22,29 @@ const menu = menuForRole(user.role).map((item) => ({
 }));
 
 const roleLabel: Record<string, string> = {
-  super_admin: "Super Admin", owner: "Owner", manager: "Manager",
-  salesman: "Sales Staff", packing: "Packing Staff",
-  support: "Support", developer: "Developer", auditor: "Auditor",
+  super_admin: "Super Admin",
+  owner: "Owner",
+  manager: "Manager",
+  salesman: "Sales Staff",
+  packing: "Packing Staff",
+  staff: "Staff",
+  viewer: "Viewer",
+  support: "Support",
+  developer: "Developer",
+  auditor: "Auditor",
 };
+
 const roleColor: Record<string, string> = {
-  super_admin: "chip-danger", owner: "chip-brand",
-  manager: "", salesman: "", packing: "", support: "", developer: "", auditor: "",
+  super_admin: "chip-danger",
+  owner: "chip-brand",
+  manager: "",
+  salesman: "",
+  packing: "",
+  staff: "",
+  viewer: "",
+  support: "",
+  developer: "",
+  auditor: "",
 };
 ---
 
@@ -40,7 +56,7 @@ const roleColor: Record<string, string> = {
     <link rel="icon" href="/favicon.ico" />
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
-    <title>{title} — Zabir Boutiques Staff</title>
+    <title>{title} - Zabir Boutiques Staff</title>
     <script is:inline define:vars={{ csrfToken }} nonce={cspNonce}>
       window.__ZB_CSRF__ = csrfToken;
       try { if (csrfToken) sessionStorage.setItem('zb-csrf', csrfToken); } catch (_) {}
@@ -53,6 +69,7 @@ const roleColor: Record<string, string> = {
     </script>
   </head>
   <body class="bg-bg text-ink font-sans m-0">
+    <Toast />
     <div class="staff-shell" style="min-height:100dvh">
       <Navbar user={user} csrfToken={csrfToken} roleLabel={roleLabel[user.role] ?? user.role} roleColorClass={roleColor[user.role] || ''} />
 
@@ -66,27 +83,70 @@ const roleColor: Record<string, string> = {
     </div>
 
     <script is:inline nonce={cspNonce}>
-      document.addEventListener('submit', (e) => {
+      document.addEventListener('submit', async (e) => {
         const form = e.target;
         if (!(form instanceof HTMLFormElement)) return;
         const action = form.getAttribute('action') || '';
         const enctype = form.getAttribute('enctype') || '';
-        if (form.method.toLowerCase() === 'post' && action.includes('/api/staff/')) {
-          if (enctype.includes('multipart') || form.dataset.noAutoCsrf !== undefined) return;
-          const csrf = (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__) ? window.__ZB_CSRF__ : (() => { try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; } })();
-          if (!csrf) return;
-          e.preventDefault();
-          const data = new FormData(form);
-          const body = new URLSearchParams();
-          data.forEach((v, k) => body.append(k, typeof v === 'string' ? v : v.name));
-          fetch(action, {
+        if (form.method.toLowerCase() !== 'post' || !action.includes('/api/staff/')) return;
+        if (enctype.includes('multipart') || form.dataset.noAutoCsrf !== undefined) return;
+
+        const csrf = (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__)
+          ? window.__ZB_CSRF__
+          : (() => { try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; } })();
+        if (!csrf) return;
+
+        e.preventDefault();
+
+        const data = new FormData(form);
+        const body = new URLSearchParams();
+        data.forEach((v, k) => body.append(k, typeof v === 'string' ? v : v.name));
+
+        const submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
+        if (submitButton instanceof HTMLButtonElement || submitButton instanceof HTMLInputElement) {
+          submitButton.disabled = true;
+        }
+
+        try {
+          const res = await fetch(action, {
             method: 'POST',
             headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body
-          }).then(res => {
-            if (res.ok) { window.location.reload(); }
-            else { res.json().then(b => alert(b.error || b.message || 'Action failed')).catch(() => alert('Action failed')); }
-          }).catch(() => alert('Network error'));
+            body,
+          });
+          const isJson = (res.headers.get('content-type') || '').includes('application/json');
+          const payload = isJson ? await res.json().catch(() => ({})) : {};
+
+          if (res.ok) {
+            if (typeof window.showToast === 'function') {
+              window.showToast(payload.message || 'Saved successfully.', 'success');
+            }
+            document.dispatchEvent(new CustomEvent('staff:form-success', {
+              detail: { action, formId: form.id || null, payload },
+            }));
+
+            if (payload.redirect_url || payload.redirect) {
+              window.location.href = payload.redirect_url || payload.redirect;
+              return;
+            }
+
+            if (form.dataset.resetOnSuccess !== 'false') {
+              form.reset();
+            }
+
+            if (form.dataset.reloadOnSuccess === 'true') {
+              window.location.reload();
+            }
+          } else if (typeof window.showToast === 'function') {
+            window.showToast(payload.error || payload.message || 'Action failed.', 'error');
+          }
+        } catch (_) {
+          if (typeof window.showToast === 'function') {
+            window.showToast('Network error. Try again.', 'error');
+          }
+        } finally {
+          if (submitButton instanceof HTMLButtonElement || submitButton instanceof HTMLInputElement) {
+            submitButton.disabled = false;
+          }
         }
       }, true);
     </script>

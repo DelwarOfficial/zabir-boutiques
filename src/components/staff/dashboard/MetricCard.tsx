@@ -19,16 +19,16 @@ export const MetricCard: React.FC<MetricCardProps> = ({
   icon,
 }) => {
   return (
-    <div className="overflow-hidden rounded-2xl border border-border/80 bg-card p-6 shadow-sm transition-all duration-200 hover:shadow-md">
+    <div className="overflow-hidden rounded-2xl border border-line bg-surface p-6 shadow-sm transition-all duration-200 hover:shadow-md">
       <div className="flex items-start justify-between">
         <div className="space-y-1">
-          <p className="text-sm font-medium text-muted-foreground">{title}</p>
-          <h3 className="text-3xl font-bold tracking-tight tabular-nums text-foreground">
+          <p className="text-sm font-medium text-muted">{title}</p>
+          <h3 className="text-3xl font-bold tracking-tight tabular-nums text-ink">
             {value}
           </h3>
         </div>
         {icon && (
-          <div className="rounded-xl bg-primary/10 p-2.5 text-primary">
+          <div className="rounded-xl bg-brand-light p-2.5 text-brand">
             {icon}
           </div>
         )}
@@ -43,12 +43,12 @@ export const MetricCard: React.FC<MetricCardProps> = ({
             {trend.isPositive ? (
               <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/></svg>
             ) : (
-              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"/></svg>
+              <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path strokeLinecap="round" strokeLinejoin="round" d="M13 17h8m0 0v-8m0 8l-8-8-4 4-6-6"/></svg>
             )}
             {trend.isPositive ? '+' : ''}{trend.value}%
           </span>
         )}
-        <span className="text-xs text-muted-foreground">{description}</span>
+        <span className="text-xs text-muted">{description}</span>
       </div>
     </div>
   );
