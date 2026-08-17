@@ -189,4 +189,71 @@ describe('CloudflareEmailProvider MailChannels fallback behavior', () => {
       emailType: 'order_confirmed',
     }));
   });
+
+  // N-24: the winning provider must be recoverable from the SendResponse,
+  // because email_log persists it. Before this, a delivered message recorded
+  // only 'sent' — indistinguishable between primary and fallback, which is
+  // what made "did MailChannels actually send?" unanswerable from data.
+  it('N-24: reports cloudflare_email as the provider when MailChannels succeeds', async () => {
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response) as typeof fetch;
+
+    const result = await new CloudflareEmailProvider({}).sendEmail(baseRequest);
+
+    expect(result.accepted).toBe(true);
+    expect(result.provider).toBe('cloudflare_email');
+    expect(resendSendEmailMock).not.toHaveBeenCalled();
+  });
+
+  it('N-24: reports resend as the provider when the fallback delivers', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'Authorization Required',
+    } as unknown as Response) as typeof fetch;
+    resendSendEmailMock.mockResolvedValue({
+      accepted: true,
+      provider: 'resend',
+      status: 'sent',
+      provider_message_id: 'resend-1',
+    });
+
+    const result = await new CloudflareEmailProvider({}).sendEmail(baseRequest);
+
+    expect(result.accepted).toBe(true);
+    expect(result.provider).toBe('resend');
+    expect(resendSendEmailMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('N-24: MailChannels success sends exactly once and never duplicates via the fallback', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 202 } as Response);
+    global.fetch = fetchMock as typeof fetch;
+
+    await new CloudflareEmailProvider({}).sendEmail(baseRequest);
+
+    // One outbound MailChannels call, zero Resend calls: no double delivery.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(resendSendEmailMock).not.toHaveBeenCalled();
+    expect(safeLogWarnMock).not.toHaveBeenCalled();
+  });
+
+  it('N-24: surfaces the real MailChannels 401 so a dead relay cannot fail silently', async () => {
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'Authorization Required',
+    } as unknown as Response) as typeof fetch;
+    resendSendEmailMock.mockResolvedValue({
+      accepted: true,
+      provider: 'resend',
+      status: 'sent',
+      provider_message_id: 'resend-2',
+    });
+
+    await new CloudflareEmailProvider({}).sendEmail(baseRequest);
+
+    expect(safeLogWarnMock).toHaveBeenCalledWith(
+      '[Email] MailChannels failed. Falling back to Resend.',
+      expect.objectContaining({ errorCode: 'HTTP_401' }),
+    );
+  });
 });

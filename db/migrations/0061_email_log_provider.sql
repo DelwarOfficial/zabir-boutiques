@@ -1,0 +1,11 @@
+-- N-24: record which provider actually delivered each message.
+--
+-- CloudflareEmailProvider tries MailChannels first and silently falls back to
+-- Resend, and SendResponse.provider already reports the winner — but email_log
+-- never stored it. A row therefore read 'sent' with no way to tell whether the
+-- primary or the fallback did the work, which is exactly the ambiguity that
+-- made it impossible to answer "did MailChannels actually send this?" without
+-- probing the API by hand.
+--
+-- Nullable: existing rows predate provider tracking and must stay readable.
+ALTER TABLE email_log ADD COLUMN provider TEXT;

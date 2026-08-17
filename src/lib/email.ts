@@ -94,18 +94,18 @@ export async function sendTransactionalEmail(
     });
     await env.DB
       .prepare(
-        `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)`,
+        `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at, provider)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)`,
       )
-      .bind(messageId, order.order_number, type, to, result.status, result.status === 'sent' ? now : null, result.error_code ?? null, now)
+      .bind(messageId, order.order_number, type, to, result.status, result.status === 'sent' ? now : null, result.error_code ?? null, now, result.provider)
       .run();
     return { ok: result.accepted, id: result.provider_message_id, error: result.error_code };
   } catch (err) {
     const error = err instanceof Error ? err.message : "unknown";
     await env.DB
       .prepare(
-        `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-         VALUES (?1, ?2, ?3, ?4, 'failed', NULL, ?5, ?6)`,
+        `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at, provider)
+         VALUES (?1, ?2, ?3, ?4, 'failed', NULL, ?5, ?6, NULL)`,
       )
       .bind(messageId, order.order_number, type, to, error, now)
       .run();
@@ -146,8 +146,8 @@ export async function sendPasswordResetEmail(
       message_id: messageId,
     });
     await env.DB.prepare(
-      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-       VALUES (?1, NULL, 'password_reset', ?2, ?3, ?4, ?5, ?6)`,
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at, provider)
+       VALUES (?1, NULL, 'password_reset', ?2, ?3, ?4, ?5, ?6, ?7)`,
     ).bind(
       messageId,
       payload.to,
@@ -155,13 +155,14 @@ export async function sendPasswordResetEmail(
       result.status === 'sent' ? now : null,
       result.error_code ?? null,
       now,
+      result.provider,
     ).run();
     return { ok: result.accepted, id: result.provider_message_id, error: result.error_code };
   } catch (err) {
     const error = err instanceof Error ? err.message : 'unknown';
     await env.DB.prepare(
-      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-       VALUES (?1, NULL, 'password_reset', ?2, 'failed', NULL, ?3, ?4)`,
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at, provider)
+       VALUES (?1, NULL, 'password_reset', ?2, 'failed', NULL, ?3, ?4, NULL)`,
     ).bind(messageId, payload.to, error, now).run();
     return { ok: false, error };
   }
@@ -192,8 +193,8 @@ export async function sendAbandonedCartEmail(
       message_id: messageId,
     });
     await env.DB.prepare(
-      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-       VALUES (?1, NULL, 'abandoned_cart', ?2, ?3, ?4, ?5, ?6)`,
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at, provider)
+       VALUES (?1, NULL, 'abandoned_cart', ?2, ?3, ?4, ?5, ?6, ?7)`,
     ).bind(
       messageId,
       payload.email,
@@ -201,13 +202,14 @@ export async function sendAbandonedCartEmail(
       result.status === 'sent' ? now : null,
       result.error_code ?? null,
       now,
+      result.provider,
     ).run();
     return { ok: result.accepted, id: result.provider_message_id, error: result.error_code };
   } catch (err) {
     const error = err instanceof Error ? err.message : 'unknown';
     await env.DB.prepare(
-      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at)
-       VALUES (?1, NULL, 'abandoned_cart', ?2, 'failed', NULL, ?3, ?4)`,
+      `INSERT INTO email_log (id, order_id, email_type, recipient, status, sent_at, error_message, created_at, provider)
+       VALUES (?1, NULL, 'abandoned_cart', ?2, 'failed', NULL, ?3, ?4, NULL)`,
     ).bind(messageId, payload.email, error, now).run();
     return { ok: false, error };
   }
