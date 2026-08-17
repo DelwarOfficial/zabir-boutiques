@@ -133,7 +133,7 @@ The project uses **Astro 7.2 + React 19 Islands + Tailwind CSS + Cloudflare adap
 | Scheduled jobs | Cloudflare Cron Triggers |
 | Sessions/flags/redirects | Workers KV, only for stale-tolerant data |
 | AI | Workers AI first; DeepSeek fallback only when needed |
-| Email | Resend default transactional provider; Cloudflare Email Routing for inbound only. **Cloudflare Email Sending is NOT an approved outbound provider** until its general availability for arbitrary transactional recipients is verified in writing — see **DECISION REQUIRED (D-02)** in Section 17.1 (CF-09). Until then the `cloudflare_email` adapter folder MUST NOT be treated as a working fallback. |
+| Email | MailChannels-backed `cloudflare_email` adapter is the primary transactional provider in deployed Cloudflare environments; Resend is the automatic fallback/backup provider and the practical local-development path when MailChannels is unavailable on localhost. Cloudflare Email Routing remains inbound-only for customer/support email. |
 | Payments | UddoktaPay primary; SSLCommerz fallback |
 | Fraud | FraudBD direct checkout call + async audit queue |
 | Security | WAF, Turnstile, Zero Trust Access, CSP, CSRF HMAC, RBAC |
@@ -242,8 +242,8 @@ Forbidden patterns:
 | DeepSeek | Complex AI generation fallback | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` | AI service queue/staff action | 30s foreground, longer only in queue | Retry only for transient errors | Workers AI or manual staff content |
 | Workers AI | Primary low-cost AI tasks | Cloudflare binding | AI service | Platform default | No blind retry on budget failure | D1 FTS/category fallback/manual |
 | Imagify | Image optimization, resize/compression, WebP/AVIF support where approved | `IMAGIFY_API_KEY`, `IMAGIFY_BASE_URL` | Image-processing queue | 30s | 2x queue retry | Keep original + queue-generated R2 variants (per Guardrail #26 — browser uploads original only) |
-| Cloudflare Email Sending | Optional low-cost transactional email provider when account feature is enabled | Cloudflare email binding/config | Email adapter queue | 10s | 3x queue retry | Resend default provider |
-| Resend | Default transactional email provider | `RESEND_API_KEY` | Email adapter queue | 10s | 3x queue retry | Cloudflare Email Sending or staff/manual resend |
+| MailChannels (`cloudflare_email`) | Primary transactional email provider via the existing `src/lib/integrations/email/cloudflare_email/` adapter path | No MailChannels-specific secret required; outbound requests use the provider's HTTPS endpoint from the Cloudflare runtime | Email adapter queue | 10s | Primary attempt inside adapter + 3x queue retry | Automatic fallback to the existing Resend adapter on non-2xx or transport failure |
+| Resend | Backup transactional email provider behind the email adapter | `RESEND_API_KEY` | Email adapter queue | 10s | Invoked automatically only after MailChannels failure, plus normal queue retry | Staff/manual resend only if both MailChannels and Resend fail |
 | WhatsApp link | Customer support CTA | No secret for simple wa.me link | Frontend link | N/A | N/A | Phone call CTA |
 | Courier APIs | Pathao/Steadfast/Redx shipping labels/tracking when approved | provider-specific secrets | Shipping adapter | 10s | Queue retry for labels | Manual label entry |
 
@@ -1977,7 +1977,7 @@ src/lib/integrations/email/
 │   ├── mock.ts
 │   └── index.ts              # implements EmailProvider
 └── cloudflare_email/
-    ├── client.ts             # Cloudflare Email Sending binding client
+    ├── client.ts             # MailChannels-backed outbound client
     ├── types.ts
     ├── errors.ts
     ├── mock.ts
@@ -2024,24 +2024,41 @@ The active provider is selected by the `EMAIL_PROVIDER` environment variable (Cl
 
 | `EMAIL_PROVIDER` value | Resolved adapter | Notes |
 |---|---|---|
-| `resend` (default) | `src/lib/integrations/email/resend/index.ts` | Production default; stable, well-documented API |
-| `cloudflare_email` | `src/lib/integrations/email/cloudflare_email/index.ts` | Optional low-cost provider; requires account-level enablement and testing before switching |
-| unset / empty | Falls back to `resend` | Safe default — never throws on missing env var |
+| `resend` | `src/lib/integrations/email/resend/index.ts` | Directly uses the backup provider; intended mainly for controlled override/testing |
+| `cloudflare_email` (deployed default) | `src/lib/integrations/email/cloudflare_email/index.ts` | Primary deployed path. Sends through MailChannels first, then automatically falls back to Resend on non-2xx or transport failure |
+| unset / empty | Falls back to `resend` | Safe bootstrap default; this is also the expected local-development behavior when MailChannels is not available on localhost. Staging/production MUST explicitly set `EMAIL_PROVIDER=cloudflare_email` |
 
-Switching providers does NOT require a code change or redeploy of business logic: set `EMAIL_PROVIDER=cloudflare_email` in the Cloudflare dashboard and the next request picks it up. Tests use the `mock.ts` adapter in each provider folder.
+Switching providers does NOT require a code change or redeploy of business logic: set `EMAIL_PROVIDER=cloudflare_email` in the Cloudflare dashboard and the next request picks it up. On localhost, developers MAY intentionally leave `EMAIL_PROVIDER` unset or set it to `resend` when MailChannels is unavailable outside the deployed Cloudflare runtime. Tests use the `mock.ts` adapter in each provider folder.
 
 Provider order (preference, when both are configured):
 
-1. Resend as the default stable transactional email provider.
-2. Cloudflare Email Routing for inbound customer/support email only.
-3. Manual staff notification fallback for failed transactional email.
+1. MailChannels-backed `cloudflare_email` adapter as the primary outbound transactional provider in staging and production.
+2. Resend as the automatic fallback/backup provider inside the same adapter layer, and as the practical direct provider for localhost when the primary path cannot be exercised locally.
+3. Cloudflare Email Routing for inbound customer/support email only.
+4. Manual staff notification fallback only when both providers fail or the queue exhausts retries.
 
-> **DECISION REQUIRED (D-02):** Is Cloudflare Email Sending generally available for outbound transactional mail to arbitrary customer addresses on this account? — Options: **A)** Verified available: keep the `cloudflare_email` adapter as the documented second provider and test the failover. **B)** Not available (Email Routing is an inbound product and Email Workers' send capability has historically been limited to replies and verified destinations): delete the `cloudflare_email` adapter folder and add a second *real* transactional provider, because Resend is otherwise a single point of failure with no fallback.
-> Blocking: the provider-order list above, the `SendResponse.provider` union type in Section 36.4, Guardrail #30, and the `src/lib/integrations/email/cloudflare_email/` folder. Until the Owner confirms in writing, `EMAIL_PROVIDER=cloudflare_email` MUST NOT be set in staging or production, and the adapter is treated as unproven scaffolding rather than a fallback. Section 17.2's "manual staff notification" is the only fallback the plan can currently guarantee.
+#### Required configuration and runtime contract
+
+- `EMAIL_PROVIDER=cloudflare_email` in staging and production so the primary provider path is active.
+- On localhost, `EMAIL_PROVIDER=resend` or an unset `EMAIL_PROVIDER` is acceptable when MailChannels cannot be exercised from the local runtime; this is a development-only exception and not the deployed architecture.
+- `RESEND_API_KEY` is REQUIRED in every environment that can send transactional mail, because Resend is the documented automatic fallback.
+- `RESEND_FROM_EMAIL` is OPTIONAL; if set, it overrides the fallback sender format used by the Resend adapter.
+- No MailChannels-specific secret is required by this implementation. The adapter sends from the Cloudflare runtime with native `fetch()` to the MailChannels endpoint.
+- Default sender address is `noreply@zabirboutiques.com` with display name `Zabir Boutiques`, unless a provider-specific fallback sender override is intentionally configured for Resend.
+
+#### Error handling, retries, and delivery logging
+
+- The primary `cloudflare_email` adapter MUST attempt MailChannels first.
+- Any MailChannels non-2xx response or transport exception MUST log a clear fallback event and then call the existing Resend adapter without changing caller contracts.
+- If Resend also fails, the adapter MUST return a failed `SendResponse` with a redacted `error_code` / `error_message`; queue retry policy then continues per Section 6.7.
+- The `order-emails` queue remains the retry boundary: 3x backoff retries at the queue layer, not unbounded in-request retries.
+- `email_log` remains the canonical per-message delivery log (`status`, `sent_at`, `error_message`, `recipient`, `email_type`).
+- `api_audit_logs` remains the canonical provider-operation log for transport attempts, timing, circuit state, and redacted failure summaries.
+- Manual resend/staff notification is reserved for the case where both MailChannels and Resend fail or the queue exhausts its retries.
 
 #### Integration with `ProviderHealthDO` and `api_audit_logs`
 
-Every `sendEmail()` call goes through `ProviderHealthDO` (`provider:email`) and writes a row to `api_audit_logs` with `provider = 'email'`, `operation = 'send_email'`, `request_id = message_id`, `duration_ms`, `status`, `circuit_state`, and a PII-redacted summary. Circuit breaker rules follow the same pattern as FraudBD (Section 11.2): 5 failures / 60s → open 5 min → queue retries instead of blocking the caller. The `order-emails` queue consumer handles retries with 3x backoff per Section 6.7.
+Every `sendEmail()` call goes through `ProviderHealthDO` (`provider:email`) and writes a row to `api_audit_logs` with `provider = 'email'`, `operation = 'send_email'`, `request_id = message_id`, `duration_ms`, `status`, `circuit_state`, and a PII-redacted summary. Circuit breaker rules follow the same pattern as FraudBD (Section 11.2): 5 failures / 60s → open 5 min → queue retries instead of blocking the caller. The `order-emails` queue consumer handles retries with 3x backoff per Section 6.7, and the primary adapter records the MailChannels attempt plus any automatic Resend fallback.
 
 ### 17.2 Email Types
 
@@ -2242,7 +2259,7 @@ All secrets live in Cloudflare Secrets. The complete list — V7 omitted four of
 | `UDDOKTAPAY_API_KEY`, `UDDOKTAPAY_WEBHOOK_SECRET` | Payment adapter, webhook | Quarterly, dual-key |
 | `SSLCOMMERZ_STORE_PASSWORD`, `SSLCOMMERZ_WEBHOOK_SECRET` | Payment adapter, webhook | Quarterly, dual-key |
 | `FRAUDBD_API_KEY` | FraudBD adapter | Quarterly |
-| `RESEND_API_KEY` | Email adapter | Quarterly |
+| `RESEND_API_KEY` | Email adapter fallback path | Quarterly |
 | `DEEPSEEK_API_KEY` | AI adapter | Quarterly |
 | `IMAGIFY_API_KEY` | Image adapter | Annually |
 | `POS_BIN`, `POS_TIN` | Receipt printing | On change by the tax authority |
@@ -2251,7 +2268,7 @@ All secrets live in Cloudflare Secrets. The complete list — V7 omitted four of
 | `OTP_ENCRYPTION_KEY` | Owner TOTP secret encryption/decryption | Quarterly; rotate by re-encrypting `otp_secrets.secret_cipher` with a documented runbook; no plaintext TOTP secret may be logged |
 | `AUDIT_CUSTOMER_REF_SALT` | Salted `customer_ref` hash in `audit_log` (S-07) | **Never** — rotating it breaks the ability to link existing audit rows to a customer |
 
-Environment variables (not secrets): `EMAIL_PROVIDER`, `DR_RESTORE_ENABLED`. `VAT_RATE_PERCENT` is **retired** — the rate now lives in the D1 `tax_rates` table (Section 11.7).
+Environment variables (not secrets): `EMAIL_PROVIDER`, `RESEND_FROM_EMAIL`, `DR_RESTORE_ENABLED`. `VAT_RATE_PERCENT` is **retired** — the rate now lives in the D1 `tax_rates` table (Section 11.7).
 
 #### Rotation Procedure (S-11)
 
