@@ -118,19 +118,46 @@ Full verification after every change: `npx tsc --noEmit` (clean throughout) and
 
 ## Verdict
 
-**Project is NOT yet production-ready.**
+> **SUPERSEDED 2026-08-17.** Every deferred item in the table below was closed in a
+> later session. The table is retained for history; see "Status as of 2026-08-17"
+> underneath it for current state. Do not treat the table as an open work list.
 
 Zero unresolved Critical or High findings remain — every Critical and High-severity item is fixed+tested, false-positived with evidence, or explicitly reassigned/deduplicated. The blockers below are Medium/Low items deliberately left unfixed, each for a stated reason (feature scope, infra coordination, or a business decision this task cannot make unilaterally) rather than technical difficulty:
 
-| Severity | Item | Why not fixed | Next action |
-|---|---|---|---|
-| Medium | INV-10 / N-4(D-19) | `VAT_RATE_PERCENT` env var vs V8's DB-config requirement | Add `site_settings` key + migration, wire 4 call sites (feature build, ~1 sprint) |
-| Medium | N-11 | Historical PII in `audit_log` predates the write-time scrub fix | Needs a redaction design that survives hash-chain verification (re-signing forward from a redaction checkpoint) — architecture decision required |
-| Medium | N-2 | 6/8 DOs use raw unprefixed object IDs | Needs a dual-read migration strategy so renaming doesn't orphan live DO state |
-| Medium | K-31 | Audit-chain verification windowed at 1000/10000 rows on a 7-year log | Checkpoint-based incremental verification (architecture item) |
-| Medium | K-26, K-36, K-38, N-13 | Fail-open KV tradeoff / self-documented placeholder / missing cancel-refund route / CSP unsafe-inline for styles | Each is a real, scoped follow-up (ops alerting, feature build, or a broad CSS refactor) |
-| Low | N-25 | R2 bucket name mismatch vs plan | Needs confirmation of the actual bucket name in the live Cloudflare account before any rename — blind edit risks breaking production storage |
-| Low | N-21, N-3, N-5 | Doc/test-count and audit-drift-script checks (D-45/D-46) | Require reading Master Plan §38.2/§38.4 in full before writing new checks — not done this session |
-| Medium | N-12 | 30-day deletion cooldown vs immediate GDPR processing | Business/legal policy decision, not a code defect |
+| Severity | Item | Why not fixed | Next action | Closed |
+|---|---|---|---|---|
+| Medium | INV-10 / N-4(D-19) | `VAT_RATE_PERCENT` env var vs V8's DB-config requirement | Add `site_settings` key + migration, wire 4 call sites (feature build, ~1 sprint) | ✅ `tax_rates` table (0053), `src/lib/vat.ts`, env var retired |
+| Medium | N-11 | Historical PII in `audit_log` predates the write-time scrub fix | Needs a redaction design that survives hash-chain verification (re-signing forward from a redaction checkpoint) — architecture decision required | ✅ `redactAuditLogEntry` (0056/0057); chain preserved by leaving `chain_hash` untouched |
+| Medium | N-2 | 6/8 DOs use raw unprefixed object IDs | Needs a dual-read migration strategy so renaming doesn't orphan live DO state | ✅ Cases A/B/C all shipped; peer-DO hydrate for Cart/DirectCheckout |
+| Medium | K-31 | Audit-chain verification windowed at 1000/10000 rows on a 7-year log | Checkpoint-based incremental verification (architecture item) | ✅ `verifyAuditChainIncremental` resumes from checkpoint |
+| Medium | K-26, K-36, K-38, N-13 | Fail-open KV tradeoff / self-documented placeholder / missing cancel-refund route / CSP unsafe-inline for styles | Each is a real, scoped follow-up (ops alerting, feature build, or a broad CSS refactor) | ✅ All four: audit-log alerting, D1-backed CSRF key rotation, cancel/refund route, `style-src` hash cutover |
+| Low | N-25 | R2 bucket name mismatch vs plan | Needs confirmation of the actual bucket name in the live Cloudflare account before any rename — blind edit risks breaking production storage | ✅ Confirmed `zabir-email-templates-prod` correct; docs corrected instead |
+| Low | N-21, N-3, N-5 | Doc/test-count and audit-drift-script checks (D-45/D-46) | Require reading Master Plan §38.2/§38.4 in full before writing new checks — not done this session | ✅ Drift checks D-19/D-23 corrected |
+| Medium | N-12 | 30-day deletion cooldown vs immediate GDPR processing | Business/legal policy decision, not a code defect | ✅ Owner chose 30-day deferred deletion; `pending_deletions` (0055) |
 
-None of these block launch on their own severity, but "0 unresolved P0/P1" was achieved — what remains is Medium/Low work that is either a real feature/infra project or requires a decision outside engineering's authority to make alone.
+## Status as of 2026-08-17
+
+All items above are closed. Later sessions also found and fixed defects this audit
+did not catch — several were live production outages that no static review surfaced:
+
+| ID | Defect | Why the audit missed it |
+|---|---|---|
+| N-15 | `Astro.locals.cspNonce` inline in templates threw `ReferenceError`, 500ing every staff auth page | Runtime-only failure |
+| N-16 | `0039` used `ALTER TABLE ... ADD CONSTRAINT` — invalid SQLite; migration had never applied | Migration was never executed against a real engine |
+| N-17 | PBKDF2 set to 600k, above the Workers 100k cap — every staff login 500'd | Node's WebCrypto has no such cap, so tests passed |
+| N-18 | 5 catalog pages used `getStaticPaths()` without `prerender` — product/category pages 500'd | Two guardrail tests *were* failing and had been tolerated |
+| N-19 | Blanket append-only trigger blocked N-11's redaction `UPDATE`; feature inert since it shipped | Test fixture omitted migration `0008` |
+| N-20 | N-11's verification skip left 8 forensic columns unverified on redacted rows | Introduced by the N-11 fix itself |
+| N-21 | Login rejections logged no reason; Turnstile/Resend failed open silently | Observability gap, not a code defect |
+| N-22/N-23 | siteverify error body discarded; `hostname` and `action` never validated | Required comparing against Cloudflare's canonical flow |
+| N-24 | `email_log` never recorded which provider delivered | Ambiguity only visible once a fallback existed |
+
+**Recurring lesson:** the highest-severity defects were invisible to static review and
+to tests whose fixtures diverged from the real schema or runtime. Production D1 had
+also stalled at migration `0018` with ~40 migrations unapplied — the code was correct
+and the deployed environment was not.
+
+**Current blocker is configuration, not code.** As of 2026-08-17 production holds
+0 orders and 4 seeded products, and every payment, courier, and fraud secret is
+unset — so no real transaction can complete. See the launch checklist for the
+outstanding secrets.
