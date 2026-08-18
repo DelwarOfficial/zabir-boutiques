@@ -132,7 +132,7 @@ The project uses **Astro 7.2 + React 19 Islands + Tailwind CSS + Cloudflare adap
 | Async jobs | Cloudflare Queues |
 | Scheduled jobs | Cloudflare Cron Triggers |
 | Sessions/flags/redirects | Workers KV, only for stale-tolerant data |
-| AI | Workers AI first for low-cost tasks; DeepSeek primary for product descriptions (§24.1, N-29). Both metered. |
+| AI | Workers AI primary for all tasks; DeepSeek secondary. Both metered (CF-08). |
 | Email | MailChannels-backed `cloudflare_email` adapter is the primary transactional provider in deployed Cloudflare environments; Resend is the automatic fallback/backup provider and the practical local-development path when MailChannels is unavailable on localhost. Cloudflare Email Routing remains inbound-only for customer/support email. |
 | Payments | UddoktaPay primary. SSLCommerz is a **switched-off** fallback (`SSLCOMMERZ_ENABLED="false"`, N-28): the adapter is maintained and tested, but no customer is routed to it until the flag is flipped. |
 | Fraud | FraudBD direct checkout call + async audit queue |
@@ -151,7 +151,7 @@ Cost rules:
 - Use KV only for session blacklist, feature flags, redirects, and read-mostly autocomplete/cache data.
 - Avoid Cloudflare Images paid storage at launch unless the client explicitly approves it.
 - Generate image variants during staff upload where possible; keep Cloudflare Images/Image Resizing as an optional upgrade.
-- Use Workers AI within free/daily budget first, **except for product descriptions, where DeepSeek is primary** (§24.1, N-29). Both providers pass through BudgetCounterDO; Workers AI overage is billed, not blocked (CF-08).
+- Use Workers AI within free/daily budget first, for every AI feature including product descriptions (§24.1). DeepSeek is the secondary provider. Both pass through BudgetCounterDO; Workers AI overage is billed, not blocked (CF-08).
 - Email provider is abstracted behind an adapter so the project can start with the lowest-cost reliable provider and switch later.
 
 #### Cost Model (mandatory, CF-07)
@@ -239,7 +239,7 @@ Forbidden patterns:
 | FraudBD | Courier/fraud risk check for Bangladesh ecommerce orders | `FRAUDBD_API_KEY`, `FRAUDBD_BASE_URL` | Checkout service + fraud audit queue | 1.5s checkout / 3s background | Checkout: **0 retries** (fallback on failure); `fraud-audit` queue: 1 retry with 2s backoff | Circuit breaker (5 failures / 60s → open 5 min → fallback score 50 → `pending_review`). Full spec in Section 11.2. |
 | UddoktaPay | Primary online payment and partial prepayment | `UDDOKTAPAY_BASE_URL` (var), `UDDOKTAPAY_API_KEY` (**secret only**) | Payment service + callback + webhook + reconciliation cron | 10s | Verify calls retry. **Create-charge is never retried** — a timeout may already have created a charge (N-28) | Pending-payment retry against the existing payment record. SSLCommerz only if re-enabled |
 | SSLCommerz | Payment fallback provider — **currently switched off** (`SSLCOMMERZ_ENABLED`) | `SSLCOMMERZ_STORE_ID`, `SSLCOMMERZ_STORE_PASSWORD`, `SSLCOMMERZ_BASE_URL`, `SSLCOMMERZ_WEBHOOK_SECRET` | Payment service | 10s | Verify calls retry; create payment idempotent | Manual payment review. Verification/reconciliation of *already-taken* SSLCommerz payments stays enabled regardless of the flag |
-| DeepSeek | Complex AI generation fallback | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` | AI service queue/staff action | 30s foreground, longer only in queue | Retry only for transient errors | Workers AI or manual staff content |
+| DeepSeek | Secondary AI generation provider | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` | AI service queue/staff action | 30s foreground, longer only in queue | Retry only for transient errors | Workers AI or manual staff content |
 | Workers AI | Primary low-cost AI tasks | Cloudflare binding | AI service | Platform default | No blind retry on budget failure | D1 FTS/category fallback/manual |
 | Imagify | Image optimization, resize/compression, WebP/AVIF support where approved | `IMAGIFY_API_KEY`, `IMAGIFY_BASE_URL` | Image-processing queue | 30s | 2x queue retry | Keep original + queue-generated R2 variants (per Guardrail #26 — browser uploads original only) |
 | MailChannels (`cloudflare_email`) | Primary transactional email provider via the existing `src/lib/integrations/email/cloudflare_email/` adapter path | No MailChannels-specific secret required; outbound requests use the provider's HTTPS endpoint from the Cloudflare runtime | Email adapter queue | 10s | Primary attempt inside adapter + 3x queue retry | Automatic fallback to the existing Resend adapter on non-2xx or transport failure |
@@ -348,8 +348,9 @@ export interface AIProvider {
 
 Rules:
 
-- Workers AI is primary for low-cost tasks (alt text, embeddings, recommendations, moderation).
-- DeepSeek is primary for product descriptions (§24.1, N-29) and for complex generation generally; Workers AI is its capped fallback.
+- Workers AI is primary for all AI tasks, including product descriptions (§24.1).
+- DeepSeek is the secondary provider: used on explicit staff selection or when Workers AI is over budget, subject to the §24.2 hourly fallback cap.
+- The split is a config default, revisited on §24.5 A/B evidence rather than argument.
 - BudgetCounterDO must approve before paid AI calls.
 - Staff must review all AI-generated public text.
 - Product/customer PII must not be sent to AI providers.
@@ -2517,41 +2518,54 @@ Alt text is required before product publish. AI can suggest alt text, but staff 
 
 ### 24.1 AI Features
 
-| Feature | Primary | Fallback | Human Review |
+| Feature | Primary | Secondary | Human Review |
 |---|---|---|---|
-| Product descriptions | **DeepSeek** (N-29) | Workers AI, capped — see §24.2 | Required before publish |
+| Product descriptions | Workers AI | DeepSeek, capped — see §24.2 | Required before publish |
 | Product recommendations | Workers AI/logic | Category fallback | Not required |
 | Semantic search | Workers AI embeddings | D1 FTS5 | Not required |
 | Alt text suggestions | Workers AI | Staff manual | Required |
 | Content moderation | Rule-based + AI | Staff review | Required for AI text |
 
-#### Why product descriptions invert the Workers-AI-first rule (N-29)
+Workers-AI-first (§1.4, §3.2) governs every AI feature, product descriptions
+included. DeepSeek is the secondary provider throughout: used when a staff
+member explicitly selects it, or when Workers AI is over budget.
 
-Workers-AI-first (§1.4, §3.2) is the right **cost** default and still governs
-alt text, embeddings, recommendations and moderation. Product descriptions are
-the one exception, and the exception is deliberate:
+#### Known risk on this choice, and how it is contained (N-29)
 
-- The task carries four simultaneous constraints — 150–250 words of persuasive
-  copy, emitted as valid JSON, with `metaTitle` ≤ 60 and `metaDescription` ≤ 160
-  characters, in English with occasional Bengali terms. Small instruct models
-  are unreliable at exactly this combination: they overrun the character caps
-  and break JSON structure.
-- The output is customer-facing, permanent, and SEO-load-bearing. Every other
-  AI feature in the table above is either internal, advisory, or cheap to
-  regenerate.
-- The cost difference is a fraction of a cent per generation. Paying it to
-  avoid a staff rewrite is the cheaper path, not the more expensive one — the
-  spend that matters is staff time, and §24.2's caps bound the API spend anyway.
+Product descriptions are the hardest task in the table for a small instruct
+model, and the only one whose output is customer-facing, permanent and
+SEO-load-bearing. The task carries four simultaneous constraints: 150–250 words
+of persuasive copy, emitted as valid JSON, with `metaTitle` ≤ 60 and
+`metaDescription` ≤ 160 characters, in English with occasional Bengali terms.
 
-Human review before publish remains mandatory regardless of provider. Review
-catches *bad* copy; it does not catch copy that was never generated, which is
-why an unusable AI response is now a surfaced error rather than a silently
-degraded result (`AIContentError`, §24.4).
+The owner's decision is Workers AI primary — the cost difference is real
+(DeepSeek runs roughly $0.0005/generation against a Workers AI daily allocation
+that covers expected volume), and the failure mode is bounded by controls that
+now exist rather than by the model's reliability:
+
+| Risk | Control |
+|---|---|
+| Malformed JSON | Strict parse; an unusable response is a surfaced error, never salvaged into published copy (`AIContentError`, §24.4) |
+| Overrun SEO fields | Validated and trimmed on a word boundary after generation, with the overrun recorded (§24.4) |
+| Weak or generic copy | Human review before publish is mandatory (this table) |
+| The choice being wrong | Blind A/B (§24.5) measures it against real products instead of argument |
+
+Human review before publish is mandatory regardless of provider. Review catches
+*bad* copy; it does not catch copy that was never generated, which is why an
+unusable AI response is a surfaced error rather than a silently degraded result.
 
 **Both providers are metered.** Workers AI is BILLED beyond the included
-allocation on the Paid plan (CF-08), so it is subject to its own §24.2 limits
-and to the hourly fallback cap — it is never treated as free merely because it
-is the fallback.
+allocation on the Paid plan (CF-08) — being the primary does not make it free,
+and it is subject to its own §24.2 limits. DeepSeek detours are additionally
+subject to the hourly fallback cap.
+
+#### Revisiting this decision
+
+The provider split is a config default (`preferred` in `src/lib/ai-content.ts`),
+not an architectural commitment, and it has already been reversed once. Change
+it on evidence from §24.5 trials, not on argument: if reviewers pick DeepSeek
+in a clear majority of blind trials across a representative product range, the
+primary should move. Record the tally here when the decision is next revisited.
 
 ### 24.2 Budget Enforcement
 
@@ -2727,6 +2741,42 @@ Applies to every AI text generation that produces publishable content:
   separately, including any cache-hit discount. Budget enforcement is built on
   this number: one invented flat rate makes the daily cap trigger at the wrong
   spend, in a direction nobody can predict.
+
+---
+
+### 24.5 Provider A/B Trials (N-29)
+
+The primary/secondary split in §24.1 is a judgement about output quality. This
+section makes it measurable, so it can be settled by counted preference rather
+than by argument or by whoever edited the plan last.
+
+`POST /api/staff/ai/compare-product-content` generates the same product content
+with both providers and returns them as unlabelled slots A and B in randomized
+order. `POST /api/staff/ai/trial-choice` records the pick and only then reveals
+which provider was which, returning the running tally.
+
+Rules that make the evidence worth having:
+
+- **The blind must actually be blind.** Provider names and per-slot cost are
+  withheld until a pick is recorded. Cost identifies the provider as surely as
+  its name does — a slot priced at $0 is Workers AI — so it is stripped from
+  anything the reviewer sees and kept only in `metrics_json`.
+- **Slot order is randomized per trial** using `crypto.getRandomValues`, so a
+  reviewer running many trials cannot settle into a positional habit.
+- **Picks are single-shot.** Recording is guarded on `chosen_provider IS NULL`,
+  so an answer cannot be revised after the reveal.
+- **"Neither" is a first-class answer.** If both providers fail on a product,
+  that is data about the prompt, not about the providers.
+- **Trials are charged like any other generation.** A compare is two paid calls
+  and passes the same §24.2 gate; the compare path is not a way to spend
+  outside the budget.
+- **Objective metrics accompany taste:** word count, SEO field lengths, whether
+  a cap was overrun before trimming, and latency.
+
+Results land in `ai_generation_trials`. A representative run is ~20 products
+across the real catalogue range (plain kurti, embroidered three-piece,
+jewellery, bags) — variety matters more than volume, since providers diverge
+most on unusual materials and Bengali-specific terms.
 
 ---
 

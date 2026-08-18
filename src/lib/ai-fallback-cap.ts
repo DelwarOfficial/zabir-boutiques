@@ -1,18 +1,23 @@
 /**
- * Workers AI fallback cap (Master Plan §24.2, CF-08) — N-29.
+ * Secondary-provider fallback cap (Master Plan §24.2, CF-08) — N-29.
  *
- * When `canUseDeepSeek()` is unreachable or its budget is spent, staff actions
- * fall back to Workers AI rather than blocking. That is the right call — a
- * budget-check timeout must not stop staff doing their job — but the plan is
- * explicit that it MUST be capped, because Workers AI overage on the Paid plan
- * is billed, not blocked. Without a cap, the fallback path is an unmetered
- * spend path that opens exactly when the metered one closes.
+ * When the primary provider for a staff AI action is over budget, the action
+ * falls back to the secondary provider rather than blocking — a budget problem
+ * must not stop staff doing their job. That detour still has to be bounded,
+ * because it opens exactly when the metered path closes and it is the path a
+ * runaway loop or an outage will hammer.
+ *
+ * Product descriptions run Workers AI primary / DeepSeek secondary (§24.1), so
+ * today this caps DeepSeek detours. It is deliberately written in terms of
+ * "the fallback", not a named provider: the cap belongs to the detour, not to
+ * whichever model currently sits on either side of it, and the precedence has
+ * already been reversed once.
  *
  * The counter is KV, account-wide, keyed by UTC hour with a 2-hour TTL, and is
  * incremented BEFORE the call so a crash mid-generation still consumes budget.
  * KV is eventually consistent, so this is a spend ceiling with some slack, not
- * an exact quota — which is the correct trade for a backstop whose job is to
- * stop a runaway, not to bill precisely.
+ * an exact quota — the correct trade for a backstop whose job is to stop a
+ * runaway, not to bill precisely.
  */
 export const AI_FALLBACK_HOURLY_CAP = 50;
 const TTL_SECONDS = 7200;

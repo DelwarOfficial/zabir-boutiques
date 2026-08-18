@@ -112,9 +112,12 @@ export function parseContentResponse(raw: string): GeneratedContent {
 export async function generateProductContent(
   product: ProductContext,
   env: { DEEPSEEK_API_KEY?: string; DEEPSEEK_BASE_URL?: string; AI?: Ai },
-  preferred: 'deepseek' | 'workers_ai' = 'deepseek'
+  preferred: 'deepseek' | 'workers_ai' = 'workers_ai'
 ): Promise<GeneratedContent & { provider: 'deepseek' | 'workers_ai'; tokens_used: number; cost_usd: number }> {
   const prompt = buildProductPrompt(product);
+  // Workers AI is primary for product descriptions (Master Plan 24.1).
+  // DeepSeek is the secondary provider, used when explicitly requested or when
+  // Workers AI is unavailable/over budget.
   if (preferred === 'deepseek' && env.DEEPSEEK_API_KEY) {
     const result = await new DeepSeekClient(env).generateProductDescription(prompt);
     return { ...parseContentResponse(result.text), provider: 'deepseek', tokens_used: result.tokens_used, cost_usd: result.cost_usd };

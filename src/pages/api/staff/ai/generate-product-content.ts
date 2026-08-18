@@ -4,7 +4,7 @@ import { requireAuth, requirePermission, RbacError } from '../../../../lib/rbac'
 import { writeAuditLog, clientIp, userAgent } from '../../../../lib/audit';
 import { generateProductContent } from '../../../../lib/ai-content';
 import { safeLog } from '../../../../lib/pii-scrubber';
-import { canUseDeepSeekBudget } from '../../../../do/budget-counter-do';
+import { canUseWorkersAIBudget } from '../../../../do/budget-counter-do';
 import { checkAiProviderAllowed, recordAiUsage } from '../../../../lib/ai-provider-gate';
 import { AIContentError } from '../../../../lib/ai-content';
 
@@ -33,21 +33,23 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   try {
-    // §24.1: DeepSeek is primary for product descriptions. Workers AI is the
-    // fallback, and every route into it is metered — see below.
-    let provider: 'deepseek' | 'workers_ai' = body.provider === 'workers_ai' ? 'workers_ai' : 'deepseek';
-    let viaFallback = provider === 'workers_ai';
-    if (provider === 'deepseek') {
+    // §24.1: Workers AI is primary for product descriptions; DeepSeek is the
+    // secondary provider. Both are metered — see the shared gate below.
+    let provider: 'deepseek' | 'workers_ai' = body.provider === 'deepseek' ? 'deepseek' : 'workers_ai';
+    let viaFallback = false;
+    if (provider === 'workers_ai') {
       try {
-        const allowed = await canUseDeepSeekBudget(env);
+        const allowed = await canUseWorkersAIBudget(env);
         if (!allowed) {
-          provider = 'workers_ai';
+          // Workers AI is genuinely out of budget: reach for the secondary
+          // provider rather than refusing the staff action outright.
+          provider = 'deepseek';
           viaFallback = true;
         }
       } catch {
-        // §24.2: a budget-check timeout must never block the staff action.
+        // §24.2: a budget-check failure must never block the staff action, and
+        // must not silently reroute spend either. Stay on the primary.
         provider = 'workers_ai';
-        viaFallback = true;
       }
     }
 
