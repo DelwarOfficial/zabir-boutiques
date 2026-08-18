@@ -10,6 +10,8 @@ export type PaymentCheckoutEnv = {
   SSLCOMMERZ_STORE_ID?: string;
   SSLCOMMERZ_STORE_PASSWORD?: string;
   SSLCOMMERZ_BASE_URL?: string;
+  /** Opt-in kill switch for the fallback provider — see isSslcommerzEnabled. */
+  SSLCOMMERZ_ENABLED?: string;
   DB?: D1Database;
   PROVIDER_HEALTH_DO?: DurableObjectNamespace;
 };
@@ -40,6 +42,22 @@ const UNAMBIGUOUS_PRIMARY_FAILURES = new Set([
   'UNTRUSTED_PAYMENT_URL',
 ]);
 
+/**
+ * SSLCommerz is currently switched OFF.
+ *
+ * The fallback is opt-in rather than opt-out: it engages only when
+ * SSLCOMMERZ_ENABLED is exactly "true". Leaving the adapter, its tests and its
+ * credentials in place means turning it back on is a one-value config change,
+ * with no code to re-add under time pressure during an UddoktaPay outage.
+ *
+ * Note this is deliberately independent of whether the store credentials
+ * happen to be set: an unconfigured provider fails at the call and looks like
+ * an outage, whereas this reads as the decision it is.
+ */
+export function isSslcommerzEnabled(env: PaymentCheckoutEnv): boolean {
+  return env.SSLCOMMERZ_ENABLED === 'true';
+}
+
 function canSafelyFailOver(errorCode: string | undefined): boolean {
   if (!errorCode) return false;
   if (UNAMBIGUOUS_PRIMARY_FAILURES.has(errorCode)) return true;
@@ -61,7 +79,7 @@ export async function createPaymentCheckout(
     };
   }
 
-  if (!canSafelyFailOver(primary.errorCode)) {
+  if (!isSslcommerzEnabled(env) || !canSafelyFailOver(primary.errorCode)) {
     return {
       ok: false,
       provider: 'uddoktapay',

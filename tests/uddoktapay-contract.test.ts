@@ -502,3 +502,50 @@ describe('over-refund prevention', () => {
     expect(row.refunded_amount_paisa).toBe(100000);
   });
 });
+
+describe('SSLCommerz fallback kill switch', () => {
+  const sslEnv = {
+    UDDOKTAPAY_API_KEY: API_KEY,
+    UDDOKTAPAY_BASE_URL: BASE,
+    SSLCOMMERZ_STORE_ID: 'store',
+    SSLCOMMERZ_STORE_PASSWORD: 'pass',
+    SSLCOMMERZ_BASE_URL: 'https://sslcommerz.test',
+  };
+
+  // A 4xx is the one case that IS safe to fail over on, so it isolates the
+  // switch: if the customer still reaches SSLCommerz here, the switch is dead.
+  const rejected = () => jsonResponse({}, { ok: false, status: 400 });
+  const sslOk = () => jsonResponse({ status: 'SUCCESS', GatewayPageURL: 'https://sslcommerz.test/pay/1' });
+
+  it('does not reach SSLCommerz while the switch is off', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(sslOk());
+    global.fetch = fetchMock;
+    const { createPaymentCheckout } = await import('../src/lib/integrations/payments');
+
+    const result = await createPaymentCheckout(sslEnv as any, CHECKOUT_INPUT);
+
+    expect(result.ok).toBe(false);
+    expect(result.provider).toBe('uddoktapay');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats any value other than "true" as off', async () => {
+    const { createPaymentCheckout, isSslcommerzEnabled } = await import('../src/lib/integrations/payments');
+    for (const value of [undefined, '', 'false', 'TRUE', '1', 'yes']) {
+      expect(isSslcommerzEnabled({ ...sslEnv, SSLCOMMERZ_ENABLED: value } as any), String(value)).toBe(false);
+    }
+    expect(isSslcommerzEnabled({ ...sslEnv, SSLCOMMERZ_ENABLED: 'true' } as any)).toBe(true);
+    expect(typeof createPaymentCheckout).toBe('function');
+  });
+
+  it('re-enables with a single config value and no code change', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(rejected()).mockResolvedValueOnce(sslOk());
+    global.fetch = fetchMock;
+    const { createPaymentCheckout } = await import('../src/lib/integrations/payments');
+
+    const result = await createPaymentCheckout({ ...sslEnv, SSLCOMMERZ_ENABLED: 'true' } as any, CHECKOUT_INPUT);
+
+    expect(result.ok).toBe(true);
+    expect(result.provider).toBe('sslcommerz');
+  });
+});

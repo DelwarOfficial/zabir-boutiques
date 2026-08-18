@@ -43,6 +43,8 @@ declare global {
       SSLCOMMERZ_STORE_ID?: string;
       SSLCOMMERZ_STORE_PASSWORD?: string;
       SSLCOMMERZ_BASE_URL?: string;
+      /** "true" enables the SSLCommerz fallback; anything else leaves it off. */
+      SSLCOMMERZ_ENABLED?: string;
       SSLCOMMERZ_WEBHOOK_SECRET?: string;
       TOTP_CIPHER_KEY?: string;
       FRAUDBD_API_KEY: string;

@@ -170,7 +170,7 @@ Do not collect unnecessary date of birth, NID, gender, or payment card details.
 |---|---|---|
 | M1 Product Catalog | Product CRUD, variants, categories, slug URLs, R2 image upload, static snapshots | P0 |
 | M2 Cart + Checkout | CartDO, checkout API, idempotency, phone normalization, server pricing | P0 |
-| M3 Payment | UddoktaPay, SSLCommerz fallback interface, HMAC webhook, reconciliation | P0 |
+| M3 Payment | UddoktaPay, SSLCommerz fallback interface (switched off), API-key-authenticated webhook + browser callback, provider-invoice binding, reconciliation | P0 |
 | M4 Inventory | VariantInventoryDO (including `adjustStock()` — without it there is no way to load opening stock), reservation lifecycle, rollback, cleanup cron, goods receipt | P0 |
 | M5 Staff v1 | Login, RBAC, order list/detail, confirm/cancel | P0 |
 

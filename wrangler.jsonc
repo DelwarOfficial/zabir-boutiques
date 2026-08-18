@@ -177,7 +177,13 @@
     // produce a /api/api path. The API key is a Worker SECRET
     // (`npx wrangler secret put UDDOKTAPAY_API_KEY`) and must never appear
     // here or in any PUBLIC_ variable.
-    "UDDOKTAPAY_BASE_URL": "https://zabir.paymently.io"
+    "UDDOKTAPAY_BASE_URL": "https://zabir.paymently.io",
+    // SSLCommerz fallback is temporarily switched off. The adapter, its tests
+    // and its credentials stay in place: set this to "true" to re-enable it,
+    // no code change required. While off, an UddoktaPay create-charge failure
+    // surfaces to the customer as a retryable failure instead of routing them
+    // to a second provider.
+    "SSLCOMMERZ_ENABLED": "false"
   },
 
   // ── Environment overrides ──────────────────────────────────────────

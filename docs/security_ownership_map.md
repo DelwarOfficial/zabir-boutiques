@@ -68,7 +68,9 @@ These are the highest-priority files for **knowledge transfer / pair-review / do
 |---|---|---|---|
 | `src/lib/security.ts` | auth_crypto | 2026-06-06 | HMAC-SHA256 + timing-safe compare — the root trust primitive for webhooks & CSRF |
 | `src/lib/csrf.ts` | csrf | 2026-06-18 | Double-submit CSRF validation for all staff mutations |
-| `src/lib/payment-webhook-ingress.ts` | payments | 2026-06-18 | HMAC webhook verify + event-id idempotency — money-in path |
+| `src/lib/payment-webhook-ingress.ts` | payments | 2026-08-18 | Event-id idempotency for the money-in path. Webhook authentication moved to the provider's documented API-key header (N-28); the HMAC helper here is retained for providers that do sign. |
+| `src/lib/payment-invoice-binding.ts` | payments | 2026-08-18 | Binds a provider-generated invoice to a local payment after verification — money-in path |
+| `src/lib/payment-refunds.ts` | payments | 2026-08-18 | Canonical over-refund cap — money-out path |
 | `src/lib/integrations/payments/index.ts` | payments | 2026-06-19 | UddoktaPay → SSLCommerz fallback facade |
 | `src/pages/api/payments/reconcile.ts` | payments | 2026-06-19 | Reconciliation cron — can cancel/verify payments |
 | `src/lib/phone-verification.ts` | otp | 2026-06-19 | OTP verification logic |

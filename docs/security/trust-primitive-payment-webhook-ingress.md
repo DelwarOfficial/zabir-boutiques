@@ -1,6 +1,39 @@
 # Design Note: `src/lib/payment-webhook-ingress.ts` — Webhook Authenticity
 
-**Bus factor:** 1 (sole author: delwarnetwork; last touched 2026-06-18)
+**Bus factor:** 1 (sole author: delwarnetwork; last touched 2026-08-18)
+
+> ## ⚠️ Status change (N-28, 2026-08-18): HMAC is no longer the gate for UddoktaPay
+>
+> This note was written when `verifyPaymentWebhookSignature` guarded the money-in
+> path. It no longer does. **UddoktaPay does not sign its webhooks** — it
+> authenticates with the `RT-UDDOKTAPAY-API-KEY` header, verified against the
+> provider's documentation. Requiring a signature the provider never sends meant
+> every genuine webhook was rejected with a 401, so no payment could ever
+> confirm through this path.
+>
+> What the gate is **now** (`src/pages/api/payments/webhook.ts`):
+> 1. `RT-UDDOKTAPAY-API-KEY` compared with `timingSafeEqualString` — a **byte-wise**
+>    constant-time comparator. The production key is alphanumeric, and the
+>    hex-only `timingSafeEqualHex` mis-decodes non-hex input. An unset key is a
+>    503, never an accepted request.
+> 2. An **independent server-to-server `verify-payment` call.** The webhook body
+>    is treated purely as a notification — it is never trusted for status or
+>    amount. This is what actually carries the authenticity guarantee now, and
+>    it is stronger than a signature: a forged webhook cannot make the provider
+>    report a payment that does not exist.
+> 3. Provider-invoice binding (`src/lib/payment-invoice-binding.ts`) before any
+>    reconciliation, so a verified charge can only ever apply to the local
+>    payment its metadata names.
+>
+> **The functions below still exist and are still correct** — the raw-bytes
+> reasoning in §1 remains exactly right for any provider that *does* sign, and
+> `parseWebhookPayload` / `resolveWebhookEventId` / `recordWebhookReceipt` are
+> unchanged and still on the money-in path. Do not delete them. Do not re-add a
+> mandatory HMAC for UddoktaPay.
+>
+> Sections 1 and 2 below describe the pre-N-28 gate; read them as history plus
+> live guidance for signing providers, not as a description of today's UddoktaPay
+> flow.
 **Why it matters:** This is the **money-in path**. It decides whether an HTTP request claiming "UddoktaPay received a payment" is genuine. If it can be spoofed, an attacker marks orders paid without sending money to the gateway. It sits directly in front of `applyPaymentVerified` (which deducts stock and advances order state), so a forgery here is a direct revenue loss.
 
 ---
@@ -48,7 +81,7 @@ return result.meta.changes === 1 ? 'recorded' : 'duplicate';
 1. **Always verify before any state change.** The webhook handler (`webhook.ts`) calls `verifyPaymentWebhookSignature` *before* `recordWebhookReceipt`, and `recordWebhookReceipt` runs *before* `applyPaymentVerified`. Never reorder these — a single early `applyPaymentVerified` without verification is a direct-pay forgery.
 2. **The signature is over the raw body, always.** If a refactor "tidies" the body through `JSON.stringify(JSON.parse(raw))`, signatures stop matching and either (a) all webhooks fail (DoS on payment confirmation) or (b) someone "fixes" it by relaxing verification (catastrophe). Reject any diff that re-serializes before HMAC.
 3. **`INSERT OR IGNORE` + `changes === 1` is the replay defense.** Do not replace it with a read-then-write; that reintroduces the TOCTOU double-credit race (F-01).
-4. **The IPN API-key check in `webhook.ts` is currently optional** (skipped when the header is absent — see security review PAY-004). If you tighten it to required, do so for both HMAC + API key, never HMAC alone replaced by API key.
+4. ~~**The IPN API-key check in `webhook.ts` is currently optional**~~ **Resolved (N-28).** The API key is now required and fail-closed: a missing or wrong header is a 401, and an unconfigured key is a 503. The original advice here — "never HMAC alone replaced by API key" — was written on the assumption that UddoktaPay signs its webhooks. It does not. The replacement for the signature is not the API key alone but the API key **plus** an independent server-to-server verification of every notification, which is why dropping the HMAC did not weaken the gate.
 
 ---
 
@@ -82,7 +115,7 @@ Every arrow is load-bearing. The first verification is the only thing standing b
 
 ## Second-touch checklist (to raise bus factor to 2)
 
-- [ ] Read this note and the source; be able to explain why HMAC is over raw bytes, not parsed JSON.
+- [ ] Read this note and the source; be able to explain why HMAC is over raw bytes, not parsed JSON — and why UddoktaPay's gate is the API key plus independent verification rather than a signature (N-28).
 - [ ] Write a test: a webhook with a tampered body byte must fail verification; a replayed `event_id` must return `'duplicate'`.
 - [ ] Review the PAY-003 fix (drop `X-Signature` / `Signature` fallbacks) and either apply it or document why it's retained.
 - [ ] Make one small git touch so history records a second author on this file.

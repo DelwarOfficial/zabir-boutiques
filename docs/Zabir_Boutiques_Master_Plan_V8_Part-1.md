@@ -134,7 +134,7 @@ The project uses **Astro 7.2 + React 19 Islands + Tailwind CSS + Cloudflare adap
 | Sessions/flags/redirects | Workers KV, only for stale-tolerant data |
 | AI | Workers AI first; DeepSeek fallback only when needed |
 | Email | MailChannels-backed `cloudflare_email` adapter is the primary transactional provider in deployed Cloudflare environments; Resend is the automatic fallback/backup provider and the practical local-development path when MailChannels is unavailable on localhost. Cloudflare Email Routing remains inbound-only for customer/support email. |
-| Payments | UddoktaPay primary; SSLCommerz fallback |
+| Payments | UddoktaPay primary. SSLCommerz is a **switched-off** fallback (`SSLCOMMERZ_ENABLED="false"`, N-28): the adapter is maintained and tested, but no customer is routed to it until the flag is flipped. |
 | Fraud | FraudBD direct checkout call + async audit queue |
 | Security | WAF, Turnstile, Zero Trust Access, CSP, CSRF HMAC, RBAC |
 | Observability | Workers Analytics Engine, structured logs, audit logs, alerts |
@@ -237,8 +237,8 @@ Forbidden patterns:
 | Provider | Purpose | Required Secrets | Caller | Timeout | Retry | Fallback |
 |---|---|---|---|---:|---|---|
 | FraudBD | Courier/fraud risk check for Bangladesh ecommerce orders | `FRAUDBD_API_KEY`, `FRAUDBD_BASE_URL` | Checkout service + fraud audit queue | 1.5s checkout / 3s background | Checkout: **0 retries** (fallback on failure); `fraud-audit` queue: 1 retry with 2s backoff | Circuit breaker (5 failures / 60s → open 5 min → fallback score 50 → `pending_review`). Full spec in Section 11.2. |
-| UddoktaPay | Primary online payment and partial prepayment | `UDDOKTAPAY_BASE_URL`, `UDDOKTAPAY_API_KEY`, `UDDOKTAPAY_WEBHOOK_SECRET` | Payment service + webhook + reconciliation cron | 10s | Verify calls retry; create charge must be idempotent | SSLCommerz fallback or pending payment retry |
-| SSLCommerz | Payment fallback provider | `SSLCOMMERZ_STORE_ID`, `SSLCOMMERZ_STORE_PASSWORD`, `SSLCOMMERZ_BASE_URL`, `SSLCOMMERZ_WEBHOOK_SECRET` | Payment service | 10s | Verify calls retry; create payment idempotent | Manual payment review |
+| UddoktaPay | Primary online payment and partial prepayment | `UDDOKTAPAY_BASE_URL` (var), `UDDOKTAPAY_API_KEY` (**secret only**) | Payment service + callback + webhook + reconciliation cron | 10s | Verify calls retry. **Create-charge is never retried** — a timeout may already have created a charge (N-28) | Pending-payment retry against the existing payment record. SSLCommerz only if re-enabled |
+| SSLCommerz | Payment fallback provider — **currently switched off** (`SSLCOMMERZ_ENABLED`) | `SSLCOMMERZ_STORE_ID`, `SSLCOMMERZ_STORE_PASSWORD`, `SSLCOMMERZ_BASE_URL`, `SSLCOMMERZ_WEBHOOK_SECRET` | Payment service | 10s | Verify calls retry; create payment idempotent | Manual payment review. Verification/reconciliation of *already-taken* SSLCommerz payments stays enabled regardless of the flag |
 | DeepSeek | Complex AI generation fallback | `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL` | AI service queue/staff action | 30s foreground, longer only in queue | Retry only for transient errors | Workers AI or manual staff content |
 | Workers AI | Primary low-cost AI tasks | Cloudflare binding | AI service | Platform default | No blind retry on budget failure | D1 FTS/category fallback/manual |
 | Imagify | Image optimization, resize/compression, WebP/AVIF support where approved | `IMAGIFY_API_KEY`, `IMAGIFY_BASE_URL` | Image-processing queue | 30s | 2x queue retry | Keep original + queue-generated R2 variants (per Guardrail #26 — browser uploads original only) |
@@ -282,10 +282,57 @@ export interface PaymentProvider {
 Rules:
 
 - `createPayment` must be idempotent using internal `order_id` and provider reference.
-- Webhook payloads must be signature-verified before queue processing.
+- **Authenticate webhooks with the mechanism the provider actually documents.**
+  Do not require an undocumented signature: UddoktaPay authenticates with the
+  `RT-UDDOKTAPAY-API-KEY` header and sends no HMAC, so demanding one rejects
+  every genuine webhook with a 401 that looks like an attack (N-28). Compare
+  the key with a **constant-time comparator that is correct for its alphabet** —
+  a hex-only comparator mis-decodes an alphanumeric key.
 - Reconciliation cron is the final authority for fixing missed redirects/webhooks.
-- Provider success redirect alone must not mark payment as paid.
+- Provider success redirect alone must not mark payment as paid. Neither does a
+  webhook body: **it is a notification, not evidence.** Both paths must call
+  verify-payment server-to-server and act only on that response.
 - Payment status changes must be written to D1 with event idempotency.
+
+Contract discipline (N-28). Every one of these was violated by the first
+implementation, and each violation alone was enough to stop payment working:
+
+- **Pin the adapter to the provider's published request/response shape**, field
+  by field, in a test that fails when the shape drifts. Prose in a plan is not
+  a contract; the provider's docs are. Invented fields (`currency`,
+  `customer_phone`) are ignored, and an invented endpoint 404s in a way that
+  reads as an outage.
+- **Do not assume the merchant generates the invoice ID.** Where the provider
+  generates it (UddoktaPay), the local payment row is written *before* the
+  provider call with the merchant handle in `metadata`, and the provider's
+  `invoice_id` is bound to it exactly once, after verification, guarded by a
+  unique index so concurrent callback + webhook delivery binds once. Binding
+  must reject a mismatched order ID, payment ID or amount, and an invoice
+  already bound elsewhere.
+- **Never retry create-charge.** A timed-out create-charge may have succeeded
+  upstream; a blind retry double-charges. Verification retries are safe and
+  belong in the queue/reconcile path.
+- **Failover must be provably safe, not merely convenient.** Route a customer
+  to a second provider only on outcomes that prove no charge exists upstream
+  (not-configured, circuit-open, unparseable response, untrusted payment URL,
+  or a 4xx). A timeout or a 5xx is ambiguous and must surface as a retryable
+  failure instead — sending that customer elsewhere takes payment twice.
+- **Refund against the provider's refund key, not the invoice ID.** UddoktaPay
+  refunds by `transaction_id` + `payment_method`, which are returned *only* by
+  verify-payment; capture them at verification time or the payment becomes
+  permanently unrefundable. Cap refunds against amounts read from D1 in a
+  single conditional UPDATE, never against client input.
+- **Build `redirect_url`, `cancel_url` and `webhook_url` only from the trusted
+  configured site origin.** A callback URL taken from the `Origin` header or a
+  request body is an open redirect pointed at a paying customer.
+- **Validate the provider's `payment_url`** as HTTPS on the configured provider
+  origin before redirecting to it.
+- **Normalize the configured base URL** so a trailing slash or an accidental
+  trailing `/api` cannot produce `/api/api/...`.
+- **Keep secrets and PII out of everything queryable.** The API key is a Worker
+  secret — never a `PUBLIC_*` var, never in D1, client code, HTML, logs or an
+  audit row. Redact `payment_url`, `email`, `full_name` and `sender_number`
+  from audit payloads; staff can query those rows.
 
 ### 2.7 AI API Contract
 
@@ -1527,8 +1574,15 @@ Rounding convention (mandatory): for partial_prepay, advance_paisa = floor(total
 
 ### 11.5 Payment Webhook Flow
 
-1. Receive webhook at `/api/payments/webhook`.
-2. Verify HMAC signature before any processing.
+0. **The customer's browser return is a separate path** (`GET /api/payments/callback`)
+   and carries no authority: its query string is a lookup key only. It performs
+   the same verify → bind → reconcile sequence as the webhook, then redirects to
+   a trusted local URL. Callback and webhook race routinely; the payment_events
+   claim and the invoice binding are what make that safe.
+1. Receive webhook at `/api/payments/webhook`. POST only.
+2. Authenticate the provider's documented credential before any processing —
+   for UddoktaPay the `RT-UDDOKTAPAY-API-KEY` header, compared in constant time
+   (N-28). An unset key is a 503, never an accepted request.
 3. Insert into `payment_events` with `(provider, provider_event_id)`. The `UNIQUE(provider, provider_event_id)` constraint is the idempotency mechanism (F-01): if the insert fails with a uniqueness violation, this is a replay — return 200 and stop. Do **not** enqueue. "Store idempotently" is not a behaviour a developer can implement; the constraint is.
 4. Enqueue to `payment-webhooks` queue.
 5. Return 200 quickly to provider.
@@ -1542,7 +1596,7 @@ Rounding convention (mandatory): for partial_prepay, advance_paisa = floor(total
 Cron every 15 minutes:
 
 - Query pending payment orders older than 30 minutes.
-- Call UddoktaPay/SSLCommerz status API.
+- Call UddoktaPay/SSLCommerz status API. SSLCommerz verification stays enabled even while its checkout fallback is switched off — money already taken must still reconcile.
 - Update D1 if provider confirms payment.
 - If the provider confirms payment for an order whose status is already `cancelled`: do **not** re-confirm the order. Initiate a refund for the settled amount through the payment provider, write `payment_events` + `payment_transactions(direction='refund')` on success, and raise a P1 alert. If the provider refund API is unavailable, page on-call; never leave the state silently as paid+cancelled.
 - Cancel the order and release its reservations only when `orders.reservation_expires_at < datetime('now')` AND the provider status check succeeded. If the provider status API is unreachable or returns an error, do NOT cancel: leave the order pending, log `event_type = 'reconciliation_provider_unavailable'`, and raise a P2 alert. Cancel only after a successful provider verification or after two consecutive missed ticks (30 minutes of accumulated failure), whichever comes first.
@@ -1780,7 +1834,9 @@ Interaction rule, stated once: when `payment_status` becomes `paid` or `partiall
 - Staff creates return request with order_id, items, reason, condition, photos if needed.
 - Manager/Owner approves or rejects (`returns.approve` RBAC).
 - If approved and the condition allows resale, the return service calls `VariantInventoryDO.adjustStock({ variant_id, delta: +quantity, reason: 'return_restock', reference_id: return_id, staff_id, approved_by_staff_id, adjustment_id })` and stamps `returns.restocked_at`. This is the only legal restock path (RT-003); editing D1 inventory directly violates Guardrail #17.
-- UddoktaPay refund is initiated for the prepaid amount. The refund service MUST check `SUM(refunds.refund_paisa) + new_refund <= orders.advance_paisa` before writing; the `trg_refund_cap` trigger in Section 6.1 is the backstop (F-03).
+- UddoktaPay refund is initiated for the prepaid amount, using `transaction_id` and `payment_method` captured at verification time — **not** the invoice ID (N-28, Section 2.6). A payment whose transaction reference was never captured cannot be refunded through the API and must be escalated, not retried.
+- The refund service MUST check `SUM(refunds.refund_paisa) + new_refund <= orders.advance_paisa` before writing; the `trg_refund_cap` trigger in Section 6.1 is the backstop (F-03). `payments.refunded_amount_paisa` carries the same ceiling at the payment level and is claimed in a single conditional UPDATE, so two concurrent approvals cannot each read "nothing refunded yet" and both pass the cap.
+- A refund is only successful when the provider says so. Release the amount claim and the `payment_events` claim on any provider failure so a retry stays possible.
 - Each refund writes a `payment_transactions` row with `direction = 'refund'`.
 - COD-only orders require no payment refund unless store policy says otherwise.
 - At launch the `refunds` table and `trg_refund_cap` cover prepaid (`advance_paisa`) money only. Refunds of courier-collected COD cash after delivery are NOT processed through `refunds`; if policy requires one, the Owner issues a manual refund, recorded as a `payment_transactions` row with `direction = 'refund'`, `recorded_by_staff_id` set, and a `manual_refund` audit event. Automated COD refunds are a Phase 4 item under DECISION REQUIRED (D-05).
@@ -2256,7 +2312,7 @@ All secrets live in Cloudflare Secrets. The complete list — V7 omitted four of
 
 | Secret | Used by | Rotation |
 |---|---|---|
-| `UDDOKTAPAY_API_KEY`, `UDDOKTAPAY_WEBHOOK_SECRET` | Payment adapter, webhook | Quarterly, dual-key |
+| `UDDOKTAPAY_API_KEY` | Payment adapter, webhook auth (N-28: the API key *is* the webhook credential — there is no separate webhook secret) | Quarterly, dual-key |
 | `SSLCOMMERZ_STORE_PASSWORD`, `SSLCOMMERZ_WEBHOOK_SECRET` | Payment adapter, webhook | Quarterly, dual-key |
 | `FRAUDBD_API_KEY` | FraudBD adapter | Quarterly |
 | `RESEND_API_KEY` | Email adapter fallback path | Quarterly |

@@ -36,6 +36,7 @@ describe('P1 SSLCommerz adapter', () => {
         SSLCOMMERZ_STORE_ID: 'store',
         SSLCOMMERZ_STORE_PASSWORD: 'pass',
         SSLCOMMERZ_BASE_URL: 'https://sslcommerz.test',
+        SSLCOMMERZ_ENABLED: 'true',
       },
       {
         paymentId: 'pay-1',
@@ -73,6 +74,7 @@ describe('P1 SSLCommerz adapter', () => {
         SSLCOMMERZ_STORE_ID: 'store',
         SSLCOMMERZ_STORE_PASSWORD: 'pass',
         SSLCOMMERZ_BASE_URL: 'https://sslcommerz.test',
+        SSLCOMMERZ_ENABLED: 'true',
       },
       {
         paymentId: 'pay-2',
