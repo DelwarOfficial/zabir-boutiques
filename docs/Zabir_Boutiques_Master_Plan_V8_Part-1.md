@@ -1053,6 +1053,23 @@ Required controls:
 - Respect `prefers-reduced-motion`.
 - Staff dashboard also follows accessibility rules.
 
+### 7.4 Product Size Guide
+
+The storefront MUST provide an accessible, mobile-first apparel size guide at `/size-guide`. The route MUST be prerendered and use Astro-rendered semantic HTML with minimal progressive enhancement; a hydrated React island is not justified for static chart data.
+
+Canonical requirements:
+
+- Provide two accessible views: `Pant Size Chart` and `Dress Size Chart`.
+- Render measurements from typed, immutable data using semantic tables with captions, column headers, and row headers.
+- State that all measurements are in inches and are standard product dimensions rather than body measurements.
+- Advise customers to measure a similar well-fitting garment before choosing `S-38`, `M-40/42`, `L-44/46`, or `XL-48`.
+- At the 360px mobile baseline, constrain horizontal scrolling to the table region and keep the Size column visible where supported.
+- Include an accessible `How to Measure` helper, keyboard-operable category switching, visible focus states, and a meaningful no-JavaScript fallback.
+- Use existing storefront design tokens and Tailwind utilities. CSP-unsafe inline handlers, inline scripts, runtime style mutation, and unnecessary client hydration are forbidden.
+- Preserve the verified product values exactly. Product data changes require explicit business approval and corresponding test updates.
+
+The complete implementation brief and verified Pant/Dress measurement tables are maintained in `docs/SIZE_GUIDE_IMPLEMENTATION_PROMPT.md`.
+
 ---
 
 ## 8. Component Architecture

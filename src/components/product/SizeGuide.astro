@@ -1,0 +1,166 @@
+---
+import { SIZE_GUIDE_CHARTS, SIZE_GUIDE_CUSTOMER_NOTE } from "@/data/size-guide";
+---
+
+<section
+  class="relative isolate overflow-hidden rounded-[1.5rem] border border-[var(--line)] bg-[var(--surface)] shadow-[var(--shadow-md)]"
+  aria-labelledby="size-guide-heading"
+  data-size-guide
+>
+  <div class="pointer-events-none absolute -right-24 -top-28 -z-10 size-64 rounded-full bg-[var(--brand-light)] opacity-70 blur-3xl" aria-hidden="true"></div>
+
+  <header class="border-b border-[var(--line-soft)] px-5 py-8 sm:px-8 sm:py-10 lg:px-12">
+    <div class="max-w-3xl">
+      <p class="mb-3 text-xs font-bold uppercase tracking-[0.2em] text-[var(--brand)]">The fitting room</p>
+      <h1 id="size-guide-heading" class="font-heading text-3xl font-bold tracking-tight text-[var(--ink)] sm:text-4xl">
+        Find your considered fit
+      </h1>
+      <p class="mt-4 max-w-2xl text-sm leading-6 text-[var(--ink-secondary)] sm:text-base sm:leading-7">
+        Compare a garment you already love with our finished product measurements. Every value in the charts is shown in inches.
+      </p>
+    </div>
+  </header>
+
+  <div class="px-4 py-6 sm:px-8 sm:py-8 lg:px-12 lg:py-10">
+    <div
+      class="grid grid-cols-2 gap-1 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)] p-1"
+      role="tablist"
+      aria-label="Choose a size chart"
+    >
+      {SIZE_GUIDE_CHARTS.map((chart, index) => (
+        <button
+          id={`size-guide-tab-${chart.id}`}
+          class="min-h-11 rounded-lg px-3 py-2.5 text-sm font-semibold text-[var(--ink-secondary)] outline-none transition-colors focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--surface)] sm:text-base"
+          type="button"
+          role="tab"
+          aria-selected={index === 0 ? "true" : "false"}
+          aria-controls={`size-guide-panel-${chart.id}`}
+          tabindex={index === 0 ? "0" : "-1"}
+          data-size-guide-tab
+        >
+          {chart.label}
+        </button>
+      ))}
+    </div>
+
+    <p class="mt-4 flex items-center justify-between gap-4 text-xs font-semibold uppercase tracking-[0.12em] text-[var(--muted)]">
+      <span>All measurements in inches</span>
+      <span class="sm:hidden" aria-hidden="true">Swipe to compare &gt;</span>
+    </p>
+
+    <div class="mt-3 space-y-8">
+      {SIZE_GUIDE_CHARTS.map((chart) => (
+        <section
+          id={`size-guide-panel-${chart.id}`}
+          role="tabpanel"
+          aria-labelledby={`size-guide-tab-${chart.id}`}
+          data-size-guide-panel
+        >
+          <div
+            class="size-table-scroll max-w-full overflow-auto rounded-xl border border-[var(--line)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--brand)] focus-visible:ring-offset-2"
+            role="region"
+            aria-label={`${chart.label}, horizontally scrollable on small screens`}
+            tabindex="0"
+          >
+            <table class="w-full min-w-[44rem] border-separate border-spacing-0 text-left text-sm sm:text-base">
+              <caption class="sr-only">{chart.caption}</caption>
+              <thead>
+                <tr>
+                  {chart.headers.map((header, index) => (
+                    <th
+                      scope="col"
+                      class:list={[
+                        "sticky top-0 z-10 border-b border-[var(--line)] bg-[var(--surface-soft)] px-5 py-4 text-xs font-bold uppercase tracking-[0.1em] text-[var(--ink-secondary)]",
+                        index === 0 && "left-0 z-20 min-w-28",
+                      ]}
+                    >
+                      {header}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {chart.rows.map((row) => (
+                  <tr class="transition-colors">
+                    <th scope="row" class="sticky left-0 z-10 border-b border-[var(--line-soft)] px-5 py-4 font-bold text-[var(--ink)]">
+                      {row[0]}
+                    </th>
+                    {row.slice(1).map((measurement) => (
+                      <td class="border-b border-[var(--line-soft)] px-5 py-4 tabular-nums text-[var(--ink-secondary)]">
+                        {measurement}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ))}
+    </div>
+
+    <aside class="mt-6 rounded-xl border border-[var(--line)] bg-[var(--brand-light)] px-5 py-4" aria-label="Important sizing note">
+      <p class="text-sm leading-6 text-[var(--ink-secondary)]">
+        <strong class="font-bold text-[var(--ink)]">Before choosing:</strong> {SIZE_GUIDE_CUSTOMER_NOTE}
+      </p>
+    </aside>
+
+    <details class="group mt-6 rounded-xl border border-[var(--line)] bg-[var(--surface-soft)]">
+      <summary class="flex min-h-11 cursor-pointer list-none items-center justify-between gap-4 px-5 py-3.5 font-semibold text-[var(--ink)] outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[var(--brand)] [&::-webkit-details-marker]:hidden">
+        <span>How to measure</span>
+        <span class="text-xl font-normal text-[var(--brand)] transition-transform group-open:rotate-45" aria-hidden="true">+</span>
+      </summary>
+      <div class="border-t border-[var(--line)] px-5 py-5 text-sm leading-6 text-[var(--ink-secondary)]">
+        <p>Lay a similar well-fitting garment flat. Use a flexible tape, keep it level, and do not pull it tight.</p>
+        <dl class="mt-4 grid gap-x-8 gap-y-4 sm:grid-cols-2">
+          <div><dt class="font-bold text-[var(--ink)]">Waist</dt><dd>Measure straight across the waistband from edge to edge.</dd></div>
+          <div><dt class="font-bold text-[var(--ink)]">Bust</dt><dd>Measure across the fullest part from underarm to underarm.</dd></div>
+          <div><dt class="font-bold text-[var(--ink)]">Hip</dt><dd>Measure straight across the widest part of the garment.</dd></div>
+          <div><dt class="font-bold text-[var(--ink)]">Thigh</dt><dd>Measure across one leg just below the crotch seam.</dd></div>
+          <div><dt class="font-bold text-[var(--ink)]">Sleeve length</dt><dd>Measure from the shoulder seam to the end of the cuff.</dd></div>
+          <div><dt class="font-bold text-[var(--ink)]">Full length</dt><dd>Measure from the highest shoulder point to the bottom hem.</dd></div>
+          <div><dt class="font-bold text-[var(--ink)]">Leg opening</dt><dd>Measure straight across the opening at the bottom hem.</dd></div>
+        </dl>
+      </div>
+    </details>
+  </div>
+</section>
+
+<script>
+  import "./scripts/size-guide-tabs";
+</script>
+
+<style>
+  [data-size-guide-tab][aria-selected="true"] {
+    background: var(--surface);
+    color: var(--brand);
+    box-shadow: var(--shadow-sm);
+  }
+
+  tbody tr:nth-child(odd) > * {
+    background: var(--surface);
+  }
+
+  tbody tr:nth-child(even) > * {
+    background: var(--surface-soft);
+  }
+
+  tbody tr:hover > * {
+    background: var(--brand-light);
+  }
+
+  tbody tr:last-child > * {
+    border-bottom: 0;
+  }
+
+  .size-table-scroll {
+    scrollbar-color: var(--muted-soft) var(--surface-soft);
+    scrollbar-width: thin;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-size-guide] * {
+      transition-duration: 0.01ms;
+    }
+  }
+</style>
