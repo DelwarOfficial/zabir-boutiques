@@ -23,6 +23,14 @@ const roleLabel: Record<string, string> = {
   viewer: "Viewer",
 };
 
+const currencyFormatter = new Intl.NumberFormat("en-BD", {
+  style: "currency",
+  currency: "BDT",
+  maximumFractionDigits: 0,
+});
+
+const formatMoney = (paisa: number) => currencyFormatter.format(paisa / 100);
+
 const hour = new Date().getHours();
 const greeting = hour < 5 ? "Working late" : hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
 
@@ -32,13 +40,16 @@ let flagged: any[] = [];
 let dbError = "";
 
 try {
-  const pr = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE status = 'pending_review'`).first<{c:number}>();
+  const pr = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE status = 'pending_review'`).first<{ c: number }>();
   if (pr) stats.pendingReview = pr.c;
-  const pq = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE status IN ('staff_confirmed','packing')`).first<{c:number}>();
+
+  const pq = await env.DB.prepare(`SELECT COUNT(*) as c FROM orders WHERE status IN ('staff_confirmed','packing')`).first<{ c: number }>();
   if (pq) stats.packingQueue = pq.c;
-  const ls = await env.DB.prepare(`SELECT COUNT(*) as c FROM low_stock_alerts WHERE is_acknowledged = 0`).first<{c:number}>();
+
+  const ls = await env.DB.prepare(`SELECT COUNT(*) as c FROM low_stock_alerts WHERE is_acknowledged = 0`).first<{ c: number }>();
   if (ls) stats.lowStockAlerts = ls.c;
-  const td = await env.DB.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(total_paisa),0) as rev FROM orders WHERE created_at >= ?`).bind(today + " 00:00:00").first<{c:number, rev:number}>();
+
+  const td = await env.DB.prepare(`SELECT COUNT(*) as c, COALESCE(SUM(total_paisa),0) as rev FROM orders WHERE created_at >= ?`).bind(today + " 00:00:00").first<{ c: number; rev: number }>();
   if (td) {
     stats.todayOrders = td.c;
     stats.todayRevenue = td.rev ?? 0;
@@ -49,8 +60,8 @@ try {
 
   const fl = await env.DB.prepare(`SELECT id, order_number, name, fraud_decision FROM orders WHERE fraud_decision IN ('review','blocked') ORDER BY created_at DESC LIMIT 5`).all<any>();
   if (fl?.results) flagged = fl.results;
-} catch (e: any) {
-  dbError = e?.message ?? "Database query failed";
+} catch (error: any) {
+  dbError = error?.message ?? "Database query failed";
 }
 
 const perms = {
@@ -65,12 +76,12 @@ const perms = {
 
 <StaffLayout title="Dashboard" user={user}>
   <p class="mb-0 text-[11px] font-extrabold uppercase tracking-wider text-brand fade-up">{greeting}</p>
-  <PageHeader title={user.fullName} subtitle={`${roleLabel[user.role] ?? user.role} · ${today}`} />
+  <PageHeader title={user.fullName} subtitle={`${roleLabel[user.role] ?? user.role} - ${today}`} />
 
   {dbError && <div class="mb-4 rounded-md bg-red-100 px-4 py-2 text-sm text-red-800">{dbError}</div>}
 
   <div class="stagger mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
-    <MetricCard title="Today's orders" value={stats.todayOrders} description={`৳ ${(stats.todayRevenue / 100).toFixed(0)} revenue`} />
+    <MetricCard title="Today's orders" value={stats.todayOrders} description={`${formatMoney(stats.todayRevenue)} revenue`} />
     <MetricCard title="Pending review" value={stats.pendingReview} description="orders waiting" />
     <MetricCard title="Packing queue" value={stats.packingQueue} description="ready to pack" />
     <MetricCard title="Low-stock alerts" value={stats.lowStockAlerts} description="needs restock" />
@@ -80,21 +91,21 @@ const perms = {
     <div class="fade-up lg:col-span-3">
       <Card title="Recent orders">
         {perms.orders && (
-          <a slot="action" href="/staff/orders" class="press text-sm font-bold text-brand hover:opacity-80 no-underline">View all →</a>
+          <a slot="action" href="/staff/orders" class="press text-sm font-bold text-brand hover:opacity-80 no-underline">View all -></a>
         )}
         {recentOrders.length > 0 ? (
           <>
             <ul class="stagger grid gap-2 sm:hidden">
-              {recentOrders.map((o) => (
+              {recentOrders.map((order) => (
                 <li>
-                  <a href={`/staff/orders/${o.id}`} class="press flex items-center justify-between gap-3 rounded-xl border border-line p-3 no-underline">
+                  <a href={`/staff/orders/${order.id}`} class="press flex items-center justify-between gap-3 rounded-xl border border-line p-3 no-underline">
                     <div class="min-w-0">
-                      <p class="text-sm font-bold tabular text-brand">{o.order_number}</p>
-                      <p class="truncate text-xs text-muted">{o.name}</p>
+                      <p class="tabular text-sm font-bold text-brand">{order.order_number}</p>
+                      <p class="truncate text-xs text-muted">{order.name}</p>
                     </div>
                     <div class="shrink-0 text-right">
-                      <p class="font-extrabold tabular">৳{(o.total_paisa / 100).toFixed(0)}</p>
-                      <Badge variant="default">{String(o.status).replace(/_/g, " ")}</Badge>
+                      <p class="tabular font-extrabold">{formatMoney(order.total_paisa)}</p>
+                      <Badge variant="default">{String(order.status).replace(/_/g, " ")}</Badge>
                     </div>
                   </a>
                 </li>
@@ -103,13 +114,13 @@ const perms = {
             <div class="hidden sm:block">
               <table class="w-full border-collapse text-sm">
                 <tbody>
-                  {recentOrders.map((o) => (
+                  {recentOrders.map((order) => (
                     <tr class="border-t border-line-soft transition-colors hover:bg-surface-soft">
-                      <td class="py-2"><a href={`/staff/orders/${o.id}`} class="font-bold text-brand no-underline">{o.order_number}</a></td>
-                      <td class="py-2 text-muted">{o.name}</td>
-                      <td class="py-2 text-right font-bold tabular">৳{(o.total_paisa / 100).toFixed(0)}</td>
-                      <td class="py-2 pl-2 text-xs text-muted">{o.created_at?.split(" ")[0]}</td>
-                      <td class="py-2"><Badge variant="default">{o.status.replace(/_/g, " ")}</Badge></td>
+                      <td class="py-2"><a href={`/staff/orders/${order.id}`} class="font-bold text-brand no-underline">{order.order_number}</a></td>
+                      <td class="py-2 text-muted">{order.name}</td>
+                      <td class="tabular py-2 text-right font-bold">{formatMoney(order.total_paisa)}</td>
+                      <td class="py-2 pl-2 text-xs text-muted">{order.created_at?.split(" ")[0]}</td>
+                      <td class="py-2"><Badge variant="default">{order.status.replace(/_/g, " ")}</Badge></td>
                     </tr>
                   ))}
                 </tbody>
@@ -126,11 +137,11 @@ const perms = {
       <Card title="Attention needed">
         {flagged.length > 0 && perms.fraud ? (
           <ul class="stagger m-0 space-y-1.5 pl-0 text-sm">
-            {flagged.map((f) => (
+            {flagged.map((flag) => (
               <li class="flex items-center gap-2">
-                <a href={`/staff/orders/${f.id}`} class="font-bold text-brand no-underline">{f.order_number}</a>
-                <span class="truncate text-muted">{f.name}</span>
-                <span class="ml-auto"><Badge variant={f.fraud_decision === "blocked" ? "danger" : "warning"}>{f.fraud_decision}</Badge></span>
+                <a href={`/staff/orders/${flag.id}`} class="font-bold text-brand no-underline">{flag.order_number}</a>
+                <span class="truncate text-muted">{flag.name}</span>
+                <span class="ml-auto"><Badge variant={flag.fraud_decision === "blocked" ? "danger" : "warning"}>{flag.fraud_decision}</Badge></span>
               </li>
             ))}
           </ul>
@@ -155,7 +166,7 @@ const perms = {
   </div>
 
   <p class="mt-4 flex items-center gap-1.5 text-xs text-muted">
-    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9.4-8 10-4.5-.6-8-5-8-10V6z"/></svg>
+    <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path d="M12 2l8 4v6c0 5-3.5 9.4-8 10-4.5-.6-8-5-8-10V6z"></path></svg>
     All staff actions are audited. Use left navigation for full toolset.
   </p>
 </StaffLayout>

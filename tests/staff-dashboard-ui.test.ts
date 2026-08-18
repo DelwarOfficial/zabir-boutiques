@@ -35,10 +35,11 @@ describe('staff dashboard shell polish', () => {
 
   it('uses non-blocking toast UX in StaffLayout instead of alert-driven form handling', () => {
     const src = read('src/layouts/StaffLayout.astro');
-    expect(src).toContain('window.showToast');
-    expect(src).toContain('staff:form-success');
+    expect(src).toContain("import '@/scripts/staff-shell';");
     expect(src).not.toContain('alert(');
-    expect(src).toContain("form.dataset.reloadOnSuccess === 'true'");
+    expect(read('src/scripts/staff-shell.ts')).toContain('window.showToast');
+    expect(read('src/scripts/staff-shell.ts')).toContain('staff:form-success');
+    expect(read('src/scripts/staff-shell.ts')).toContain("form.dataset.reloadOnSuccess === 'true'");
   });
 
   it('replaces fake navbar search input with real staff search navigation', () => {
@@ -56,6 +57,21 @@ describe('staff dashboard shell polish', () => {
     for (const file of files) {
       const src = readFileSync(file, 'utf8');
       expect(src, file).not.toMatch(/stroke-width|stroke-linecap|stroke-linejoin/);
+    }
+  });
+
+  it('staff shell components avoid inline scripts and inline style attributes that fight CSP', () => {
+    const shellFiles = [
+      'src/layouts/StaffLayout.astro',
+      'src/components/staff/layout/Navbar.astro',
+      'src/components/staff/layout/Sidebar.astro',
+      'src/components/primitives/Toast.astro',
+    ];
+
+    for (const file of shellFiles) {
+      const src = read(file);
+      expect(src, file).not.toContain('is:inline');
+      expect(src, file).not.toMatch(/style=/);
     }
   });
 });

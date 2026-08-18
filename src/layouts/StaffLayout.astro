@@ -15,7 +15,6 @@ type Props = {
 const { title, user } = Astro.props;
 const csrfToken = readCsrfCookie(Astro.request) ?? "";
 const currentPath = Astro.url.pathname;
-const cspNonce = Astro.locals.cspNonce;
 const menu = menuForRole(user.role).map((item) => ({
   ...item,
   active: item.href === currentPath || (item.href !== "/staff" && currentPath.startsWith(item.href)),
@@ -56,99 +55,25 @@ const roleColor: Record<string, string> = {
     <link rel="icon" href="/favicon.ico" />
     <meta name="theme-color" content="#faf9f7" media="(prefers-color-scheme: light)" />
     <meta name="theme-color" content="#1a1816" media="(prefers-color-scheme: dark)" />
+    <meta name="zb-csrf" content={csrfToken} />
     <title>{title} - Zabir Boutiques Staff</title>
-    <script is:inline define:vars={{ csrfToken }} nonce={cspNonce}>
-      window.__ZB_CSRF__ = csrfToken;
-      try { if (csrfToken) sessionStorage.setItem('zb-csrf', csrfToken); } catch (_) {}
-      (function(){
-        var t = localStorage.getItem('zb-theme');
-        if (t === 'dark' || (!t && matchMedia('(prefers-color-scheme:dark)').matches)) {
-          document.documentElement.setAttribute('data-theme','dark');
-        }
-      })();
-    </script>
   </head>
-  <body class="bg-bg text-ink font-sans m-0">
+  <body class="m-0 bg-bg font-sans text-ink">
     <Toast />
-    <div class="staff-shell" style="min-height:100dvh">
-      <Navbar user={user} csrfToken={csrfToken} roleLabel={roleLabel[user.role] ?? user.role} roleColorClass={roleColor[user.role] || ''} />
+    <div class="staff-shell">
+      <Navbar user={user} roleLabel={roleLabel[user.role] ?? user.role} roleColorClass={roleColor[user.role] || ""} />
 
       <div class="flex">
         <Sidebar menu={menu} currentPath={currentPath} />
 
-        <main class="flex-1 min-w-0 p-4 sm:p-6">
+        <main class="min-w-0 flex-1 p-4 sm:p-6">
           <slot />
         </main>
       </div>
     </div>
 
-    <script is:inline nonce={cspNonce}>
-      document.addEventListener('submit', async (e) => {
-        const form = e.target;
-        if (!(form instanceof HTMLFormElement)) return;
-        const action = form.getAttribute('action') || '';
-        const enctype = form.getAttribute('enctype') || '';
-        if (form.method.toLowerCase() !== 'post' || !action.includes('/api/staff/')) return;
-        if (enctype.includes('multipart') || form.dataset.noAutoCsrf !== undefined) return;
-
-        const csrf = (typeof window.__ZB_CSRF__ === 'string' && window.__ZB_CSRF__)
-          ? window.__ZB_CSRF__
-          : (() => { try { return sessionStorage.getItem('zb-csrf') || ''; } catch (_) { return ''; } })();
-        if (!csrf) return;
-
-        e.preventDefault();
-
-        const data = new FormData(form);
-        const body = new URLSearchParams();
-        data.forEach((v, k) => body.append(k, typeof v === 'string' ? v : v.name));
-
-        const submitButton = form.querySelector('button[type="submit"], input[type="submit"]');
-        if (submitButton instanceof HTMLButtonElement || submitButton instanceof HTMLInputElement) {
-          submitButton.disabled = true;
-        }
-
-        try {
-          const res = await fetch(action, {
-            method: 'POST',
-            headers: { 'X-CSRF-Token': csrf, 'Content-Type': 'application/x-www-form-urlencoded' },
-            body,
-          });
-          const isJson = (res.headers.get('content-type') || '').includes('application/json');
-          const payload = isJson ? await res.json().catch(() => ({})) : {};
-
-          if (res.ok) {
-            if (typeof window.showToast === 'function') {
-              window.showToast(payload.message || 'Saved successfully.', 'success');
-            }
-            document.dispatchEvent(new CustomEvent('staff:form-success', {
-              detail: { action, formId: form.id || null, payload },
-            }));
-
-            if (payload.redirect_url || payload.redirect) {
-              window.location.href = payload.redirect_url || payload.redirect;
-              return;
-            }
-
-            if (form.dataset.resetOnSuccess !== 'false') {
-              form.reset();
-            }
-
-            if (form.dataset.reloadOnSuccess === 'true') {
-              window.location.reload();
-            }
-          } else if (typeof window.showToast === 'function') {
-            window.showToast(payload.error || payload.message || 'Action failed.', 'error');
-          }
-        } catch (_) {
-          if (typeof window.showToast === 'function') {
-            window.showToast('Network error. Try again.', 'error');
-          }
-        } finally {
-          if (submitButton instanceof HTMLButtonElement || submitButton instanceof HTMLInputElement) {
-            submitButton.disabled = false;
-          }
-        }
-      }, true);
+    <script>
+      import '@/scripts/staff-shell';
     </script>
   </body>
 </html>

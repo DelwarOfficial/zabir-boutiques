@@ -39,7 +39,7 @@ export function generatePublicCSP(nonce: string, localDev: boolean, scriptHashes
 export function generateStaffCSP(nonce: string, localDev: boolean, scriptHashes: string[], styleHashes: string[] = []): string {
   const scriptSrc = localDev
     ? "'self' 'unsafe-inline'"
-    : ["'self'", `'nonce-${nonce}'`, "'strict-dynamic'", ...scriptHashes].join(' ');
+    : ["'self'", `'nonce-${nonce}'`, ...scriptHashes].join(' ');
 
   const directives = [
     "default-src 'self'",

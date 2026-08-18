@@ -169,6 +169,83 @@ img {
 
 /* Staff shell */
 .staff-shell { min-height: 100dvh; }
+.staff-toggle {
+  display: none;
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0.5rem;
+  color: var(--ink-secondary);
+}
+.staff-toggle:hover { color: var(--ink); }
+
+.staff-sidebar {
+  width: 240px;
+  min-width: 240px;
+  background: var(--surface-soft);
+  border-right: 1px solid var(--line);
+  padding: 0.75rem 0;
+  overflow-y: auto;
+  transition: transform 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.staff-sidebar a {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.25rem;
+  color: var(--ink-secondary);
+  text-decoration: none;
+  font-size: 0.875rem;
+  border-left: 3px solid transparent;
+  transition: background 150ms ease, border-color 150ms ease, color 150ms ease, transform 150ms ease;
+}
+
+.staff-sidebar a:hover {
+  background: var(--brand-glow);
+  color: var(--ink);
+  transform: translateX(2px);
+}
+
+.staff-sidebar a.active {
+  border-left-color: var(--brand);
+  background: var(--brand-glow);
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.staff-sidebar-indicator {
+  background: transparent;
+}
+
+.staff-sidebar-indicator.is-active {
+  background: var(--brand);
+}
+
+.staff-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 99;
+  background: var(--overlay);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 200ms ease;
+}
+
+.staff-backdrop.open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.toast {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+.toast-leaving {
+  opacity: 0;
+  transform: translateY(8px) scale(0.95);
+}
 
 /* Smooth width transition for sidebar collapse */
 .transition-width { transition: width 220ms cubic-bezier(0.2, 0.8, 0.2, 1); }
@@ -399,6 +476,24 @@ img {
 /* Subtle lift on interactive cards on touch (so the user gets feedback) */
 @media (hover: none) {
   .shine-card:active { transform: scale(0.98); }
+}
+
+@media (max-width: 768px) {
+  .staff-toggle { display: inline-flex; }
+
+  .staff-sidebar {
+    position: fixed;
+    top: 60px;
+    left: 0;
+    bottom: 0;
+    z-index: 100;
+    transform: translateX(-100%);
+    box-shadow: 8px 0 32px rgba(0, 0, 0, 0.1);
+  }
+
+  .staff-sidebar.open {
+    transform: translateX(0);
+  }
 }
 
 /* Number-format tabular for money columns */

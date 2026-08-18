@@ -29,7 +29,7 @@ describe('N-13: static style-attribute hash collection', () => {
     rmSync(SCRATCH, { recursive: true, force: true });
   });
 
-  it('does NOT match a dynamic style={...} expression — those are unhashable at build time', () => {
+  it('does NOT match a dynamic style={...} expression because those are unhashable at build time', () => {
     mkdirSync(SCRATCH, { recursive: true });
     writeFileSync(resolve(SCRATCH, 'a.astro'), '<div style={`width:${w}px`}></div>');
     const hashes = collectStyleAttrHashes(SCRATCH);
@@ -37,7 +37,7 @@ describe('N-13: static style-attribute hash collection', () => {
     rmSync(SCRATCH, { recursive: true, force: true });
   });
 
-  it('skips .tsx files entirely — React/JSX style props are always object expressions, never a hashable literal string', () => {
+  it('skips .tsx files entirely because React style props are object expressions, not hashable literals', () => {
     mkdirSync(SCRATCH, { recursive: true });
     writeFileSync(resolve(SCRATCH, 'a.tsx'), '<div style={{color:"red"}}></div>');
     const hashes = collectStyleAttrHashes(SCRATCH);
@@ -45,7 +45,7 @@ describe('N-13: static style-attribute hash collection', () => {
     rmSync(SCRATCH, { recursive: true, force: true });
   });
 
-  it('deduplicates identical style values across files, mirroring how script hashes are deduped', () => {
+  it('deduplicates identical style values across files', () => {
     mkdirSync(SCRATCH, { recursive: true });
     writeFileSync(resolve(SCRATCH, 'a.astro'), '<div style="display:none"></div>');
     writeFileSync(resolve(SCRATCH, 'b.astro'), '<span style="display:none"></span>');
@@ -54,12 +54,13 @@ describe('N-13: static style-attribute hash collection', () => {
     rmSync(SCRATCH, { recursive: true, force: true });
   });
 
-  it('the generated hash set matches what recomputing from current source produces (catches stale/unregenerated hashes)', () => {
+  it('the generated hash set matches what recomputing from current source produces', () => {
     const dirs = ['src/pages', 'src/components', 'src/layouts', 'src/islands'];
     const recomputed = new Set<string>();
     for (const dir of dirs) {
-      for (const h of collectStyleAttrHashes(resolve(dir))) recomputed.add(h);
+      for (const hash of collectStyleAttrHashes(resolve(dir))) recomputed.add(hash);
     }
+
     const generated = new Set(getCspStyleHashes());
     expect(generated).toEqual(recomputed);
   });
@@ -79,36 +80,36 @@ describe('N-13: static style-attribute hash collection', () => {
 describe('N-13 phase 2 cutover: style-src drops unsafe-inline in production, keeps it in local dev', () => {
   const styleHashes = ["'sha256-fakehash1='", "'sha256-fakehash2='"];
 
-  it('generatePublicCSP: production style-src has no unsafe-inline, includes unsafe-hashes and every provided hash', () => {
+  it('generatePublicCSP production style-src has no unsafe-inline and includes every provided hash', () => {
     const csp = generatePublicCSP('nonce123', false, [], styleHashes);
-    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+    const styleSrc = csp.split('; ').find((directive) => directive.startsWith('style-src'));
     expect(styleSrc).toBeTruthy();
     expect(styleSrc).not.toContain('unsafe-inline');
     expect(styleSrc).toContain("'unsafe-hashes'");
     expect(styleSrc).toContain("'self'");
-    for (const h of styleHashes) expect(styleSrc).toContain(h);
+    for (const hash of styleHashes) expect(styleSrc).toContain(hash);
   });
 
-  it('generateStaffCSP: same cutover applies to the staff CSP', () => {
+  it('generateStaffCSP production style-src follows the same cutover', () => {
     const csp = generateStaffCSP('nonce123', false, [], styleHashes);
-    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+    const styleSrc = csp.split('; ').find((directive) => directive.startsWith('style-src'));
     expect(styleSrc).not.toContain('unsafe-inline');
     expect(styleSrc).toContain("'unsafe-hashes'");
-    for (const h of styleHashes) expect(styleSrc).toContain(h);
+    for (const hash of styleHashes) expect(styleSrc).toContain(hash);
   });
 
-  it('local dev keeps unsafe-inline (Vite HMR can inject inline styles outside the hash list) and does not need the hash list', () => {
+  it('local dev keeps unsafe-inline because Vite HMR can inject inline styles outside the hash list', () => {
     const publicCsp = generatePublicCSP('nonce123', true, [], styleHashes);
     const staffCsp = generateStaffCSP('nonce123', true, [], styleHashes);
     for (const csp of [publicCsp, staffCsp]) {
-      const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+      const styleSrc = csp.split('; ').find((directive) => directive.startsWith('style-src'));
       expect(styleSrc).toBe("style-src 'self' 'unsafe-inline'");
     }
   });
 
-  it('an empty style hash list still produces a well-formed style-src (defaults to [] via the function signature)', () => {
+  it('an empty style hash list still produces a well-formed style-src', () => {
     const csp = generatePublicCSP('nonce123', false, []);
-    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'));
+    const styleSrc = csp.split('; ').find((directive) => directive.startsWith('style-src'));
     expect(styleSrc).toBe("style-src 'self' 'unsafe-hashes'");
   });
 
@@ -119,11 +120,20 @@ describe('N-13 phase 2 cutover: style-src drops unsafe-inline in production, kee
     expect(src).toContain('generatePublicCSP(nonce, localDev, scriptHashes, styleHashes)');
   });
 
-  it('the live production style-src actually contains every hash currently generated from source — real cutover, not a stub list', () => {
+  it('the live production style-src contains every hash currently generated from source', () => {
     const csp = generatePublicCSP('nonce123', false, [], [...getCspStyleHashes()]);
-    const styleSrc = csp.split('; ').find(d => d.startsWith('style-src'))!;
-    for (const h of getCspStyleHashes()) {
-      expect(styleSrc).toContain(h);
+    const styleSrc = csp.split('; ').find((directive) => directive.startsWith('style-src'))!;
+    for (const hash of getCspStyleHashes()) {
+      expect(styleSrc).toContain(hash);
     }
+  });
+
+  it('generateStaffCSP keeps self-hosted Astro scripts allowed instead of relying on strict-dynamic', () => {
+    const csp = generateStaffCSP('nonce123', false, ["'sha256-demo='"], styleHashes);
+    const scriptSrc = csp.split('; ').find((directive) => directive.startsWith('script-src'));
+    expect(scriptSrc).toContain("'self'");
+    expect(scriptSrc).toContain("'nonce-nonce123'");
+    expect(scriptSrc).toContain("'sha256-demo='");
+    expect(scriptSrc).not.toContain('strict-dynamic');
   });
 });
