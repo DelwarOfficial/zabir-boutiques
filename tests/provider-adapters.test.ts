@@ -16,7 +16,7 @@ describe('AI adapters', () => {
       { name: 'Silk Saree' },
       {
         AI: {
-          run: vi.fn().mockResolvedValue({ response: JSON.stringify({ description: 'Fallback description', metaTitle: 'Fallback title', metaDescription: 'Fallback meta' }) }),
+          run: vi.fn().mockResolvedValue({ response: JSON.stringify({ description: 'Fallback description copy long enough to clear the minimum-length check applied to generated product content.', metaTitle: 'Fallback title', metaDescription: 'Fallback meta' }) }),
         } as unknown as Ai,
       },
       'workers_ai',
@@ -30,8 +30,8 @@ describe('AI adapters', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
       json: () => Promise.resolve({
-        choices: [{ message: { content: JSON.stringify({ description: 'DeepSeek description', metaTitle: 'DeepSeek title', metaDescription: 'DeepSeek meta' }) } }],
-        usage: { total_tokens: 42 },
+        choices: [{ message: { content: JSON.stringify({ description: 'DeepSeek description copy long enough to clear the minimum-length check applied to generated product content.', metaTitle: 'DeepSeek title', metaDescription: 'DeepSeek meta' }) } }],
+        usage: { total_tokens: 42, prompt_tokens: 30, completion_tokens: 12 },
       }),
     } as Response);
 

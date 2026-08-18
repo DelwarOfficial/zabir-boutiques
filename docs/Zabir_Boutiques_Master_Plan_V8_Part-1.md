@@ -132,7 +132,7 @@ The project uses **Astro 7.2 + React 19 Islands + Tailwind CSS + Cloudflare adap
 | Async jobs | Cloudflare Queues |
 | Scheduled jobs | Cloudflare Cron Triggers |
 | Sessions/flags/redirects | Workers KV, only for stale-tolerant data |
-| AI | Workers AI first; DeepSeek fallback only when needed |
+| AI | Workers AI first for low-cost tasks; DeepSeek primary for product descriptions (§24.1, N-29). Both metered. |
 | Email | MailChannels-backed `cloudflare_email` adapter is the primary transactional provider in deployed Cloudflare environments; Resend is the automatic fallback/backup provider and the practical local-development path when MailChannels is unavailable on localhost. Cloudflare Email Routing remains inbound-only for customer/support email. |
 | Payments | UddoktaPay primary. SSLCommerz is a **switched-off** fallback (`SSLCOMMERZ_ENABLED="false"`, N-28): the adapter is maintained and tested, but no customer is routed to it until the flag is flipped. |
 | Fraud | FraudBD direct checkout call + async audit queue |
@@ -151,7 +151,7 @@ Cost rules:
 - Use KV only for session blacklist, feature flags, redirects, and read-mostly autocomplete/cache data.
 - Avoid Cloudflare Images paid storage at launch unless the client explicitly approves it.
 - Generate image variants during staff upload where possible; keep Cloudflare Images/Image Resizing as an optional upgrade.
-- Use Workers AI within free/daily budget first; use DeepSeek only for complex content generation with BudgetCounterDO enforcement.
+- Use Workers AI within free/daily budget first, **except for product descriptions, where DeepSeek is primary** (§24.1, N-29). Both providers pass through BudgetCounterDO; Workers AI overage is billed, not blocked (CF-08).
 - Email provider is abstracted behind an adapter so the project can start with the lowest-cost reliable provider and switch later.
 
 #### Cost Model (mandatory, CF-07)
@@ -348,8 +348,8 @@ export interface AIProvider {
 
 Rules:
 
-- Workers AI is primary for low-cost tasks.
-- DeepSeek is fallback for complex generation only.
+- Workers AI is primary for low-cost tasks (alt text, embeddings, recommendations, moderation).
+- DeepSeek is primary for product descriptions (§24.1, N-29) and for complex generation generally; Workers AI is its capped fallback.
 - BudgetCounterDO must approve before paid AI calls.
 - Staff must review all AI-generated public text.
 - Product/customer PII must not be sent to AI providers.
@@ -2519,11 +2519,39 @@ Alt text is required before product publish. AI can suggest alt text, but staff 
 
 | Feature | Primary | Fallback | Human Review |
 |---|---|---|---|
-| Product descriptions | Workers AI | DeepSeek | Required before publish |
+| Product descriptions | **DeepSeek** (N-29) | Workers AI, capped — see §24.2 | Required before publish |
 | Product recommendations | Workers AI/logic | Category fallback | Not required |
 | Semantic search | Workers AI embeddings | D1 FTS5 | Not required |
 | Alt text suggestions | Workers AI | Staff manual | Required |
 | Content moderation | Rule-based + AI | Staff review | Required for AI text |
+
+#### Why product descriptions invert the Workers-AI-first rule (N-29)
+
+Workers-AI-first (§1.4, §3.2) is the right **cost** default and still governs
+alt text, embeddings, recommendations and moderation. Product descriptions are
+the one exception, and the exception is deliberate:
+
+- The task carries four simultaneous constraints — 150–250 words of persuasive
+  copy, emitted as valid JSON, with `metaTitle` ≤ 60 and `metaDescription` ≤ 160
+  characters, in English with occasional Bengali terms. Small instruct models
+  are unreliable at exactly this combination: they overrun the character caps
+  and break JSON structure.
+- The output is customer-facing, permanent, and SEO-load-bearing. Every other
+  AI feature in the table above is either internal, advisory, or cheap to
+  regenerate.
+- The cost difference is a fraction of a cent per generation. Paying it to
+  avoid a staff rewrite is the cheaper path, not the more expensive one — the
+  spend that matters is staff time, and §24.2's caps bound the API spend anyway.
+
+Human review before publish remains mandatory regardless of provider. Review
+catches *bad* copy; it does not catch copy that was never generated, which is
+why an unusable AI response is now a surfaced error rather than a silently
+degraded result (`AIContentError`, §24.4).
+
+**Both providers are metered.** Workers AI is BILLED beyond the included
+allocation on the Paid plan (CF-08), so it is subject to its own §24.2 limits
+and to the hourly fallback cap — it is never treated as free merely because it
+is the fallback.
 
 ### 24.2 Budget Enforcement
 
@@ -2661,7 +2689,7 @@ If `BudgetCounterDO.canUseDeepSeek()` itself **times out** (DO unavailable, netw
 
 | Backstop | Rule |
 |---|---|
-| Local counter | Every Workers AI fallback call increments a KV counter `ai_fallback:{YYYY-MM-DD-HH}` with a 2-hour TTL, written before the call |
+| Local counter | Every Workers AI fallback call increments a KV counter `ai_fallback:{YYYY-MM-DDTHH}` (UTC) with a 2-hour TTL, written before the call. Implemented in `src/lib/ai-fallback-cap.ts` (N-29); fails **open** if KV is unavailable, since the cap is a cost backstop and the DO budget is the primary control |
 | Hourly cap | **50 Workers AI fallback calls per hour, account-wide.** Beyond that, the staff action returns `429 AI_FALLBACK_CAP_REACHED` with "AI is temporarily unavailable — please write the description manually." |
 | Alert | Crossing the cap raises a P2 alert; a KV counter is eventually consistent, so the cap is approximate by design and is a spend ceiling, not an exact quota |
 
@@ -2678,6 +2706,27 @@ AI cost is tracked in USD as a float (`cost_usd`). This is the **only** place fl
 - Prompt injection patterns are logged.
 - AI must not generate policy, legal, medical, or payment claims.
 - AI suggestions are drafts, not source of truth.
+
+---
+
+### 24.4 Generated Content Contract (N-29)
+
+Applies to every AI text generation that produces publishable content:
+
+- **Constrain the decoder, do not merely ask the prompt.** Request JSON mode
+  (`response_format: { type: 'json_object' }`) where the provider supports it.
+- **Parse strictly and fail loudly.** Never salvage a malformed response by
+  slicing raw model output into a content field. A refusal, a preamble or a
+  stray code fence must produce an error the staff member can retry, not
+  product copy. The pre-N-29 implementation did exactly this and had no signal
+  that anything had gone wrong.
+- **Validate every length-capped field after generation.** A cap stated only in
+  the prompt is a request, not a constraint. Trim on a word boundary so an
+  overrun degrades to a shorter sentence rather than a severed word.
+- **Price tokens at the provider's real published rates**, input and output
+  separately, including any cache-hit discount. Budget enforcement is built on
+  this number: one invented flat rate makes the daily cap trigger at the wrong
+  spend, in a direction nobody can predict.
 
 ---
 

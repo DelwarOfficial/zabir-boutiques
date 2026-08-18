@@ -83,8 +83,13 @@ const products = await env.DB.prepare(
           class="w-full px-3 py-2 border border-line rounded-md text-sm bg-bg text-ink box-border" />
       </div>
     </div>
-    <button id="aiGenerateBtn" class="px-4 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50" onclick="generateContent()">Generate with AI</button>
+    <div class="flex flex-wrap gap-2">
+      <button id="aiGenerateBtn" class="px-4 py-2 bg-brand text-white rounded-md text-sm font-semibold border-0 cursor-pointer disabled:opacity-50" onclick="generateContent()">Generate with AI</button>
+      <button id="aiCompareBtn" class="px-4 py-2 bg-surface-soft text-ink rounded-md text-sm font-semibold border border-line cursor-pointer disabled:opacity-50" onclick="compareContent()">Compare A/B (blind)</button>
+    </div>
+    <p class="text-xs text-muted mt-2 mb-0">Compare runs both AI providers on the same product and hides which is which until you pick. Costs two generations.</p>
     <div id="aiResult" class="hidden mt-4 border border-line rounded-lg p-4 bg-surface-soft text-sm whitespace-pre-wrap"></div>
+    <div id="aiCompare" class="hidden mt-4"></div>
     <div id="aiError" class="hidden mt-4 text-red-700 text-sm"></div>
   </div>
 </StaffLayout>
@@ -135,4 +140,108 @@ async function generateContent() {
   }
 }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function aiFields() {
+  return {
+    name: document.getElementById('aiProductName').value.trim(),
+    category: document.getElementById('aiCategory').value.trim() || undefined,
+    price_paisa: parseInt(document.getElementById('aiPrice').value) || undefined,
+    key_features: document.getElementById('aiFeatures').value.split(',').map(s => s.trim()).filter(Boolean)
+  };
+}
+
+// Metrics are rendered next to each option so the pick can be informed by
+// something objective (length compliance, latency) as well as by taste.
+function slotCard(label, slot) {
+  const m = slot.metrics;
+  const warn = (bad) => bad ? ' class="text-red-700"' : '';
+  return '<div class="border border-line rounded-lg p-4 bg-surface-soft">' +
+    '<div class="flex items-center justify-between mb-2">' +
+      '<strong class="text-sm">Option ' + label.toUpperCase() + '</strong>' +
+      '<button class="px-3 py-1 bg-brand text-white rounded-md text-xs font-semibold border-0 cursor-pointer" data-choice="' + label + '">Prefer this</button>' +
+    '</div>' +
+    '<div class="text-sm whitespace-pre-wrap mb-3">' + esc(slot.content.description) + '</div>' +
+    '<div class="text-xs text-muted">' +
+      '<div><strong>Meta title:</strong> ' + esc(slot.content.metaTitle) + '</div>' +
+      '<div><strong>Meta description:</strong> ' + esc(slot.content.metaDescription) + '</div>' +
+      '<div class="mt-2">' + m.words + ' words &middot; ' +
+        '<span' + warn(m.metaTitleOverran) + '>title ' + m.metaTitleLength + '/60' + (m.metaTitleOverran ? ' (overran, trimmed)' : '') + '</span> &middot; ' +
+        '<span' + warn(m.metaDescriptionOverran) + '>meta ' + m.metaDescriptionLength + '/160' + (m.metaDescriptionOverran ? ' (overran, trimmed)' : '') + '</span> &middot; ' +
+        m.latencyMs + 'ms</div>' +
+    '</div>' +
+  '</div>';
+}
+
+async function compareContent() {
+  const btn = document.getElementById('aiCompareBtn');
+  const box = document.getElementById('aiCompare');
+  const error = document.getElementById('aiError');
+  const result = document.getElementById('aiResult');
+  const fields = aiFields();
+  if (!fields.name) { error.textContent = 'Product name is required.'; error.classList.remove('hidden'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Comparing...';
+  error.classList.add('hidden');
+  result.classList.add('hidden');
+  box.classList.add('hidden');
+
+  try {
+    const res = await fetch('/api/staff/ai/compare-product-content', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+      body: JSON.stringify(fields)
+    });
+    const data = await res.json();
+    if (!data.ok) {
+      error.textContent = data.error || 'Comparison failed';
+      error.classList.remove('hidden');
+      return;
+    }
+    box.innerHTML =
+      '<div class="grid grid-cols-1 md:grid-cols-2 gap-3">' + slotCard('a', data.a) + slotCard('b', data.b) + '</div>' +
+      '<div class="mt-3 flex items-center gap-2">' +
+        '<button class="px-3 py-1 border border-line rounded-md text-xs font-semibold bg-bg text-ink cursor-pointer" data-choice="neither">Neither is usable</button>' +
+        '<span class="text-xs text-muted">Providers stay hidden until you pick.</span>' +
+      '</div>' +
+      '<div id="aiReveal" class="hidden mt-3 text-sm"></div>';
+    box.classList.remove('hidden');
+    box.querySelectorAll('[data-choice]').forEach(function (el) {
+      el.addEventListener('click', function () { recordChoice(data.trial_id, el.getAttribute('data-choice')); });
+    });
+  } catch (e) {
+    error.textContent = 'Network error: ' + e.message;
+    error.classList.remove('hidden');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Compare A/B (blind)';
+  }
+}
+
+async function recordChoice(trialId, choice) {
+  const box = document.getElementById('aiCompare');
+  const reveal = document.getElementById('aiReveal');
+  box.querySelectorAll('[data-choice]').forEach(function (el) { el.disabled = true; });
+  try {
+    const res = await fetch('/api/staff/ai/trial-choice', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': getCsrf() },
+      body: JSON.stringify({ trial_id: trialId, choice: choice })
+    });
+    const data = await res.json();
+    if (!data.ok) { reveal.textContent = data.error || 'Could not record choice'; reveal.classList.remove('hidden'); return; }
+    const names = { deepseek: 'DeepSeek', workers_ai: 'Workers AI', neither: 'Neither' };
+    const tally = Object.keys(data.tally || {}).map(function (k) { return esc(names[k] || k) + ': ' + data.tally[k]; }).join(' &middot; ') || 'none yet';
+    reveal.innerHTML =
+      '<div><strong>Option A</strong> was ' + esc(names[data.slot_a_provider] || data.slot_a_provider) +
+      ' &middot; <strong>Option B</strong> was ' + esc(names[data.slot_b_provider] || data.slot_b_provider) + '</div>' +
+      '<div class="mt-1">You chose: <strong>' + esc(names[data.chosen_provider] || data.chosen_provider) + '</strong>' +
+      (data.already_recorded ? ' (already recorded earlier)' : '') + '</div>' +
+      '<div class="mt-1 text-muted">Running tally &mdash; ' + tally + '</div>';
+    reveal.classList.remove('hidden');
+  } catch (e) {
+    reveal.textContent = 'Network error: ' + e.message;
+    reveal.classList.remove('hidden');
+  }
+}
 </script>

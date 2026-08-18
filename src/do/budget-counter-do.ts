@@ -424,6 +424,25 @@ export async function canUseImagifyBudget(env: Env): Promise<boolean> {
   return data.allowed === true;
 }
 
+/**
+ * N-29: Workers AI usage was never recorded.
+ *
+ * Section 24.2 gives Workers AI its own limits (200/day, $1.00/day) and CF-08
+ * explicitly corrects the V7 error that Workers AI is free — on the Paid plan
+ * it is BILLED beyond the included allocation, not blocked. Recording only
+ * DeepSeek meant the provider we fall back to precisely when DeepSeek's budget
+ * is exhausted was the one nobody was counting.
+ */
+export async function recordWorkersAIUsage(env: Env, input: { tokens: number; cost_usd: number; request_id: string; staff_id: string; operation: string }): Promise<void> {
+  const id = env.AI_BUDGET.idFromName(providerBudgetObjectKey('workers_ai'));
+  const stub = env.AI_BUDGET.get(id);
+  await stub.fetch("https://budget/record-usage", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ provider: 'workers_ai', ...input }),
+  });
+}
+
 export async function recordDeepSeekUsage(env: Env, input: { tokens: number; cost_usd: number; request_id: string; staff_id: string; operation: string }): Promise<void> {
   const id = env.AI_BUDGET.idFromName(providerBudgetObjectKey('deepseek'));
   const stub = env.AI_BUDGET.get(id);
