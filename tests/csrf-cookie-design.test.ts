@@ -43,11 +43,25 @@ describe('AUTH-2: CSRF cookie is HttpOnly (server-verified) while JS receives th
     expect(readStaffCsrfCookie(req)).toBe('tok');
   });
 
-  it('token is delivered to JS via window.__ZB_CSRF__ (so it never needs the cookie)', () => {
+  it('token is delivered to JS without the cookie ever being readable by script', () => {
+    // Delivery moved from an inline `window.__ZB_CSRF__ = ...` in the layout
+    // to a server-rendered <meta> tag that the bundled shell reads and
+    // republishes. The security property is unchanged and the CSP is cleaner
+    // (no inline script), so this asserts the property rather than the old
+    // one-liner: the server renders the token, and no client code reads
+    // document.cookie.
     const layout = readFileSync('src/layouts/StaffLayout.astro', 'utf-8');
-    expect(layout).toContain('window.__ZB_CSRF__ = csrfToken');
+    expect(layout).toMatch(/<meta name="zb-csrf" content=\{csrfToken\}/);
+
+    const shell = readFileSync('src/scripts/staff-shell.ts', 'utf-8');
+    expect(shell).toMatch(/meta\[name="zb-csrf"\]/);
+    expect(shell).toContain('window.__ZB_CSRF__');
+
     const client = readFileSync('src/lib/csrf-client.ts', 'utf-8');
-    expect(client).toContain("window.__ZB_CSRF__");
-    expect(client).not.toMatch(/document\.cookie/);
+    expect(client).toContain('window.__ZB_CSRF__');
+    // The whole point of the HttpOnly cookie is that script cannot read it.
+    for (const [name, src] of Object.entries({ client, shell })) {
+      expect(src, `${name} must not read document.cookie`).not.toMatch(/document\.cookie/);
+    }
   });
 });

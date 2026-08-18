@@ -39,20 +39,35 @@ describe('AUTH-1: staff logout CSRF enforcement (the protection the route relies
 });
 
 describe('AUTH-1: active staff shell logout calls the correct endpoint with CSRF', () => {
+  // The logout handler moved out of Navbar.astro's inline script into the
+  // bundled staff shell module. Asserting on the old file/syntax made these
+  // tests fail on a refactor that preserved every security property — so they
+  // now assert the properties themselves, wherever the handler lives.
   const layout = readFileSync(resolve('./src/layouts/StaffLayout.astro'), 'utf-8');
-  const navbar = readFileSync(resolve('./src/components/staff/layout/Navbar.astro'), 'utf-8');
+  const shell = readFileSync(resolve('./src/scripts/staff-shell.ts'), 'utf-8');
 
   it('posts to /api/staff/logout (not the broken /staff/logout path)', () => {
-    expect(navbar).toContain("fetch('/api/staff/logout'");
-    expect(navbar).not.toContain("fetch('/staff/logout'");
+    expect(shell).toContain("fetch('/api/staff/logout'");
+    // The page route would 404 and silently leave the session alive.
+    expect(shell).not.toContain("fetch('/staff/logout'");
   });
 
   it('sends the X-CSRF-Token header', () => {
-    expect(navbar).toContain("'X-CSRF-Token': csrfToken");
+    expect(shell).toMatch(/'X-CSRF-Token':\s*getCsrf\(\)/);
   });
 
   it('reads the CSRF token server-side and injects it', () => {
+    // Server reads the HttpOnly cookie and renders the value into the page,
+    // which is what lets the cookie stay HttpOnly.
     expect(layout).toContain('readCsrfCookie(Astro.request)');
-    expect(layout).toContain('define:vars={{ csrfToken }}');
+    expect(layout).toMatch(/<meta name="zb-csrf" content=\{csrfToken\}/);
+  });
+
+  it('the logout button the handler binds to actually exists in the navbar', () => {
+    // The handler and the markup live in different files now, so a renamed id
+    // would silently disable logout with no build or type error.
+    const navbar = readFileSync(resolve('./src/components/staff/layout/Navbar.astro'), 'utf-8');
+    expect(navbar).toContain('id="logout-btn"');
+    expect(shell).toContain("getElementById('logout-btn')");
   });
 });
