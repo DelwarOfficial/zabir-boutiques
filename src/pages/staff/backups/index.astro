@@ -1,11 +1,50 @@
 ---
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
-import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, isSuperAdmin } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!isSuperAdmin(user.role)) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+
+// Read straight from the R2 bucket the weekly job writes to, rather than a
+// mirror table — the bucket is the source of truth, and a mirror could claim
+// a backup exists after the object was deleted or the write silently failed.
+type BackupRow = { key: string; uploaded: string; size: number };
+let backups: BackupRow[] = [];
+let backupError = '';
+let ageDays = 0;
+let stale = false;
+
+try {
+  const bucket = (env as unknown as { BACKUPS?: R2Bucket }).BACKUPS;
+  if (!bucket) {
+    backupError = 'BACKUPS bucket is not bound to this Worker.';
+  } else {
+    const listed = await bucket.list({ prefix: 'backups/d1-' });
+    backups = (listed.objects ?? [])
+      .map((o) => ({
+        key: o.key,
+        uploaded: o.uploaded ? new Date(o.uploaded).toISOString().replace('T', ' ').slice(0, 19) : 'unknown',
+        size: o.size ?? 0,
+      }))
+      .sort((a, b) => (a.uploaded < b.uploaded ? 1 : -1))
+      .slice(0, 20);
+
+    const newest = (listed.objects ?? []).reduce<Date | null>((max, o) => {
+      const t = o.uploaded ? new Date(o.uploaded) : null;
+      return t && (!max || t > max) ? t : max;
+    }, null);
+    if (newest) {
+      ageDays = Math.floor((Date.now() - newest.getTime()) / 86_400_000);
+      stale = ageDays > 7;
+    }
+  }
+} catch (err) {
+  backupError = err instanceof Error ? err.message : 'unknown error';
+}
 ---
 <StaffLayout title="Backups" user={user}>
   <PageHeader title="Backups" subtitle="D1 and R2 backup management (owner-only)." />
@@ -31,12 +70,46 @@ if (!isSuperAdmin(user.role)) return new Response('Forbidden', { status: 403 });
     </div>
   </div>
 
-  <ComingSoon title="On-demand backup controls are planned" description="This console will allow manual triggers, download links, and guarded restore operations." status="planned">
-    <ul class="list-disc pl-5 space-y-1">
-      <li>Trigger immediate D1 backup to R2</li>
-      <li>Download backup JSON securely via signed URL</li>
-      <li>Restore to staging with confirmation gate</li>
-      <li>Verify backup integrity against audit chain hash</li>
-    </ul>
-  </ComingSoon>
+  <h2 class="m-0 mb-2 text-sm font-semibold">Backups in R2</h2>
+  {backupError ? (
+    <div class="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      Could not read the backup bucket: {backupError}
+    </div>
+  ) : backups.length > 0 ? (
+    <>
+      {stale ? (
+        <div class="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          Most recent backup is <strong class="font-semibold">{ageDays}</strong> days old. Weekly policy expects one within 7.
+        </div>
+      ) : null}
+      <div class="overflow-x-auto border border-line rounded-lg">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr class="bg-surface-soft text-left">
+              <th class="px-3 py-2.5 font-semibold">Backup</th>
+              <th class="px-3 py-2.5 font-semibold">Taken</th>
+              <th class="px-3 py-2.5 font-semibold text-right">Size</th>
+            </tr>
+          </thead>
+          <tbody>
+            {backups.map((b) => (
+              <tr class="border-t border-line-soft">
+                <td class="px-3 py-2 font-mono text-xs">{b.key}</td>
+                <td class="px-3 py-2 text-xs text-muted">{b.uploaded}</td>
+                <td class="px-3 py-2 text-right text-xs">{(b.size / 1024 / 1024).toFixed(2)} MB</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p class="mt-3 text-xs text-muted">
+        Backups are AES-GCM encrypted at rest. Downloading and restoring are deliberately not exposed here —
+        a restore overwrites live data, so it runs through <code class="font-mono">wrangler</code> with an explicit operator decision.
+      </p>
+    </>
+  ) : (
+    <div class="text-center text-muted text-sm py-12 border border-line rounded-lg border-dashed">
+      No backups found in R2 yet. The weekly job writes to <code class="font-mono">backups/d1-*.sql.enc</code>.
+    </div>
+  )}
 </StaffLayout>

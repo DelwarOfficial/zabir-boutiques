@@ -1,19 +1,135 @@
 ---
 import StaffLayout from '@/layouts/StaffLayout.astro';
 import PageHeader from '@/components/staff/PageHeader.astro';
-import ComingSoon from '@/components/staff/ComingSoon.astro';
 import { getCurrentStaffUser, can } from '../../../lib/rbac';
+import { getEnv } from '../../../lib/env';
+
 const user = await getCurrentStaffUser(Astro);
 if (!user) return Astro.redirect('/staff/login');
 if (!can(user.role, 'orders.pack')) return new Response('Forbidden', { status: 403 });
+
+const env = getEnv(Astro);
+
+// Anything confirmed but not yet handed over is printable. Delivered and
+// cancelled orders are excluded — reprinting those is not a real workflow and
+// would just clutter the selection list.
+const result = await env.DB.prepare(
+  `SELECT o.id, o.order_number, o.name, o.phone, o.address, o.total_paisa,
+          o.payment_method, o.advance_paisa, o.status
+   FROM orders o
+   WHERE o.status IN ('staff_confirmed', 'packing', 'shipped')
+   ORDER BY o.created_at ASC
+   LIMIT 200`,
+).all<any>();
+const rows = result.results ?? [];
 ---
 <StaffLayout title="Print Slips" user={user}>
-  <PageHeader title="Print Slips" subtitle="Print packing slips and shipping labels." />
-  <ComingSoon title="Batch slip printing is planned" description="Print packing slips and the 3-up A4 shipping labels for a batch of orders at once.">
-    <ul class="list-disc pl-5 space-y-1">
-      <li>Select multiple orders and print together</li>
-      <li>Three labels per A4 sheet for efficient courier prep</li>
-      <li>Single-label printing already available on each order detail page</li>
-    </ul>
-  </ComingSoon>
+  <PageHeader title="Print Slips" subtitle="Select orders and print labels three to an A4 sheet.">
+    <Fragment slot="actions">
+      <a href="/staff/packing" class="px-3 py-1.5 border border-line rounded-md text-xs no-underline hover:bg-surface-soft">Queue</a>
+      <a href="/staff/packing/packed" class="px-3 py-1.5 border border-line rounded-md text-xs no-underline hover:bg-surface-soft">Packed</a>
+    </Fragment>
+  </PageHeader>
+
+  {rows.length > 0 ? (
+    <>
+      <div class="mb-4 flex flex-wrap items-center gap-2">
+        <button type="button" id="select-all" class="px-3 py-1.5 border border-line rounded-md text-xs cursor-pointer hover:bg-surface-soft">Select all</button>
+        <button type="button" id="select-none" class="px-3 py-1.5 border border-line rounded-md text-xs cursor-pointer hover:bg-surface-soft">Clear</button>
+        <label class="ml-2 text-xs text-ink-secondary">
+          Template
+          <select id="courier" class="ml-1 px-2 py-1.5 border border-line rounded-md bg-bg text-ink text-xs">
+            <option value="generic">Generic</option>
+            <option value="pathao">Pathao</option>
+            <option value="steadfast">Steadfast</option>
+            <option value="redx">RedX</option>
+          </select>
+        </label>
+        <span class="ml-auto text-xs text-muted"><span id="count">0</span> selected</span>
+        <button type="button" id="print" disabled
+          class="px-4 py-1.5 bg-brand text-white rounded-md text-xs font-semibold border-0 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+          Print labels
+        </button>
+      </div>
+
+      <div class="overflow-x-auto border border-line rounded-lg">
+        <table class="w-full border-collapse text-sm">
+          <thead>
+            <tr class="bg-surface-soft text-left">
+              <th class="px-3 py-2.5 w-10"></th>
+              <th class="px-3 py-2.5 font-semibold">Order</th>
+              <th class="px-3 py-2.5 font-semibold">Customer</th>
+              <th class="px-3 py-2.5 font-semibold">Address</th>
+              <th class="px-3 py-2.5 font-semibold text-right">Total</th>
+              <th class="px-3 py-2.5 font-semibold text-center">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((o) => (
+              <tr class="border-t border-line-soft">
+                <td class="px-3 py-2">
+                  <input type="checkbox" class="slip-pick accent-brand" value={o.id} />
+                </td>
+                <td class="px-3 py-2">
+                  <a href={`/staff/orders/${o.id}`} class="text-brand font-semibold no-underline">{o.order_number}</a>
+                </td>
+                <td class="px-3 py-2">
+                  <div class="font-medium">{o.name}</div>
+                  <div class="text-xs text-muted">{o.phone}</div>
+                </td>
+                <td class="px-3 py-2 text-xs text-muted max-w-[220px] truncate" title={o.address}>{o.address}</td>
+                <td class="px-3 py-2 text-right font-medium">৳{Math.floor(o.total_paisa / 100)}</td>
+                <td class="px-3 py-2 text-center">
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-line-soft text-ink-secondary font-semibold">
+                    {o.status.replace(/_/g, ' ')}
+                  </span>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  ) : (
+    <div class="text-center text-muted text-sm py-12 border border-line rounded-lg border-dashed">
+      No orders are ready for slip printing.
+    </div>
+  )}
+
+  <script>
+    const picks = () => Array.from(document.querySelectorAll<HTMLInputElement>('.slip-pick'));
+    const countEl = document.getElementById('count');
+    const printBtn = document.getElementById('print') as HTMLButtonElement | null;
+    const courierEl = document.getElementById('courier') as HTMLSelectElement | null;
+
+    function selected(): string[] {
+      return picks().filter((p) => p.checked).map((p) => p.value);
+    }
+
+    function sync() {
+      const n = selected().length;
+      if (countEl) countEl.textContent = String(n);
+      if (printBtn) printBtn.disabled = n === 0;
+    }
+
+    picks().forEach((p) => p.addEventListener('change', sync));
+    document.getElementById('select-all')?.addEventListener('click', () => {
+      picks().forEach((p) => { p.checked = true; });
+      sync();
+    });
+    document.getElementById('select-none')?.addEventListener('click', () => {
+      picks().forEach((p) => { p.checked = false; });
+      sync();
+    });
+    printBtn?.addEventListener('click', () => {
+      const ids = selected();
+      if (ids.length === 0) return;
+      const courier = courierEl?.value ?? 'generic';
+      // Opened in a new tab: the batch route auto-triggers the print dialog,
+      // so navigating in place would lose the selection on return.
+      window.open(`/api/staff/orders/labels?ids=${encodeURIComponent(ids.join(','))}&courier=${encodeURIComponent(courier)}`, '_blank', 'noopener');
+    });
+
+    sync();
+  </script>
 </StaffLayout>
