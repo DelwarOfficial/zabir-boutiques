@@ -35,6 +35,9 @@ function buildDb(): DatabaseSync {
   raw.exec(readFileSync(resolve(MIGRATIONS, '0001_initial_v6_8a_schema.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0017_variants_stock_generated.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0026_add_checkout_vat_paisa.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0062_payments_transaction_fields.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0063_payments_payment_method.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0064_payments_refunded_amount.sql'), 'utf8'));
   raw.exec(`
     INSERT INTO products (id, name, slug, price_paisa, status, created_at, updated_at)
     VALUES ('prod1','P','p','1000','published','2026-01-01','2026-01-01');
@@ -161,7 +164,7 @@ describe('K-38: POST /api/staff/orders/[id]/cancel', () => {
 
   it('refunds a paid order and marks payment refunded', async () => {
     const { verifyUddoktaPayment } = await import('../src/lib/payments');
-    (verifyUddoktaPayment as any).mockResolvedValue({ status: 'paid' });
+    (verifyUddoktaPayment as any).mockResolvedValue({ status: 'paid', transactionId: 'TRX1', paymentMethod: 'bkash' });
 
     const raw = buildDb();
     raw.exec(`
@@ -169,8 +172,8 @@ describe('K-38: POST /api/staff/orders/[id]/cancel', () => {
       VALUES ('ii1','v1',10,2,0,1,'2026-01-01');
       INSERT INTO orders (id, order_number, phone, name, address, subtotal_paisa, delivery_paisa, discount_paisa, total_paisa, payment_method, payment_status, fraud_decision, status, advance_paisa, balance_paisa, created_at, updated_at)
       VALUES ('o1','ORD-1','+8801700000000','N','A',1000,0,0,1000,'uddoktapay','paid','review','payment_verified',1000,0,'2026-01-01','2026-01-01');
-      INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, created_at, updated_at)
-      VALUES ('p1','o1','inv1','uddoktapay',1000,'paid','2026-01-01','2026-01-01');
+      INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, transaction_id, provider_payment_method, created_at, updated_at)
+      VALUES ('p1','o1','inv1','uddoktapay',1000,'paid','TRX1','bkash','2026-01-01','2026-01-01');
       INSERT INTO stock_reservations (id, order_id, variant_id, quantity, status, expires_at, created_at, updated_at)
       VALUES ('res1','o1','v1',2,'active','2099-01-01','2026-01-01','2026-01-01');
     `);

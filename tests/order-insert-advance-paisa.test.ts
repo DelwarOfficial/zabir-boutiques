@@ -36,6 +36,7 @@ function buildDb(): DatabaseSync {
   raw.exec(readFileSync(resolve(MIGRATIONS, '0001_initial_v6_8a_schema.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0017_variants_stock_generated.sql'), 'utf8'));
   raw.exec(readFileSync(resolve(MIGRATIONS, '0026_add_checkout_vat_paisa.sql'), 'utf8'));
+  raw.exec(readFileSync(resolve(MIGRATIONS, '0052_orders_add_email.sql'), 'utf8'));
   raw.exec(`
     INSERT INTO products (id, name, slug, price_paisa, status, created_at, updated_at)
     VALUES ('prod1','P','p','1000','published','2026-01-01','2026-01-01');

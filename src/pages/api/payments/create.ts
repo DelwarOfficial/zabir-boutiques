@@ -3,6 +3,7 @@ import { getEnv } from '../../../lib/env';
 import { nowSql } from '../../../lib/dates';
 import { safeLog } from '../../../lib/pii-scrubber';
 import { createPaymentCheckout } from '../../../lib/integrations/payments';
+import { normalizeEmail } from '../../../lib/email-address';
 
 export async function POST(context: APIContext): Promise<Response> {
   const env = getEnv(context);
@@ -33,8 +34,11 @@ export async function POST(context: APIContext): Promise<Response> {
   }
 
   const order = await env.DB.prepare(
-    `SELECT id, total_paisa, advance_paisa, payment_method, payment_status FROM orders WHERE id = ?1`
-  ).bind(orderId).first<{ id: string; total_paisa: number; advance_paisa: number; payment_method: string; payment_status: string }>();
+    `SELECT id, name, email, total_paisa, advance_paisa, payment_method, payment_status FROM orders WHERE id = ?1`
+  ).bind(orderId).first<{
+    id: string; name: string; email: string | null; total_paisa: number;
+    advance_paisa: number; payment_method: string; payment_status: string;
+  }>();
 
   if (!order) return Response.json({ error: 'Order not found' }, { status: 404 });
   if (!['uddoktapay', 'partial_prepay'].includes(order.payment_method)) {
@@ -69,15 +73,29 @@ export async function POST(context: APIContext): Promise<Response> {
 
   const paymentId = crypto.randomUUID();
   const invoiceId = crypto.randomUUID();
+  // N-28: the provider requires a real email. It comes from the order record
+  // written at checkout, never from this request body — a caller must not be
+  // able to redirect a receipt for someone else's order.
+  const emailResult = normalizeEmail(order.email);
+  if (!emailResult.ok) {
+    return Response.json({ error: 'Order has no valid email on file', code: 'ORDER_EMAIL_MISSING' }, { status: 409 });
+  }
+
   const checkout = await createPaymentCheckout(env, {
+    paymentId,
     invoiceId,
     amountPaisa: paymentAmountPaisa,
-    customerName: body.customer_name ?? '',
+    customerName: order.name,
+    customerEmail: emailResult.email,
     customerPhone: body.customer_phone ?? '',
     orderId,
     type: order.payment_method === 'partial_prepay' ? 'partial_prepay' : 'full',
-    redirectUrl: `${body.redirect_url ?? env.PUBLIC_SITE_URL}/order-track`,
-    cancelUrl: `${body.cancel_url ?? env.PUBLIC_SITE_URL}/checkout`,
+    // Callback URLs are built solely from the trusted configured site origin.
+    // body.redirect_url / body.cancel_url were caller-controlled and are no
+    // longer honoured.
+    redirectUrl: `${env.PUBLIC_SITE_URL}/api/payments/callback`,
+    webhookUrl: `${env.PUBLIC_SITE_URL}/api/payments/webhook`,
+    cancelUrl: `${env.PUBLIC_SITE_URL}/checkout`,
   });
 
   if (!checkout.ok || !checkout.paymentUrl) {

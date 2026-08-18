@@ -12,6 +12,7 @@
  * degradation identical to the rest of the platform.
  */
 
+import { bindProviderInvoice } from "../lib/payment-invoice-binding";
 import { applyPaymentVerified, verifyUddoktaPayment } from "../lib/payments";
 import { nowSql } from "../lib/dates";
 import { writeAuditLog } from "../lib/audit";
@@ -37,10 +38,20 @@ export async function enqueuePaymentWebhook(
 /** Shared verify + apply path for queue consumer and dev waitUntil fallback. */
 export async function processPaymentWebhookMessage(
   env: { DB: D1Database; UDDOKTAPAY_API_KEY: string; UDDOKTAPAY_BASE_URL: string; ANALYTICS?: AnalyticsEngineDataset; VARIANT_INVENTORY_DO?: DurableObjectNamespace },
-  invoiceId: string,
+  providerInvoiceId: string,
 ): Promise<void> {
-  const verified = await verifyUddoktaPayment(invoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
+  const verified = await verifyUddoktaPayment(providerInvoiceId, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
   if (verified.status !== "paid") return;
+
+  // N-28: the queue carries the PROVIDER's invoice id. Resolve it back to the
+  // local payment (via the metadata.payment_id we set at charge creation)
+  // before reconciling; binding is idempotent under concurrent delivery.
+  const bound = await bindProviderInvoice(env.DB, providerInvoiceId, verified, nowSql());
+  if (!bound.ok) {
+    safeLog.warn("[payment-webhook-consumer] invoice binding rejected", { code: bound.code });
+    return;
+  }
+  const invoiceId = bound.localInvoiceId;
 
   const result = await applyPaymentVerified(
     env,

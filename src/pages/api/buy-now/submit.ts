@@ -7,6 +7,7 @@
 import type { APIContext } from 'astro';
 import { getEnv } from '../../../lib/env';
 import { normalizeBangladeshPhone } from '../../../lib/phone';
+import { normalizeEmail } from '../../../lib/email-address';
 import { releaseReservedVariants, reserveVariants } from '../../../lib/inventory';
 import { insertReservedOrderWithRetry } from '../../../lib/orders';
 import { nowSql } from '../../../lib/dates';
@@ -131,6 +132,12 @@ export async function POST(context: APIContext): Promise<Response> {
     return Response.json({ ok: false, code: 'INVALID_PHONE', message: 'Valid Bangladeshi phone required.' }, { status: 400 });
   }
 
+  // N-28: validated here, but only *required* once we know the order is
+  // prepaid — see the resolvedPaymentMethod gate below, since a COD order can
+  // still be escalated to partial_prepay server-side.
+  const emailResult = normalizeEmail(body.email);
+  const customerEmail = emailResult.ok ? emailResult.email : null;
+
   if (!addressInput || addressInput.length < 8) {
     return Response.json({ ok: false, code: 'INVALID_ADDRESS', message: 'Delivery address is required.' }, { status: 400 });
   }
@@ -232,6 +239,10 @@ export async function POST(context: APIContext): Promise<Response> {
     ? 'partial_prepay'
     : paymentMethod;
 
+  if (resolvedPaymentMethod !== 'cod' && !emailResult.ok) {
+    return Response.json({ ok: false, code: 'INVALID_EMAIL', message: emailResult.reason }, { status: 400 });
+  }
+
   let advancePaisa = 0;
   let balancePaisa = totalPaisa;
   if (resolvedPaymentMethod === 'uddoktapay') {
@@ -305,6 +316,7 @@ export async function POST(context: APIContext): Promise<Response> {
     const { orderId, orderNumber } = await insertReservedOrderWithRetry(env.DB, {
       phone: phoneResult.phone,
       name: nameInput,
+      email: customerEmail,
       address: addressInput,
       shipping_zone: resolvedShippingZone,
       note: typeof body.note === 'string' ? body.note : undefined,
@@ -340,25 +352,43 @@ export async function POST(context: APIContext): Promise<Response> {
     if (advancePaisa > 0) {
       try {
         const paymentInvoiceId = crypto.randomUUID();
+        // N-28: local payment row written before the provider call, so a
+        // successful charge can never end up with nothing to reconcile
+        // against. Same ordering as checkout.ts.
+        await env.DB.prepare(
+          `INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, created_at, updated_at)
+           VALUES (?1, ?2, ?3, 'uddoktapay', ?4, 'created', ?5, ?5)`
+        ).bind(crypto.randomUUID(), orderId, paymentInvoiceId, advancePaisa, now).run();
         const checkout = await createPaymentCheckout(env, {
+          paymentId: paymentInvoiceId,
           invoiceId: paymentInvoiceId,
           amountPaisa: advancePaisa,
           customerName: nameInput,
+          customerEmail: customerEmail ?? '',
           customerPhone: phoneResult.phone,
           orderId,
           type: resolvedPaymentMethod === 'partial_prepay' ? 'partial_prepay' : 'full',
-          redirectUrl: `${context.request.headers.get('Origin') ?? env.PUBLIC_SITE_URL}/order-track`,
-          cancelUrl: `${context.request.headers.get('Origin') ?? env.PUBLIC_SITE_URL}/buy-now/${sessionId}`,
+          // N-28: callback URLs are built only from the trusted configured
+          // site origin. The Origin header is caller-controlled and using it
+          // here was an open redirect for a paying customer (same fix as K-13
+          // in checkout.ts).
+          redirectUrl: `${env.PUBLIC_SITE_URL}/api/payments/callback`,
+          webhookUrl: `${env.PUBLIC_SITE_URL}/api/payments/webhook`,
+          cancelUrl: `${env.PUBLIC_SITE_URL}/buy-now/${sessionId}`,
         });
         if (checkout.ok && checkout.paymentUrl) {
           checkoutUrl = checkout.paymentUrl;
           await env.DB.prepare(
-            `INSERT INTO payments (id, order_id, invoice_id, provider, amount_paisa, status, checkout_url, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?7)`
-          ).bind(crypto.randomUUID(), orderId, paymentInvoiceId, checkout.provider, advancePaisa, checkout.paymentUrl, now).run();
+            `UPDATE payments SET provider = ?2, status = 'pending', checkout_url = ?3, updated_at = ?4
+              WHERE invoice_id = ?1 AND status = 'created'`
+          ).bind(paymentInvoiceId, checkout.provider, checkout.paymentUrl, now).run();
           await env.DB.prepare(
             `UPDATE orders SET payment_status = 'pending', updated_at = ?2 WHERE id = ?1`
           ).bind(orderId, now).run();
+        } else {
+          await env.DB.prepare(
+            `UPDATE payments SET status = 'failed', updated_at = ?2 WHERE invoice_id = ?1 AND status = 'created'`
+          ).bind(paymentInvoiceId, now).run();
         }
       } catch {
         // P0-06: Payment creation failed after order persisted with stock reserved.

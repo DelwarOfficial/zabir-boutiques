@@ -16,7 +16,10 @@ const MIGRATIONS = resolve('./db/migrations');
 function countStatements(sql: string): number {
   const stripped = sql
     .split('\n')
-    .map((line) => line.replace(/--.*$/, ''))
+    // `.` does not match \r in JS, so on a CRLF file `--.*$` never reaches
+    // end-of-line and strips nothing — leaving any `;` inside a comment to be
+    // miscounted as a statement boundary. Trim the \r first.
+    .map((line) => line.replace(/\r$/, '').replace(/--.*$/, ''))
     .join('\n');
   return stripped
     .split(';')
@@ -80,7 +83,14 @@ describe('migration-single-statement (V8 discipline, T-27)', () => {
           .filter((line) => !/^\s*CREATE (UNIQUE )?INDEX/i.test(line))
           .join('\n'),
       );
-      expect(structuralCount, `${file} should have exactly 1 non-index statement, found ${structuralCount}`).toBe(1);
+      // 0 is allowed for an index-only migration: CREATE INDEX carries none
+      // of the partial-apply risk this rule guards against, and splitting an
+      // index out of an ALTER TABLE file is exactly what the assertion below
+      // forces. Anything above 1 is still a violation.
+      expect(structuralCount, `${file} should have at most 1 non-index statement, found ${structuralCount}`).toBeLessThanOrEqual(1);
+      if (structuralCount === 0) {
+        expect(/CREATE\s+(UNIQUE\s+)?INDEX/i.test(sql), `${file} has no statements at all`).toBe(true);
+      }
 
       if (/^\s*ALTER TABLE/im.test(sql)) {
         // ALTER TABLE (structural rebuild risk) must be truly alone.

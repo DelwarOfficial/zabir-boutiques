@@ -22,7 +22,12 @@ describe('K-02: webhook signature header is a closed list', () => {
 describe('K-01: IPN key check is fail-closed when configured', () => {
   it('webhook.ts requires the header when UDDOKTAPAY_API_KEY is set (no header-omission bypass)', () => {
     const src = readFileSync(resolve('./src/pages/api/payments/webhook.ts'), 'utf8');
-    expect(src).toContain('if (env.UDDOKTAPAY_API_KEY) {');
-    expect(src).toContain('if (!ipnKey || !timingSafeEqualHex(ipnKey, env.UDDOKTAPAY_API_KEY))');
+    // N-28: the key is the ONLY documented webhook credential, so an absent
+    // key is now a 503 rather than an optional check that could be skipped,
+    // and the comparison uses the byte-wise constant-time comparator (the
+    // production key is alphanumeric, not hex).
+    expect(src).toContain("if (!env.UDDOKTAPAY_API_KEY) {");
+    expect(src).toContain("timingSafeEqualString(ipnKey, env.UDDOKTAPAY_API_KEY)");
+    expect(src).not.toContain('timingSafeEqualHex');
   });
 });

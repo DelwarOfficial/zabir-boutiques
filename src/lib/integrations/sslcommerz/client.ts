@@ -114,7 +114,7 @@ export class SSLCommerzClient implements PaymentProviderContract {
   async verifyPayment(invoiceId: string): Promise<VerifiedPayment> {
     const requestId = crypto.randomUUID();
     const startedAt = Date.now();
-    const empty: VerifiedPayment = { status: 'failed', amountPaisa: null, verifiedInvoiceId: null, metadata: null, rawResponse: '' };
+    const empty: VerifiedPayment = { status: 'failed', amountPaisa: null, verifiedInvoiceId: null, metadata: null, transactionId: null, paymentMethod: null, rawResponse: '' };
     if (!this.configured()) return { ...empty, rawResponse: '{"error":"not_configured"}' };
 
     const health = await this.checkCircuit();
@@ -154,6 +154,10 @@ export class SSLCommerzClient implements PaymentProviderContract {
         amountPaisa,
         verifiedInvoiceId: typeof data.tran_id === 'string' ? data.tran_id : invoiceId,
         metadata: data.value_a ? { order_id: data.value_a, type: data.value_b } : null,
+        // SSLCommerz has no equivalent of UddoktaPay's transaction_id/payment_method
+        // refund contract; refunds through this provider use its own flow.
+        transactionId: null,
+        paymentMethod: null,
         rawResponse,
       };
     } catch (err) {

@@ -2,6 +2,7 @@ import { AlertTriangle, CheckCircle2, Loader2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
+import { normalizeEmail } from "../lib/email-address";
 
 type DeliveryZone = "inside_dhaka" | "outside_dhaka";
 type SubmitStatus =
@@ -48,6 +49,7 @@ export function BuyNowLandingForm({
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState(initialDraft?.name ?? "");
   const [phone, setPhone] = useState(initialDraft?.phone ?? "");
+  const [email, setEmail] = useState("");
   const [address, setAddress] = useState(initialDraft?.address ?? "");
   const [note, setNote] = useState("");
   const [zone, setZone] = useState<DeliveryZone>(
@@ -90,13 +92,16 @@ export function BuyNowLandingForm({
   }, [turnstileSiteKey]);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
+  // Required for every order: a COD order can be escalated to partial_prepay
+  // server-side, and the payment provider rejects a charge without an email.
+  const normalizedEmail = useMemo(() => normalizeEmail(email), [email]);
   const selectedVariant = useMemo(() => variants.find(v => v.id === selectedVariantId) ?? variants[0], [variants, selectedVariantId]);
   const unitPrice = selectedVariant?.pricePaisa ?? unitPricePaisa;
   const shippingPaisa = zone === "inside_dhaka" ? insideDhakaPaisa : outsideDhakaPaisa;
   const subtotalPaisa = unitPrice * qty;
   const totalPaisa = addPaisa([subtotalPaisa, shippingPaisa]);
 
-  const contactValid = name.trim().length >= 2 && normalizedPhone.ok;
+  const contactValid = name.trim().length >= 2 && normalizedPhone.ok && normalizedEmail.ok;
   const deliveryValid = address.trim().length >= 8;
   const canSubmit = contactValid && deliveryValid && !isPending;
 
@@ -124,6 +129,7 @@ export function BuyNowLandingForm({
             quantity: qty,
             name: name.trim(),
             phone: phoneE164,
+            email: normalizedEmail.ok ? normalizedEmail.email : "",
             address: address.trim(),
             shipping_zone: zone,
             payment_method: "cod",
@@ -291,6 +297,21 @@ export function BuyNowLandingForm({
           />
           <span className={`mt-1 block text-xs font-semibold ${normalizedPhone.ok ? "text-[var(--success)]" : phone ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
             {phoneHelperText(phone)}
+          </span>
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">ইমেইল *</span>
+          <input
+            className={`control ${email && !normalizedEmail.ok ? "border-[var(--danger)]" : ""}`}
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            inputMode="email"
+            autoComplete="email"
+            placeholder="you@example.com"
+          />
+          <span className={`mt-1 block text-xs font-semibold ${normalizedEmail.ok ? "text-[var(--success)]" : email ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+            {normalizedEmail.ok ? "রসিদ এই ঠিকানায় পাঠানো হবে।" : email ? normalizedEmail.reason : "রসিদ ও পেমেন্ট নিশ্চিতকরণের জন্য।"}
           </span>
         </label>
         <label className="block">

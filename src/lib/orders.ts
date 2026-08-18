@@ -23,6 +23,7 @@ export const VALID_PAYMENT_METHODS = ['cod', 'uddoktapay', 'partial_prepay', 'in
 type OrderInsertData = {
   phone: string;
   name: string;
+  email?: string | null;
   address: string;
   shipping_zone?: string;
   note?: string;
@@ -117,8 +118,8 @@ export async function insertReservedOrderWithRetry(
         id, order_number, phone, name, address, note, shipping_zone,
         subtotal_paisa, delivery_paisa, discount_paisa, vat_paisa, total_paisa,
         advance_paisa, balance_paisa,
-        payment_method, fraud_decision, status, created_at, updated_at
-      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?18)`
+        payment_method, fraud_decision, status, created_at, updated_at, email
+      ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?18, ?19)`
     ).bind(
       orderId, orderNumber, orderData.phone, orderData.name, orderData.address,
       orderData.note ?? null, orderData.shipping_zone ?? null,
@@ -126,7 +127,8 @@ export async function insertReservedOrderWithRetry(
       orderData.discount_paisa, orderData.vat_paisa ?? 0, orderData.total_paisa,
       orderData.advance_paisa ?? 0, orderData.balance_paisa ?? orderData.total_paisa,
       orderData.payment_method,
-      orderData.fraud_decision, orderData.status ?? 'pending_review', now
+      orderData.fraud_decision, orderData.status ?? 'pending_review', now,
+      orderData.email ?? null
     );
 
     const orderItemStmts = items.map(item => {

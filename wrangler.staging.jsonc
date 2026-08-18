@@ -69,6 +69,7 @@
   },
   "vars": {
     "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
-    "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)"
+    "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)",
+    "UDDOKTAPAY_BASE_URL": "https://zabir.paymently.io"
   }
 }

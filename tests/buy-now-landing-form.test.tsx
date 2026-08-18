@@ -98,6 +98,7 @@ describe('BuyNowLandingForm', () => {
     render(<BuyNowLandingForm {...baseProps} />);
     fireEvent.change(screen.getByPlaceholderText('আপনার নাম লিখুন'), { target: { value: 'Ayesha Rahman' } });
     fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'ayesha@example.com' } });
     fireEvent.change(screen.getByPlaceholderText(/বাসা নং/), { target: { value: '123 Main Street, Dhaka' } });
     fireEvent.click(screen.getByText(/অর্ডার কনফার্ম করুন/));
     await waitFor(() => {
@@ -113,6 +114,7 @@ describe('BuyNowLandingForm', () => {
     render(<BuyNowLandingForm {...baseProps} />);
     fireEvent.change(screen.getByPlaceholderText('আপনার নাম লিখুন'), { target: { value: 'Ayesha Rahman' } });
     fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'ayesha@example.com' } });
     fireEvent.change(screen.getByPlaceholderText(/বাসা নং/), { target: { value: '123 Main Street, Dhaka' } });
     fireEvent.click(screen.getByText(/অর্ডার কনফার্ম করুন/));
     await waitFor(() => {
@@ -125,6 +127,7 @@ describe('BuyNowLandingForm', () => {
     render(<BuyNowLandingForm {...baseProps} />);
     fireEvent.change(screen.getByPlaceholderText('আপনার নাম লিখুন'), { target: { value: 'Ayesha Rahman' } });
     fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'ayesha@example.com' } });
     fireEvent.change(screen.getByPlaceholderText(/বাসা নং/), { target: { value: '123 Main Street, Dhaka' } });
     fireEvent.click(screen.getByText(/অর্ডার কনফার্ম করুন/));
     await waitFor(() => {
@@ -140,6 +143,7 @@ describe('BuyNowLandingForm', () => {
     render(<BuyNowLandingForm {...baseProps} />);
     fireEvent.change(screen.getByPlaceholderText('আপনার নাম লিখুন'), { target: { value: 'Ayesha Rahman' } });
     fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
+    fireEvent.change(screen.getByPlaceholderText('you@example.com'), { target: { value: 'ayesha@example.com' } });
     fireEvent.change(screen.getByPlaceholderText(/বাসা নং/), { target: { value: '123 Main Street, Dhaka' } });
     fireEvent.click(screen.getByText(/অর্ডার কনফার্ম করুন/));
     await waitFor(() => {

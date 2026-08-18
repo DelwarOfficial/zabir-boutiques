@@ -185,6 +185,7 @@ describe('UddoktaPay adapter', () => {
   it('verifies payment through the adapterized path', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      text: () => Promise.resolve(JSON.stringify({ status: 'COMPLETED', amount: '200.00', invoice_id: 'inv-9', metadata: { order_id: 'ord-9' } })),
       json: () => Promise.resolve({ status: 'COMPLETED', amount: '200.00', invoice_id: 'inv-9', metadata: { order_id: 'ord-9' } }),
     } as Response);
 

@@ -146,7 +146,7 @@ async function makeEnv(state: { rrStatus: string; restockCalls: number[]; items_
       return { first: async () => ({ total: 0 }) };
     }
     if (sql.includes('FROM payments WHERE order_id')) {
-      return { first: async () => (state.hasPayment ? { id: 'p1', invoice_id: 'inv1', amount_paisa: 1000, status: 'paid' } : null) };
+      return { first: async () => (state.hasPayment ? { id: 'p1', invoice_id: 'inv1', amount_paisa: 1000, status: 'paid', transaction_id: 'TRX1', provider_payment_method: 'bkash' } : null) };
     }
     if (sql.includes('UPDATE return_requests SET status =')) {
       const changes = state.rrStatus === 'pending' ? 1 : 0;

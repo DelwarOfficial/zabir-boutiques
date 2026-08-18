@@ -4,6 +4,7 @@ import { useLocalCart } from "../hooks/useLocalCart";
 import { applyOutOfStockUpdate, readCartSessionId } from "../lib/cart-store";
 import { addPaisa, formatPaisa, type Paisa } from "../lib/money";
 import { normalizeBangladeshPhone, phoneHelperText } from "../lib/phone";
+import { normalizeEmail } from "../lib/email-address";
 
 type DeliveryZone = "inside_dhaka" | "outside_dhaka";
 type PaymentMethod = "cod" | "uddoktapay";
@@ -36,6 +37,7 @@ export function GuestCheckout({ turnstileSiteKey, insideDhakaPaisa, outsideDhaka
   const [isPending, startTransition] = useTransition();
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [address, setAddress] = useState("");
   const [zone, setZone] = useState<DeliveryZone>("inside_dhaka");
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("cod");
@@ -115,13 +117,17 @@ export function GuestCheckout({ turnstileSiteKey, insideDhakaPaisa, outsideDhaka
   }, [turnstileSiteKey]);
 
   const normalizedPhone = useMemo(() => normalizeBangladeshPhone(phone), [phone]);
+  // Required for every order: a COD order over the prepayment threshold is
+  // escalated to partial_prepay server-side, and the payment provider will
+  // not accept a charge without a real email.
+  const normalizedEmail = useMemo(() => normalizeEmail(email), [email]);
   const shippingPaisa = shippingCosts[zone];
   const totalPaisa = Math.max(0, addPaisa([cart.subtotalPaisa, shippingPaisa]) - couponDiscount);
   const totalQuantity = cart.items.reduce((sum, i) => sum + i.quantity, 0);
   const prepaymentRequired = totalQuantity > 2 && paymentMethod === "cod";
   const advancePaisa = prepaymentRequired ? ((totalPaisa + 1) >> 1) : 0;
 
-  const contactValid = name.trim().length >= 2 && normalizedPhone.ok;
+  const contactValid = name.trim().length >= 2 && normalizedPhone.ok && normalizedEmail.ok;
   const deliveryValid = address.trim().length >= 8;
   const canSubmit = cart.items.length > 0 && contactValid && deliveryValid && !isPending;
 
@@ -151,6 +157,7 @@ export function GuestCheckout({ turnstileSiteKey, insideDhakaPaisa, outsideDhaka
               customer: {
                 name: name.trim(),
                 phone: phoneE164,
+                email: normalizedEmail.ok ? normalizedEmail.email : "",
                 address: address.trim(),
               },
               couponCode: couponCode || undefined,
@@ -317,6 +324,21 @@ export function GuestCheckout({ turnstileSiteKey, insideDhakaPaisa, outsideDhaka
                 />
                 <span className={`mt-1 block text-xs font-semibold ${normalizedPhone.ok ? "text-[var(--success)]" : phone ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
                   {phoneHelperText(phone)}
+                </span>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs font-bold uppercase tracking-wider text-[var(--muted)]">Email Address</span>
+                <input
+                  className={`control ${email && !normalizedEmail.ok ? "border-[var(--danger)]" : ""}`}
+                  value={email}
+                  onChange={(event) => setEmail(event.target.value)}
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  placeholder="ayesha@example.com"
+                />
+                <span className={`mt-1 block text-xs font-semibold ${normalizedEmail.ok ? "text-[var(--success)]" : email ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>
+                  {normalizedEmail.ok ? "Receipt will be sent here." : email ? normalizedEmail.reason : "Used for your receipt and payment confirmation."}
                 </span>
               </label>
               <div className="flex justify-end">

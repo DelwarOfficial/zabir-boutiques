@@ -14,6 +14,9 @@ describe('verifyUddoktaPayment', () => {
   it('maps COMPLETED to paid and returns amount in paisa', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      // The client reads the body as text and parses it itself, so that it
+      // can handle a non-JSON provider response safely.
+      text: () => Promise.resolve(JSON.stringify({ status: 'COMPLETED', amount: '150.00', invoice_id: 'inv-1', metadata: { order_id: 'ord-1' } })),
       json: () => Promise.resolve({ status: 'COMPLETED', amount: '150.00', invoice_id: 'inv-1', metadata: { order_id: 'ord-1' } }),
     } as Response);
     const result = await verifyUddoktaPayment('inv-1', 'key', 'https://uddoktapay.dev');
@@ -26,6 +29,9 @@ describe('verifyUddoktaPayment', () => {
   it('maps PENDING to pending', async () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: true,
+      // The client reads the body as text and parses it itself, so that it
+      // can handle a non-JSON provider response safely.
+      text: () => Promise.resolve(JSON.stringify({ status: 'PENDING' })),
       json: () => Promise.resolve({ status: 'PENDING' }),
     } as Response);
     const result = await verifyUddoktaPayment('inv-2', 'key', 'https://uddoktapay.dev');
@@ -36,6 +42,9 @@ describe('verifyUddoktaPayment', () => {
     global.fetch = vi.fn().mockResolvedValue({
       ok: false,
       status: 500,
+      // The client reads the body as text and parses it itself, so that it
+      // can handle a non-JSON provider response safely.
+      text: () => Promise.resolve(JSON.stringify({ error: 'server error' })),
       json: () => Promise.resolve({ error: 'server error' }),
     } as Response);
     const result = await verifyUddoktaPayment('inv-3', 'key', 'https://uddoktapay.dev');

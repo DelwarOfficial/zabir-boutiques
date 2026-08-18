@@ -19,6 +19,7 @@ import { prepareAuditLogInsert, clientIp, userAgent } from '../../../../../lib/a
 import { canTransition, type OrderStatus } from '../../../../../lib/order-state-machine';
 import { releaseReservedVariants, reverseConfirm } from '../../../../../lib/inventory';
 import { verifyUddoktaPayment } from '../../../../../lib/payments';
+import { claimRefundAmount, releaseRefundAmount } from '../../../../../lib/payment-refunds';
 import { UddoktaPayClient } from '../../../../../lib/integrations/uddoktapay';
 import { safeLog } from '../../../../../lib/pii-scrubber';
 
@@ -96,9 +97,15 @@ export async function POST(context: APIContext): Promise<Response> {
   let refundPaid = 0;
   if (order.payment_status === 'paid' || order.payment_status === 'partially_paid') {
     const payment = await env.DB
-      .prepare(`SELECT id, invoice_id, status FROM payments WHERE order_id = ?1 AND status = 'paid' ORDER BY created_at DESC LIMIT 1`)
+      .prepare(
+        `SELECT id, invoice_id, status, transaction_id, provider_payment_method
+         FROM payments WHERE order_id = ?1 AND status = 'paid' ORDER BY created_at DESC LIMIT 1`,
+      )
       .bind(orderId)
-      .first<{ id: string; invoice_id: string; status: string }>();
+      .first<{
+        id: string; invoice_id: string; status: string;
+        transaction_id: string | null; provider_payment_method: string | null;
+      }>();
 
     if (payment && order.advance_paisa > 0) {
       const verified = await verifyUddoktaPayment(payment.invoice_id, env.UDDOKTAPAY_API_KEY, env.UDDOKTAPAY_BASE_URL, env);
@@ -115,19 +122,42 @@ export async function POST(context: APIContext): Promise<Response> {
         .run();
 
       if (refundClaim.meta.changes === 1) {
+        // N-28: same canonical over-refund cap as returns/approve.ts — a
+        // cancel must not refund more than D1 says was captured.
+        const amountClaim = await claimRefundAmount(env.DB, payment.id, order.advance_paisa, now);
+        if (!amountClaim.ok) {
+          await deleteCancelRefundClaim(env.DB, payment.id, payment.invoice_id, now);
+          return Response.json({ ok: false, code: amountClaim.code }, { status: 409 });
+        }
         try {
+          // N-28: the provider's refund API takes transaction_id and
+          // payment_method, never invoice_id. Both come only from the
+          // verification response above (or the copy persisted on the payment
+          // row at verification time), so a payment we cannot verify is also
+          // one we must not attempt to refund.
+          const transactionId = verified.transactionId ?? payment.transaction_id ?? null;
+          const providerMethod = verified.paymentMethod ?? payment.provider_payment_method ?? null;
+          if (!transactionId || !providerMethod) {
+            await releaseRefundAmount(env.DB, payment.id, order.advance_paisa, now);
+            await deleteCancelRefundClaim(env.DB, payment.id, payment.invoice_id, now);
+            return Response.json({ ok: false, code: 'REFUND_MISSING_TRANSACTION_REFERENCE' }, { status: 409 });
+          }
           const refund = await new UddoktaPayClient(env).refundPayment({
-            invoiceId: payment.invoice_id,
+            transactionId,
+            paymentMethod: providerMethod,
             amountPaisa: order.advance_paisa,
+            productName: `Order ${orderId}`,
             reason: 'order_cancelled',
           });
           if (!refund.ok) {
+            await releaseRefundAmount(env.DB, payment.id, order.advance_paisa, now);
             await deleteCancelRefundClaim(env.DB, payment.id, payment.invoice_id, now);
             return Response.json({ ok: false, code: 'REFUND_API_FAILED', status: refund.errorCode ?? 'REFUND_FAILED' }, { status: 502 });
           }
           await env.DB.prepare(`UPDATE payments SET status = 'refunded', updated_at = ?2 WHERE id = ?1 AND status = 'paid'`).bind(payment.id, now).run();
           refundPaid = order.advance_paisa;
         } catch (err) {
+          await releaseRefundAmount(env.DB, payment.id, order.advance_paisa, now);
           await deleteCancelRefundClaim(env.DB, payment.id, payment.invoice_id, now);
           return Response.json({ ok: false, code: 'REFUND_API_ERROR', error: err instanceof Error ? err.message : 'unknown' }, { status: 502 });
         }

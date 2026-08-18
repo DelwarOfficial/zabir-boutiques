@@ -18,20 +18,64 @@ export interface PaymentCheckoutResult {
   ok: boolean;
   provider: PaymentProviderName;
   paymentUrl?: string;
+  correlationId?: string;
   rawResponse: string;
   errorCode?: string;
 }
 
+/**
+ * N-28: outcomes where we know for certain no charge was created upstream, so
+ * failing over to SSLCommerz cannot double-charge.
+ *
+ * TIMEOUT and REQUEST_FAILED are deliberately absent: a create-charge that
+ * timed out may well have succeeded on the provider side, and sending that
+ * customer to a second provider would take payment twice for one order. Those
+ * cases surface as a failure and let the customer retry against a payment
+ * record we can reconcile, rather than silently switching provider.
+ */
+const UNAMBIGUOUS_PRIMARY_FAILURES = new Set([
+  'NOT_CONFIGURED',
+  'CIRCUIT_OPEN',
+  'BAD_RESPONSE',
+  'UNTRUSTED_PAYMENT_URL',
+]);
+
+function canSafelyFailOver(errorCode: string | undefined): boolean {
+  if (!errorCode) return false;
+  if (UNAMBIGUOUS_PRIMARY_FAILURES.has(errorCode)) return true;
+  // A 4xx means the provider received and rejected the request outright.
+  // A 5xx is ambiguous — it may have been created before the error.
+  const http = /^HTTP_(\d{3})$/.exec(errorCode);
+  return http ? Number(http[1]) >= 400 && Number(http[1]) < 500 : false;
+}
+
 export async function createPaymentCheckout(
   env: PaymentCheckoutEnv,
-  input: UddoktaCheckoutInput,
+  input: UddoktaCheckoutInput & { invoiceId?: string; customerPhone?: string },
 ): Promise<PaymentCheckoutResult> {
   const primary = await new UddoktaPayClient(env).createCheckout(input);
   if (primary.ok && primary.paymentUrl) {
-    return { ok: true, provider: 'uddoktapay', paymentUrl: primary.paymentUrl, rawResponse: primary.rawResponse };
+    return {
+      ok: true, provider: 'uddoktapay', paymentUrl: primary.paymentUrl,
+      correlationId: primary.correlationId, rawResponse: primary.rawResponse,
+    };
   }
 
-  const fallback = await new SSLCommerzClient(env).createCheckout(input);
+  if (!canSafelyFailOver(primary.errorCode)) {
+    return {
+      ok: false,
+      provider: 'uddoktapay',
+      rawResponse: primary.rawResponse,
+      errorCode: primary.errorCode ?? 'PAYMENT_PROVIDER_UNAVAILABLE',
+    };
+  }
+
+  const fallback = await new SSLCommerzClient(env).createCheckout({
+    ...input,
+    // SSLCommerz still uses a merchant-generated invoice id.
+    invoiceId: input.invoiceId ?? input.paymentId,
+    customerPhone: input.customerPhone ?? '',
+  });
   if (fallback.ok && fallback.paymentUrl) {
     return { ok: true, provider: 'sslcommerz', paymentUrl: fallback.paymentUrl, rawResponse: fallback.rawResponse };
   }

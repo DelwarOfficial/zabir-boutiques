@@ -10,10 +10,10 @@ describe('K-05: webhook fallback path awaits processing instead of fire-and-forg
   });
 
   it('awaits processPaymentWebhookMessage directly when neither queue nor waitUntil is available', () => {
-    expect(src).toContain('await processPaymentWebhookMessage(env, invoiceId);');
+    expect(src).toContain('await processPaymentWebhookMessage(env, providerInvoiceId);');
   });
 
   it('still uses waitUntil (non-blocking) when available', () => {
-    expect(src).toContain('cfContext.waitUntil(processPaymentWebhookMessage(env, invoiceId));');
+    expect(src).toContain('cfContext.waitUntil(processPaymentWebhookMessage(env, providerInvoiceId));');
   });
 });

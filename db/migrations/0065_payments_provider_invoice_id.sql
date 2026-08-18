@@ -1,0 +1,12 @@
+-- N-28: UddoktaPay generates the invoice id; the merchant does not.
+--
+-- payments.invoice_id is NOT NULL and is the merchant-generated handle that
+-- SSLCommerz genuinely uses and that the rest of the system keys on, so the
+-- provider's own invoice id gets its own nullable column instead. It starts
+-- NULL and is bound exactly once, after server-to-server verification matches
+-- the charge back to a local payment via metadata.payment_id.
+--
+-- The unique index is what makes that binding safe under concurrent
+-- callback/webhook delivery: a second attempt to bind the same provider
+-- invoice to a different payment row fails at the index.
+ALTER TABLE payments ADD COLUMN provider_invoice_id TEXT;

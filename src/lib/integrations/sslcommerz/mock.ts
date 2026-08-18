@@ -16,6 +16,8 @@ export class SSLCommerzMockClient {
       amountPaisa: 10000,
       verifiedInvoiceId: invoiceId,
       metadata: { order_id: 'mock-order' },
+      transactionId: null,
+      paymentMethod: null,
       rawResponse: JSON.stringify({ status: 'VALID', tran_id: invoiceId, amount: '100.00' }),
     };
   }

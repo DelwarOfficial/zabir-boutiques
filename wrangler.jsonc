@@ -171,7 +171,13 @@
     // to Cloudflare Email Sending (the binding-based service that replaced
     // MailChannels), at which point the client should target that binding
     // rather than the dead relay.
-    "EMAIL_PROVIDER": "resend"
+    "EMAIL_PROVIDER": "resend",
+    // N-28: the merchant's own UddoktaPay installation. Normalized in the
+    // client, so a trailing slash or an accidental trailing /api cannot
+    // produce a /api/api path. The API key is a Worker SECRET
+    // (`npx wrangler secret put UDDOKTAPAY_API_KEY`) and must never appear
+    // here or in any PUBLIC_ variable.
+    "UDDOKTAPAY_BASE_URL": "https://zabir.paymently.io"
   },
 
   // ── Environment overrides ──────────────────────────────────────────
@@ -235,7 +241,8 @@
       "vars": {
         "PUBLIC_SITE_URL": "https://staging.zabirboutiques.com",
         "PUBLIC_SITE_NAME": "Zabir Boutiques (staging)",
-        "TURNSTILE_SITE_KEY": "0x4AAAAAAAStagingTestKey"
+        "TURNSTILE_SITE_KEY": "0x4AAAAAAAStagingTestKey",
+        "UDDOKTAPAY_BASE_URL": "https://zabir.paymently.io"
       }
     },
     "dev": {

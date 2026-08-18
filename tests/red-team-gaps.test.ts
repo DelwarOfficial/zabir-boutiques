@@ -18,13 +18,16 @@ describe('P1 SSLCommerz adapter', () => {
     }
   });
 
-  it('falls back to SSLCommerz when UddoktaPay checkout fails', async () => {
+  it('falls back to SSLCommerz when UddoktaPay rejects the charge outright', async () => {
+    // A 4xx means the provider received and refused the request, so no charge
+    // exists upstream and failing over cannot double-charge (N-28).
     global.fetch = vi.fn()
-      .mockResolvedValueOnce({ ok: false, status: 503, json: async () => ({}) } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400, text: async () => '{}', json: async () => ({}) } as unknown as Response)
       .mockResolvedValueOnce({
         ok: true,
+        text: async () => JSON.stringify({ status: 'SUCCESS', GatewayPageURL: 'https://sslcommerz.test/pay/1' }),
         json: async () => ({ status: 'SUCCESS', GatewayPageURL: 'https://sslcommerz.test/pay/1' }),
-      } as Response);
+      } as unknown as Response);
 
     const result = await createPaymentCheckout(
       {
@@ -35,9 +38,11 @@ describe('P1 SSLCommerz adapter', () => {
         SSLCOMMERZ_BASE_URL: 'https://sslcommerz.test',
       },
       {
+        paymentId: 'pay-1',
         invoiceId: 'inv-1',
         amountPaisa: 25000,
         customerName: 'Ada',
+        customerEmail: 'ada@example.com',
         customerPhone: '01700000000',
         orderId: 'ord-1',
         type: 'full',
@@ -49,6 +54,44 @@ describe('P1 SSLCommerz adapter', () => {
     expect(result.ok).toBe(true);
     expect(result.provider).toBe('sslcommerz');
     expect(result.paymentUrl).toContain('sslcommerz.test');
+  });
+
+  it('does NOT fall back to SSLCommerz after an ambiguous UddoktaPay failure', async () => {
+    // A 5xx (like a timeout) may have created the charge before failing.
+    // Sending the customer to a second provider would take payment twice for
+    // one order, so this surfaces as a failure the customer can retry against
+    // a payment record we can reconcile.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false, status: 503, text: async () => '{}', json: async () => ({}),
+    } as unknown as Response);
+    global.fetch = fetchMock;
+
+    const result = await createPaymentCheckout(
+      {
+        UDDOKTAPAY_API_KEY: 'u-key',
+        UDDOKTAPAY_BASE_URL: 'https://uddoktapay.test',
+        SSLCOMMERZ_STORE_ID: 'store',
+        SSLCOMMERZ_STORE_PASSWORD: 'pass',
+        SSLCOMMERZ_BASE_URL: 'https://sslcommerz.test',
+      },
+      {
+        paymentId: 'pay-2',
+        invoiceId: 'inv-2',
+        amountPaisa: 25000,
+        customerName: 'Ada',
+        customerEmail: 'ada@example.com',
+        customerPhone: '01700000000',
+        orderId: 'ord-2',
+        type: 'full',
+        redirectUrl: 'https://example.com/ok',
+        cancelUrl: 'https://example.com/cancel',
+      },
+    );
+
+    expect(result.ok).toBe(false);
+    expect(result.provider).toBe('uddoktapay');
+    // Exactly one upstream call: SSLCommerz was never contacted.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
 

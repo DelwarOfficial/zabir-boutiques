@@ -34,6 +34,9 @@ vi.mock('../src/lib/cart-store', () => ({
 function fillContact() {
   fireEvent.change(screen.getByPlaceholderText('Ayesha Rahman'), { target: { value: 'Ayesha Rahman' } });
   fireEvent.change(screen.getByPlaceholderText('017XXXXXXXX'), { target: { value: '01712345678' } });
+  // N-28: email is now required — the payment provider will not accept a
+  // charge without one, and a COD order can be escalated to partial_prepay.
+  fireEvent.change(screen.getByPlaceholderText('ayesha@example.com'), { target: { value: 'ayesha@example.com' } });
 }
 
 function goToDelivery() {

@@ -7,6 +7,7 @@ import { prepareAuditLogInsert, clientIp, userAgent } from "../../../../../lib/a
 import { canTransition } from "../../../../../lib/order-state-machine";
 import { doAdjustStock } from "../../../../../lib/do-client";
 import { verifyUddoktaPayment } from "../../../../../lib/payments";
+import { claimRefundAmount, releaseRefundAmount } from "../../../../../lib/payment-refunds";
 import { UddoktaPayClient } from "../../../../../lib/integrations/uddoktapay";
 import { safeLog } from "../../../../../lib/pii-scrubber";
 
@@ -104,9 +105,18 @@ export async function POST(context: APIContext): Promise<Response> {
   const alreadyRefunded = priorRefundSum?.total ?? 0;
 
   const payment = await env.DB
-    .prepare("SELECT id, invoice_id, amount_paisa, status FROM payments WHERE order_id = ?1 ORDER BY created_at DESC LIMIT 1")
+    .prepare(
+      "SELECT id, invoice_id, amount_paisa, status, transaction_id, provider_payment_method FROM payments WHERE order_id = ?1 ORDER BY created_at DESC LIMIT 1",
+    )
     .bind(rr.order_id)
-    .first<{ id: string; invoice_id: string; amount_paisa: number; status: string }>();
+    .first<{
+      id: string;
+      invoice_id: string;
+      amount_paisa: number;
+      status: string;
+      transaction_id: string | null;
+      provider_payment_method: string | null;
+    }>();
   const paymentAmount = payment?.amount_paisa ?? 0;
 
   const evaluation = evaluateReturnRequest({
@@ -177,13 +187,42 @@ export async function POST(context: APIContext): Promise<Response> {
       .run();
 
     if (refundClaim.meta.changes === 1) {
+      // N-28: canonical over-refund cap. The ceiling is payments.amount_paisa
+      // minus what D1 already records as refunded, claimed atomically so two
+      // concurrent approvals cannot both pass it.
+      const amountClaim = await claimRefundAmount(env.DB, payment.id, refundAmount, now);
+      if (!amountClaim.ok) {
+        await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
+        await env.DB
+          .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+          .bind(id)
+          .run();
+        return Response.json({ ok: false, code: amountClaim.code }, { status: 409 });
+      }
       try {
+        // N-28: the provider refunds against transaction_id + payment_method,
+        // never the invoice id. Both come from the verification response above
+        // or the copy persisted on the payment row at verification time.
+        const transactionId = verified.transactionId ?? payment.transaction_id ?? null;
+        const providerMethod = verified.paymentMethod ?? payment.provider_payment_method ?? null;
+        if (!transactionId || !providerMethod) {
+          await releaseRefundAmount(env.DB, payment.id, refundAmount, now);
+          await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
+          await env.DB
+            .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
+            .bind(id)
+            .run();
+          return Response.json({ ok: false, code: "REFUND_MISSING_TRANSACTION_REFERENCE" }, { status: 409 });
+        }
         const refund = await new UddoktaPayClient(env).refundPayment({
-          invoiceId: payment.invoice_id,
+          transactionId,
+          paymentMethod: providerMethod,
           amountPaisa: refundAmount,
+          productName: `Return ${id}`,
           reason: "return_approved",
         });
         if (!refund.ok) {
+          await releaseRefundAmount(env.DB, payment.id, refundAmount, now);
           await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
           await env.DB
             .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")
@@ -197,6 +236,7 @@ export async function POST(context: APIContext): Promise<Response> {
           .run();
         refundPaid = refundAmount;
       } catch (err) {
+        await releaseRefundAmount(env.DB, payment.id, refundAmount, now);
         await deleteRefundClaim(env.DB, payment.id, payment.invoice_id, now);
         await env.DB
           .prepare("UPDATE return_requests SET status = 'pending', refund_amount_paisa = 0 WHERE id = ?1 AND status = 'approved'")

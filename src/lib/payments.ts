@@ -23,6 +23,14 @@ export interface VerifiedPayment {
   verifiedInvoiceId: string | null;
   /** metadata object echoed by the gateway (e.g. { order_id }), or null. */
   metadata: Record<string, unknown> | null;
+  /**
+   * N-28: required by the provider's refund API, and returned only by
+   * verify-payment — if it is not captured here it cannot be recovered later,
+   * making the payment permanently unrefundable.
+   */
+  transactionId: string | null;
+  /** Provider-side method (bkash, nagad, ...). Also required for refunds. */
+  paymentMethod: string | null;
   rawResponse: string;
 }
 
